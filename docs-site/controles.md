@@ -42,7 +42,7 @@ sector is then selected, even if one had been hovered just before).
 
 | Sector | D2 action |
 |---|---|
-| Skills (top) | S — skill tree |
+| Skills (top) | T — skill tree |
 | Quests | Q — quest log |
 | Map | Tab — automap |
 | Inventory | I — inventory |

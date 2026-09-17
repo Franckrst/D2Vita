@@ -29,9 +29,11 @@ N = 7
 # Arbitrary choice (no D2 convention): skills at the top, then clockwise.
 ORDER = ["competences", "quetes", "carte", "equipement", "chat", "guilde", "perso"]
 VK = {  # injected VK key
-    "competences": 0x53, "quetes": 0x51, "carte": 0x09, "equipement": 0x49,
+    "competences": 0x54, "quetes": 0x51, "carte": 0x09, "equipement": 0x49,
     "chat": 0x0D, "guilde": 0x50, "perso": 0x43,
 }
+# competences = T by default in D2 1.14d, not S (verified on console — S opens
+# something else / does nothing useful; the in-game key config confirms T).
 # The virtual keyboard is not in the radial menu (it's bound directly to
 # Triangle instead) — "perso" (character sheet, C key) takes its place.
 

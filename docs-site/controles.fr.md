@@ -41,7 +41,7 @@ alors sélectionné, même si un secteur avait été survolé juste avant).
 
 | Secteur | Action D2 |
 |---|---|
-| Compétences (haut) | S — arbre de compétences |
+| Compétences (haut) | T — arbre de compétences |
 | Quêtes | Q — journal de quêtes |
 | Carte | Tab — automap |
 | Équipement | I — inventaire |

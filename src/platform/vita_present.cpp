@@ -1491,7 +1491,7 @@ bool parse_act(const char* v, Act* out){
         {"lclick",{A_LMB,0}},{"rclick",{A_RMB,0}},{"none",{A_NONE,0}},
         {"alt",{A_KEY,0x12}},{"shift",{A_KEY,0x10}},{"tab",{A_KEY,0x09}},{"automap",{A_KEY,0x09}},
         {"esc",{A_KEY,0x1B}},{"echap",{A_KEY,0x1B}},{"inv",{A_KEY,0x49}},{"perso",{A_KEY,0x43}},
-        {"skills",{A_KEY,0x53}},{"quests",{A_KEY,0x51}},{"swap",{A_KEY,0x57}},{"space",{A_KEY,0x20}},
+        {"skills",{A_KEY,0x54}},{"quests",{A_KEY,0x51}},{"swap",{A_KEY,0x57}},{"space",{A_KEY,0x20}},
         {"run",{A_KEY,0x52}},{"enter",{A_KEY,0x0D}},
         {"pot1",{A_KEY,0x31}},{"pot2",{A_KEY,0x32}},{"pot3",{A_KEY,0x33}},{"pot4",{A_KEY,0x34}},
         {"f1",{A_KEY,0x70}},{"f2",{A_KEY,0x71}},{"f3",{A_KEY,0x72}},{"f4",{A_KEY,0x73}},
