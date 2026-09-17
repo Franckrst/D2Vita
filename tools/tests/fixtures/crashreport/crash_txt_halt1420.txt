@@ -1,0 +1,60 @@
+<Application>Diablo II
+<Inspector.ProjectId>264
+<Inspector.Module>Diablo II
+<Inspector.Milestone>D2 1.14d
+<Inspector.BuildNumber>77
+<Inspector.Platform>Windows
+<Inspector.IssueType>Exception
+<Inspector.Priority>1 - Critical
+<Inspector.PrimaryAssignment>.ClassicErrorReporter
+<Inspector.Assignments>.ClassicErrorReporter
+<Process.UserIsAdmin> FALSE
+<Process.Elevated> UNKNOWN
+<Process.Path> C:\Diablo II\Game.exe
+<Process.Name> Game.exe
+<Process.ParentProcessPath> UNKNOWN
+<Process.ParentProcessName> UNKNOWN
+<Process.GrandParentProcessPath> UNKNOWN
+<Process.GrandParentProcessName> UNKNOWN
+<Locale.Game> English
+<Locale.System> English
+<Game.Type> Client
+<Game.Build> 79b7ae8fe1e97d05d57ebdc4b65bf012d38c797e
+<Inspector.Summary:>
+[Halt] (Unrecoverable internal error 10bff390) failed at (1420)
+<:Inspector.Summary>
+<Inspector.LineNumber>1420
+<Inspector.Assertion:>
+Thread 0x00000001 "Main Thread" [Stack Base: 0x10C00000 Used Space: 31248/2097152 bytes]
+DBG-ADDR<01908A81>("Game.exe")
+DBG-ADDR<01AFECC5>("Game.exe")
+DBG-ADDR<01B003A7>("Game.exe")
+DBG-ADDR<019DBDA8>("Game.exe")
+DBG-ADDR<01971958>("Game.exe")
+DBG-ADDR<019DF5F4>("Game.exe")
+DBG-ADDR<01976CF8>("Game.exe")
+DBG-ADDR<0194CAFD>("Game.exe")
+DBG-ADDR<0194F291>("Game.exe")
+DBG-ADDR<01951C23>("Game.exe")
+DBG-ADDR<0194F570>("Game.exe")
+DBG-ADDR<0194B959>("Game.exe")
+DBG-ADDR<0194B43C>("Game.exe")
+DBG-ADDR<01905E6B>("Game.exe")
+DBG-ADDR<019065C7>("Game.exe")
+DBG-ADDR<0190671F>("Game.exe")
+DBG-ADDR<01B8291C>("Game.exe")
+<:Inspector.Assertion>
+Registers:
+   EAX:0x00000001   EBX:0x10bf8a3c   ECX:0x00000001   EDX:0x01907980
+   ESI:0x00000001   EDI:0x10bf83f0
+
+   EBP:0x10bfd6b8   ESP:0x10bf8e34   EIP:0x019087a8   FLG:0x00000246
+    CS:0x00000023    SS:0x0000002b
+
+    DS:0x0000002b    ES:0x0000002b    FS:0x00000053    GS:0x0000002b
+
+Threads:
+Thread 0x00000004 [Stack Base: 0x10A00000 Used Space: 312/1048576 bytes]
+DBG-ADDR<0191A845>("Game.exe")
+DBG-ADDR<01B81AB5>("Game.exe")
+

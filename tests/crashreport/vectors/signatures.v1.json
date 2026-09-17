@@ -1,0 +1,1254 @@
+{
+  "description": "Signature vectors for contract/signature-rules.v1.md. Every claim is valid against schemas/claim.v1.schema.json; implementations must reproduce canon and signature exactly.",
+  "rules_version": 1,
+  "cases": [
+    {
+      "name": "spec_example_halt",
+      "claim": {
+        "v": 1,
+        "report_id": "01J9Z6T4Q8M3K7V2B5N0XWAYCD",
+        "install_id": "4f3c9a0e8b7d6c5a4f3e2d1c0b9a8f7e",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789284000,
+          "uptime_s": 967,
+          "online": false
+        },
+        "kind": "halt",
+        "features": {
+          "code": 1420,
+          "location": null,
+          "frames": [
+            "Game+0x1fedf4",
+            "Game+0x451c23",
+            "Game+0x44f570"
+          ]
+        },
+        "hints": [
+          "guest_fault"
+        ],
+        "artifacts": [
+          {
+            "name": "crash_txt",
+            "bytes": 2210
+          },
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 262144
+          }
+        ]
+      },
+      "canon": "halt|1420|-|Game+0x1fedf4,Game+0x451c23,Game+0x44f570",
+      "signature": "SZYGIRBIXGHOM3AH"
+    },
+    {
+      "name": "halt_location_five_frames",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT6881VCKZF9G5QAJN67CC",
+        "install_id": "1b7adc01e4f0796eec5d747595630dae",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789287600,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "halt",
+        "features": {
+          "code": 904,
+          "location": "Codec.cpp:1377",
+          "frames": [
+            "Game+0x1f1a2c",
+            "Game+0x1f0f30",
+            "Game+0x2a1b40",
+            "Game+0x451c23",
+            "Game+0x44f570"
+          ]
+        },
+        "hints": [
+          "guest_fault",
+          "hang"
+        ],
+        "artifacts": [
+          {
+            "name": "crash_txt",
+            "bytes": 2210
+          },
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "halt|904|Codec.cpp:1377|Game+0x1f1a2c,Game+0x1f0f30,Game+0x2a1b40",
+      "signature": "SK7M2YAYFWZWSN3W"
+    },
+    {
+      "name": "halt_one_frame",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT6882PMP6W4KNFTTSJCX9",
+        "install_id": "a701c552ceaa7a82148f63dcdb8e3773",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789291200,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "halt",
+        "features": {
+          "code": 316,
+          "location": null,
+          "frames": [
+            "Game+0x65420"
+          ]
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "crash_txt",
+            "bytes": 2210
+          },
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "halt|316|-|Game+0x65420",
+      "signature": "SONO3I775DDE24TG"
+    },
+    {
+      "name": "halt_no_frames",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT6883J0PAZM7REYSFACNP",
+        "install_id": "fce2649684027923d2c9a6a43038a1c5",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789294800,
+          "uptime_s": 900,
+          "online": true
+        },
+        "kind": "halt",
+        "features": {
+          "code": 1632,
+          "location": "Codec.cpp:1234",
+          "frames": []
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "crash_txt",
+            "bytes": 2210
+          },
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "halt|1632|Codec.cpp:1234|-",
+      "signature": "SP6D266JAZ2XMEPY"
+    },
+    {
+      "name": "halt_code_written_as_float",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT6884R35C8WRFZ7JCHC3V",
+        "install_id": "0bf9454af379350dcb62f85fffdf5195",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789298400,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "halt",
+        "features": {
+          "code": 1420.0,
+          "location": null,
+          "frames": [
+            "Game+0x1fedf4"
+          ]
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "crash_txt",
+            "bytes": 2210
+          },
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "halt|1420|-|Game+0x1fedf4",
+      "signature": "SKQTIYDCAT3NTUZ7"
+    },
+    {
+      "name": "halt_sixteen_frames",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT6885QV43JXRE9JVCWP3S",
+        "install_id": "32f0abc0185f0bf4af9155534e5e462e",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789302000,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "halt",
+        "features": {
+          "code": 452,
+          "location": null,
+          "frames": [
+            "Game+0x1fe000",
+            "Game+0x1fe040",
+            "Game+0x1fe080",
+            "Game+0x1fe0c0",
+            "Game+0x1fe100",
+            "Game+0x1fe140",
+            "Game+0x1fe180",
+            "Game+0x1fe1c0",
+            "Game+0x1fe200",
+            "Game+0x1fe240",
+            "Game+0x1fe280",
+            "Game+0x1fe2c0",
+            "Game+0x1fe300",
+            "Game+0x1fe340",
+            "Game+0x1fe380",
+            "Game+0x1fe3c0"
+          ]
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "crash_txt",
+            "bytes": 2210
+          },
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "halt|452|-|Game+0x1fe000,Game+0x1fe040,Game+0x1fe080",
+      "signature": "SSVFO7C7JZXLEF4K"
+    },
+    {
+      "name": "guest_fault_worker_four_frames",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT6886T6TG3D9J9Q3CME6B",
+        "install_id": "44d6c592f7960a8fcf0ebd71e01b38da",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789305600,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "guest_fault",
+        "features": {
+          "exception": "0xc0000005",
+          "thread": "worker",
+          "eip": "Game+0x2b1c40",
+          "frames": [
+            "Game+0x2b1c40",
+            "Game+0x2b0e18",
+            "Game+0x1d2f00",
+            "Game+0x10a0c4"
+          ]
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "gfault|0xc0000005|Game+0x2b1c40|Game+0x2b1c40,Game+0x2b0e18",
+      "signature": "SOSLSBPS2CARPJ62"
+    },
+    {
+      "name": "guest_fault_main_one_frame",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT6887A3RG993DF7GBE52B",
+        "install_id": "f042564b0714aacb10347fb11f9cb906",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789309200,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "guest_fault",
+        "features": {
+          "exception": "0xc0000094",
+          "thread": "main",
+          "eip": "Game+0x12f3a8",
+          "frames": [
+            "Game+0x12f3a8"
+          ]
+        },
+        "hints": [
+          "hang"
+        ],
+        "artifacts": [
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "gfault|0xc0000094|Game+0x12f3a8|Game+0x12f3a8",
+      "signature": "S2CJGEIOA6MN3P4K"
+    },
+    {
+      "name": "guest_fault_unknown_exception_no_frames",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT6888M61B3K65R8S09K3G",
+        "install_id": "a4ce67b53fcaccdda11ee1c3bfcc586f",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789312800,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "guest_fault",
+        "features": {
+          "exception": null,
+          "thread": "worker",
+          "eip": "Game+0x0",
+          "frames": []
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "gfault|-|Game+0x0|-",
+      "signature": "SKH6ULCI6UUTZ5DM"
+    },
+    {
+      "name": "host_fault_jit",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT6889EW5ZPNND3E86ZC9N",
+        "install_id": "7f4fe75c7f57e7e2de34a0075868906c",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789316400,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "host_fault",
+        "features": {
+          "stop_reason": "0x30004",
+          "thread_name": "d2vita_main",
+          "pc": {
+            "region": "jit",
+            "module": "jit",
+            "offset": "0x2c4184"
+          },
+          "lr": {
+            "region": "unknown",
+            "module": "unknown",
+            "offset": "0x1"
+          },
+          "guest_frames": [
+            "Game+0x1fedf4",
+            "Game+0x451c23",
+            "Game+0x44f570",
+            "Game+0x10a0c4",
+            "Game+0x1000"
+          ],
+          "redaction": "clean"
+        },
+        "hints": [
+          "halt",
+          "guest_fault"
+        ],
+        "artifacts": [
+          {
+            "name": "dump",
+            "bytes": 1466440
+          },
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "hfault_jit|0x30004|Game+0x1fedf4,Game+0x451c23,Game+0x44f570",
+      "signature": "S4VKUIJKA3IPM4L5"
+    },
+    {
+      "name": "host_fault_jit_no_guest_frames",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT688AXRAKW60Y7S3YYP5R",
+        "install_id": "7fcf2c92c31e5a9f90ad4bc8c2c8b6e0",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789320000,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "host_fault",
+        "features": {
+          "stop_reason": null,
+          "thread_name": null,
+          "pc": {
+            "region": "jit",
+            "module": "jit",
+            "offset": "0x1c"
+          },
+          "lr": {
+            "region": "jit",
+            "module": "jit",
+            "offset": "0x8"
+          },
+          "guest_frames": [],
+          "redaction": "clean"
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "dump",
+            "bytes": 1466440
+          },
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "hfault_jit|-|-",
+      "signature": "SRBHKRAMD5R4TDOU"
+    },
+    {
+      "name": "host_fault_eboot",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT688BJMHN9YV8GZBYT9BB",
+        "install_id": "d8783143055dbcff2c55f105b39bbc18",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789323600,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "host_fault",
+        "features": {
+          "stop_reason": "0x30004",
+          "thread_name": "d2cr_upload",
+          "pc": {
+            "region": "eboot",
+            "module": "eboot",
+            "offset": "0x2c4184"
+          },
+          "lr": {
+            "region": "eboot",
+            "module": "eboot",
+            "offset": "0x2c3f10"
+          },
+          "guest_frames": [
+            "Game+0x1fedf4",
+            "Game+0x451c23"
+          ],
+          "redaction": "clean"
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "dump",
+            "bytes": 1466440
+          },
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "hfault|0.1.0+ab12cd34ef56|0x2c4184|0x2c3f10",
+      "signature": "SIS6F3YSNYX4HU67"
+    },
+    {
+      "name": "host_fault_eboot_other_build",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT688CTPSHKEXK8JZ8DH10",
+        "install_id": "2f42eb4cadfc40d558f08eefedacdaa9",
+        "build_id": "0.1.1+0123456789ab-dirty",
+        "channel": "dev",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789327200,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "host_fault",
+        "features": {
+          "stop_reason": "0x30004",
+          "thread_name": "d2cr_upload",
+          "pc": {
+            "region": "eboot",
+            "module": "eboot",
+            "offset": "0x2c4184"
+          },
+          "lr": {
+            "region": "eboot",
+            "module": "eboot",
+            "offset": "0x2c3f10"
+          },
+          "guest_frames": [
+            "Game+0x1fedf4",
+            "Game+0x451c23"
+          ],
+          "redaction": "clean"
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "dump",
+            "bytes": 1466440
+          },
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "hfault|0.1.1+0123456789ab-dirty|0x2c4184|0x2c3f10",
+      "signature": "SCSAWVRGGLEDHCWH"
+    },
+    {
+      "name": "host_fault_sysmodule",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT688DVZY10CMB9G0N4BVM",
+        "install_id": "f9626bce413269870e8b2238b1cacf31",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789330800,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "host_fault",
+        "features": {
+          "stop_reason": "0x30002",
+          "thread_name": "SceGxmDisplayQueue",
+          "pc": {
+            "region": "sysmodule",
+            "module": "SceLibKernel",
+            "offset": "0x1f2c"
+          },
+          "lr": {
+            "region": "eboot",
+            "module": "eboot",
+            "offset": "0x10a0c4"
+          },
+          "guest_frames": [
+            "Game+0x2b1c40"
+          ],
+          "redaction": "clean"
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "dump",
+            "bytes": 1466440
+          },
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "hfault_sys|SceLibKernel|0x1f2c",
+      "signature": "SEHI6TEMRJJEWYFK"
+    },
+    {
+      "name": "host_fault_sysmodule_other_build",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT688EK4ASJXQ2G3RMZJ97",
+        "install_id": "34f872568b7df22125f492d16accec35",
+        "build_id": "0.1.1+0123456789ab-dirty",
+        "channel": "dev",
+        "platform": {
+          "model": "pstv",
+          "fw": "3.74"
+        },
+        "session": {
+          "started_unix": 1789334400,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "host_fault",
+        "features": {
+          "stop_reason": "0x30002",
+          "thread_name": "SceGxmDisplayQueue",
+          "pc": {
+            "region": "sysmodule",
+            "module": "SceLibKernel",
+            "offset": "0x1f2c"
+          },
+          "lr": {
+            "region": "eboot",
+            "module": "eboot",
+            "offset": "0x10b000"
+          },
+          "guest_frames": [],
+          "redaction": "clean"
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "dump",
+            "bytes": 1466440
+          },
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "hfault_sys|SceLibKernel|0x1f2c",
+      "signature": "SEHI6TEMRJJEWYFK"
+    },
+    {
+      "name": "host_fault_unknown_region",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT688F7ENX782XZV0B4A85",
+        "install_id": "b281c307db81baee9af39ab0254d71b6",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789338000,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "host_fault",
+        "features": {
+          "stop_reason": "0x30003",
+          "thread_name": "d2vita_main",
+          "pc": {
+            "region": "unknown",
+            "module": "unknown",
+            "offset": "0x0"
+          },
+          "lr": {
+            "region": "eboot",
+            "module": "eboot",
+            "offset": "0x10a0c4"
+          },
+          "guest_frames": [
+            "Game+0x1fedf4"
+          ],
+          "redaction": "clean"
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "dump",
+            "bytes": 1466440
+          },
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "hfault_unknown|0.1.0+ab12cd34ef56|0x0|0x10a0c4",
+      "signature": "SLSFM5DJESVDB3VO"
+    },
+    {
+      "name": "host_fault_withheld_dump_all_hints",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT688GGZS34M05JT0CMMZT",
+        "install_id": "6a84600859c7f1a22578bbb13657c218",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789341600,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "host_fault",
+        "features": {
+          "stop_reason": "0x30004",
+          "thread_name": "d2vita_main",
+          "pc": {
+            "region": "jit",
+            "module": "jit",
+            "offset": "0x3a0"
+          },
+          "lr": {
+            "region": "jit",
+            "module": "jit",
+            "offset": "0x39c"
+          },
+          "guest_frames": [
+            "Game+0x2b1c40",
+            "Game+0x2b0e18"
+          ],
+          "redaction": "withheld"
+        },
+        "hints": [
+          "halt",
+          "abnormal_exit",
+          "guest_fault",
+          "hang"
+        ],
+        "artifacts": [
+          {
+            "name": "crash_txt",
+            "bytes": 2210
+          },
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "hfault_jit|0x30004|Game+0x2b1c40,Game+0x2b0e18",
+      "signature": "SAGHWTLVHZQPGHTP"
+    },
+    {
+      "name": "abnormal_exit_import_wins_over_code",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT688HC6SQHZJF2JDJ52PA",
+        "install_id": "36a90b1dbfcf88547feb8b3b8d4cdd47",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789345200,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "abnormal_exit",
+        "features": {
+          "reason": "unshimmed_import",
+          "code": 0,
+          "import": "KERNEL32.dll!SetFileTime",
+          "frames": [
+            "Game+0x10a0c4",
+            "Game+0x1000"
+          ]
+        },
+        "hints": [
+          "guest_fault"
+        ],
+        "artifacts": [
+          {
+            "name": "crash_txt",
+            "bytes": 1918
+          },
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "exit|unshimmed_import|KERNEL32.dll!SetFileTime|Game+0x10a0c4",
+      "signature": "ST76TNVW7N7LZOW4"
+    },
+    {
+      "name": "abnormal_exit_exit_code",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT688JSMTEVXPVWBW56K7C",
+        "install_id": "1d264fb1ed248290351ee246e9649422",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789348800,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "abnormal_exit",
+        "features": {
+          "reason": "exit_process",
+          "code": 3221225477,
+          "import": null,
+          "frames": [
+            "Game+0x1000",
+            "Game+0x2000"
+          ]
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "crash_txt",
+            "bytes": 1918
+          },
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "exit|exit_process|3221225477|Game+0x1000",
+      "signature": "SOYDKXJDIJAUCQAV"
+    },
+    {
+      "name": "abnormal_exit_nothing_known",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT688KMHGGKSCAY35S9A6W",
+        "install_id": "3a888c40e232e656e94a9965993bfdf2",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789352400,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "abnormal_exit",
+        "features": {
+          "reason": "fatal_app_exit",
+          "code": null,
+          "import": null,
+          "frames": []
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "exit|fatal_app_exit|-|-",
+      "signature": "SHGJNIDCYY27ZLZC"
+    },
+    {
+      "name": "abnormal_exit_code_zero",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT688MVWXEJW79AE1ZR3KV",
+        "install_id": "673cf0eee3596a6e8d47359471302241",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789356000,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "abnormal_exit",
+        "features": {
+          "reason": "raise_exception",
+          "code": 0,
+          "import": null,
+          "frames": []
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "crash_txt",
+            "bytes": 1918
+          },
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "exit|raise_exception|0|-",
+      "signature": "SFACOXSQFOKJBYB2"
+    },
+    {
+      "name": "hang_with_eip",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT688N82EC0HRM2K7ED47G",
+        "install_id": "c888b80107f20b713d2d5f7fce622baf",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789359600,
+          "uptime_s": null,
+          "online": false
+        },
+        "kind": "hang",
+        "features": {
+          "stalled_beats": 3,
+          "eip": "Game+0x12345",
+          "runner_state": "running"
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "hang|Game+0x12345",
+      "signature": "S5ZPW35OK2JSMB3C"
+    },
+    {
+      "name": "hang_same_eip_other_details",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT688P5B3SR1281Q52Q7JX",
+        "install_id": "bb0acbc2ab80cd5ffae29e3eb67e6c3d",
+        "build_id": "0.1.1+0123456789ab-dirty",
+        "channel": "test",
+        "platform": {
+          "model": "unknown",
+          "fw": "unknown"
+        },
+        "session": {
+          "started_unix": 1789363200,
+          "uptime_s": 900,
+          "online": true
+        },
+        "kind": "hang",
+        "features": {
+          "stalled_beats": 40,
+          "eip": "Game+0x12345",
+          "runner_state": "blocked"
+        },
+        "hints": [],
+        "artifacts": []
+      },
+      "canon": "hang|Game+0x12345",
+      "signature": "S5ZPW35OK2JSMB3C"
+    },
+    {
+      "name": "hang_unknown_eip",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT688QGB7WSN5WEDYVTE8E",
+        "install_id": "844cb7816e78fe9b0313a65954f6e05c",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789366800,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "hang",
+        "features": {
+          "stalled_beats": 2,
+          "eip": null,
+          "runner_state": null
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "hang|-",
+      "signature": "SDCQKIRCQBPDNL4Q"
+    },
+    {
+      "name": "host_fault_artifacts_at_caps",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT688RQ68JFSJNMHGT4444",
+        "install_id": "a4d32cc4cc6327b34f563e9ad4f32b71",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789370400,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "host_fault",
+        "features": {
+          "stop_reason": "0x30004",
+          "thread_name": "d2vita_main",
+          "pc": {
+            "region": "jit",
+            "module": "jit",
+            "offset": "0x1a2b3c"
+          },
+          "lr": {
+            "region": "eboot",
+            "module": "eboot",
+            "offset": "0x10a0c4"
+          },
+          "guest_frames": [
+            "Game+0x2b1c40"
+          ],
+          "redaction": "clean"
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "dump",
+            "bytes": 2097152
+          },
+          {
+            "name": "crash_txt",
+            "bytes": 65536
+          },
+          {
+            "name": "crash_log",
+            "bytes": 65536
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 327680
+          }
+        ]
+      },
+      "canon": "hfault_jit|0x30004|Game+0x2b1c40",
+      "signature": "SYCOS52VJ7XGYI4G"
+    },
+    {
+      "name": "guest_fault_outside_game_exe",
+      "claim": {
+        "v": 1,
+        "report_id": "01M2CT688SSGZWGGPP31PGF9X7",
+        "install_id": "4822b05bf690d48c6db4fbfcfb6f8186",
+        "build_id": "0.1.0+ab12cd34ef56",
+        "channel": "release",
+        "platform": {
+          "model": "vita",
+          "fw": "3.65"
+        },
+        "session": {
+          "started_unix": 1789374000,
+          "uptime_s": 900,
+          "online": false
+        },
+        "kind": "guest_fault",
+        "features": {
+          "exception": "0xc0000005",
+          "thread": "worker",
+          "eip": "ABS+0x2a4c1000",
+          "frames": [
+            "glide3x+0x1a2c",
+            "Game+0x2b1c40",
+            "checkrevision+0x1f00"
+          ]
+        },
+        "hints": [],
+        "artifacts": [
+          {
+            "name": "crash_log",
+            "bytes": 3104
+          },
+          {
+            "name": "boot_progress",
+            "bytes": 278680
+          }
+        ]
+      },
+      "canon": "gfault|0xc0000005|ABS+0x2a4c1000|glide3x+0x1a2c,Game+0x2b1c40",
+      "signature": "SKKUH77HBSACAMRV"
+    }
+  ]
+}

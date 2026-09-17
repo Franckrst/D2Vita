@@ -1,0 +1,55 @@
+# tools/registry_console_son.txt — le registre du BANC SON.
+#
+# Les SIX clefs que Game.exe 1.14d lit VRAIMENT sous
+# HKCU\Software\Blizzard Entertainment\Diablo II (fonction 0x514b60, chaines
+# 0x6dea7c..0x6deac8, verifiees au desassemblage ET par grep dans Game.exe) :
+#
+#   Sound Mixer      -> 0x8817ac  defaut 0    REJETE si >= 3
+#   Master Volume    -> 0x8817b0  defaut 100  REJETE si > 100
+#   Music Volume     -> 0x8817b4  defaut 50   REJETE si > 100
+#   Positional Bias  -> 0x8817b8  defaut 50   REJETE si > 100
+#   NPC Speech       -> 0x8817bc  defaut 2    REJETE si >= 3
+#   Options Music    -> 0x8817c0  defaut 1    REJETE si > 1
+#
+# Le volume applique a une voix vaut vol * MusicVolume/100 * MasterVolume/100
+# (0x4dfc84 puis 0x4dfca1) : ces deux clefs sont le SEUL chemin registre -> son.
+#
+# CE QUI A ETE CORRIGE LE 06/09. La version precedente de ce fichier posait
+# « Sound Volume », « 3D Sound », « Environmental Sound » et « 3D Bias » : ces
+# QUATRE noms n'existent PAS dans Game.exe 1.14d (grep -aiob : aucune
+# occurrence), ce sont des noms de l'ere 1.09. Elles etaient donc INERTES, et
+# « Music Volume = 0x80 » (128) etait REJETE par le test > 100 de 0x514bfc : la
+# musique restait au defaut 50. C'est pour cela que §11.4 avait mesure « le
+# registre ne change rien » — le registre ne changeait rien PARCE QUE les clefs
+# etaient fausses. Ne jamais reintroduire ces quatre noms.
+#
+# Sound Mixer reste a 0 (2D stereo) : c'est le seul mode que le melangeur
+# implemente, et le jeu le forcerait a 0 de toute facon (0x4e0050) puisque
+# GetCaps rend dwMaxHw3DAllBuffers = 0.
+software\battle.net\configuration|diablo ii battle.net gateways|Diablo II Battle.net gateways|7|31303039003034007573776573742e626174746c652e6e6574003800552e532e2057657374007573656173742e626174746c652e6e6574003600552e532e204561737400617369612e626174746c652e6e6574002d390041736961006575726f70652e626174746c652e6e6574002d31004575726f70650000
+software\battle.net\patch|dstdata|DstData|1|433a5c446961626c6f2049495c70617463685f64322e6d707100
+software\battle.net\patch|launcher|Launcher|1|433a5c446961626c6f2049495c47616d652e65786500
+software\battle.net\patch|patches|Patches|7|00
+software\battle.net\patch|srcdata|SrcData|1|433a5c446961626c6f2049495c64326578702e6d70713b433a5c446961626c6f2049495c6432646174612e6d70713b433a5c446961626c6f2049495c64327366782e6d707100
+software\blizzard entertainment\diablo ii|always run|Always Run|4|01000000
+software\blizzard entertainment\diablo ii|automapfade|AutoMapFade|4|00000000
+software\blizzard entertainment\diablo ii|aux battle.net|Aux Battle.net|1|3231362e3134382e3234362e333400
+software\blizzard entertainment\diablo ii|blended shadows|Blended Shadows|4|00000000
+software\blizzard entertainment\diablo ii|cmdline|CmdLine|1|2d77202d736b6970746f626e657400
+software\blizzard entertainment\diablo ii|contrast|Contrast|4|64000000
+software\blizzard entertainment\diablo ii|diff_level|DIFF_LEVEL|4|00000000
+software\blizzard entertainment\diablo ii|gameover|GAMEOVER|4|00000000
+software\blizzard entertainment\diablo ii|help menu|Help Menu|4|01000000
+software\blizzard entertainment\diablo ii|last bnet|Last BNet|1|5649544100
+software\blizzard entertainment\diablo ii|light quality|Light Quality|4|00000000
+software\blizzard entertainment\diablo ii|lvl_rest|LVL_REST|4|04000000
+software\blizzard entertainment\diablo ii|master volume|Master Volume|4|64000000
+software\blizzard entertainment\diablo ii|max_player|MAX_PLAYER|4|04000000
+software\blizzard entertainment\diablo ii|mini panel|Mini Panel|4|01000000
+software\blizzard entertainment\diablo ii|music volume|Music Volume|4|64000000
+software\blizzard entertainment\diablo ii|npc speech|NPC Speech|4|02000000
+software\blizzard entertainment\diablo ii|options music|Options Music|4|01000000
+software\blizzard entertainment\diablo ii|positional bias|Positional Bias|4|32000000
+software\blizzard entertainment\diablo ii|preferred realm|Preferred Realm|1|547970654775727500
+software\blizzard entertainment\diablo ii|sound mixer|Sound Mixer|4|00000000
+software\blizzard entertainment\diablo ii|usecmdline|UseCmdLine|4|00000000

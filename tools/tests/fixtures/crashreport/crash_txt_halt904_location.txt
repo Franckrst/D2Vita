@@ -1,0 +1,38 @@
+<Application>Diablo II
+<Inspector.ProjectId>264
+<Inspector.Module>Diablo II
+<Inspector.Milestone>D2 1.14d
+<Inspector.BuildNumber>77
+<Inspector.Platform>Windows
+<Inspector.IssueType>Exception
+<Inspector.Priority>1 - Critical
+<Inspector.PrimaryAssignment>.ClassicErrorReporter
+<Inspector.Assignments>.ClassicErrorReporter
+<Process.UserIsAdmin> FALSE
+<Process.Elevated> UNKNOWN
+<Process.Path> C:\Diablo II\Game.exe
+<Process.Name> Game.exe
+<Process.ParentProcessPath> UNKNOWN
+<Process.ParentProcessName> UNKNOWN
+<Process.GrandParentProcessPath> UNKNOWN
+<Process.GrandParentProcessName> UNKNOWN
+<Locale.Game> English
+<Locale.System> English
+<Game.Type> Client
+<Game.Build> 79b7ae8fe1e97d05d57ebdc4b65bf012d38c797e
+<Inspector.Summary:>
+[Halt] (Unrecoverable internal error 10bff1a0) failed at (904)
+<:Inspector.Summary>
+<Inspector.LineNumber>904
+Location : .\SRC\Codec.cpp, line #1377
+<Inspector.Assertion:>
+Thread 0x00000004 [Stack Base: 0x10A00000 Used Space: 9024/1048576 bytes]
+DBG-ADDR<01908A81>("Game.exe")
+DBG-ADDR<019097B4>("Game.exe")
+DBG-ADDR<0190A0ED>("Game.exe")
+DBG-ADDR<10E01B30>("KERNEL32.dll")
+DBG-ADDR<0190B451>("Game.exe")
+DBG-ADDR<01B0C108>("Game.exe")
+<:Inspector.Assertion>
+Registers:
+   EAX:0x00000000   EBX:0x05d30000   ECX:0x05d30000   EDX:0x00000000

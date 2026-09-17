@@ -1,0 +1,293 @@
+[   0.00s] env.txt: D2NET=1
+[   0.00s] env.txt: D2_ALLOW_OFFICIAL=je-comprends-le-risque
+[   0.00s] reseau: preemption retablie (QUANTUM 300000) — le chemin royaume se fige sans elle
+[   0.00s] mem-budget(pre-arena) rc=0 user=317440 KB cdram=114688 KB phycont=26624 KB
+[   0.00s] clocks: arm444=0 bus222=0 gpu222=0 xbar166=0 (0=ok) relu arm=444 bus=222 gpu=222 xbar=166
+[   0.00s] flavour: PORTAGES — lumiere/blend/RLE/collision/grille/SCompExplode actifs
+[   0.00s] rtc: rc=0x00000000 tick=63924970583517968 unix=1789373783
+[   0.00s] reseau: attente de la connexion (jusqu'a 15000 ms)
+[   0.00s] reseau: dns1=192.0.2.53 (rc 0x00000000) dns2=1.1.1.1 (rc 0x00000000)
+[   0.00s] reseau: pret, ip 192.0.2.10
+[   0.00s] platform_init: config baked, present ready
+[   0.00s] present: async thread on core 2 (rc=0x00000000) (D2_PRESENTZC=0)
+[   0.00s] module: main a l'execution=0x81024730 (biais = cette valeur - nm(main))
+[   0.00s] present: auto-epinglage masque=0x40000 rc=0x00000000 relu=0x40000
+[   0.00s] pathcache: index de repertoire ACTIF (D2_PATHCACHE=(non pose, defaut=actif)) — re-verification par balayage toutes les 16 reponses « absent » d'un meme nom
+[   0.00s] memblock RW 284 MB ok (uid=0x40010161)
+[   1.00s] arene: base=0x84300000 membase=0x85000000 span=271 Mo reserve=284 Mo perdu-alignement=13312 Ko
+[   1.00s] arena probe ok: 0x01000000
+[   1.00s] arena probe ok: 0x0f000000
+[   1.00s] arena probe ok: 0x10000000
+[   1.00s] arena probe ok: 0x10800000
+[   1.00s] arena probe ok: 0x10bf0000
+[   1.00s] C3: acces hors arene write va=11000000 n=4 (span=10f00000)
+[   1.00s] arena probe ok: 0x11000000
+[   1.00s] C3: acces hors arene write va=11400000 n=4 (span=10f00000)
+[   1.00s] arena probe ok: 0x11400000
+[   1.00s] C3: acces hors arene write va=118ff000 n=4 (span=10f00000)
+[   1.00s] arena probe ok: 0x118ff000
+[   1.00s] dynarec: pliage fastmmu des absolus ACTIF (D2_MMUFOLD=1, defaut)
+[   1.00s] dynarec: chaine fastmmu POP=ACTIF PUSH=ACTIF (D2_MMUSTACK=3, defaut)
+[   1.00s] mode: 1.14 monolith
+[   2.00s] readahead: ARME — max 128 Kio, fenetre 32 Kio x8/poignee, saut 8 Kio, plafond memoire 2048 Kio (stdio non tamponne)
+[   2.00s] keystore: absent
+[   2.00s] netguard: VERROU LEVE — trafic public AUTORISE (D2CR_REQUIRE_VERSION arme)
+[   2.00s] [b5] horloge groupee=non | index direct=OUI (fenetre=154 creneaux @0x10e00700)
+[   2.00s] csintrin: Enter@0x10e005e0 Leave@0x10e005d0 TryEnter@0x00000000 ARME
+[   2.00s] [inlinehot] natif: guest-inline coupe (page de ticks non rafraichie sous natif)
+[   2.00s] phaseprof: dessin crochete (alternate sur Game+0x4c990, +0x5fde0, +0x60190 ; sortie par trap de retour) onedraw=1 sieste=1000us
+[   2.00s] keys.txt: present — classic=oui lod=oui owner=oui (0 ligne(s) refusee(s))
+[   2.00s] native scomp (1.14d): hook alternate pose sur Game+0x15240
+[ 505.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 505.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0
+[ 505.00s] csintrin: enter=541761 (replis=14) leave=541775 esp-hisse=1083550
+[ 505.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 505.00s] MEM: libre user=3072 Ko cdram=55296 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25251 Ko reserve=25432/38912 Ko libre=180 Ko | dont box86: custom=1216 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 505.00s] emis: blocs=9925 x86=1943114o arm=11177524o expansion=5.752x
+[ 505.00s] mmu: fold=1 sites=28037 pliables=8478 plies=8478 | stack=3 tetes=62425 maillons=20046 (pop=8736 push=11310) | refus emis=0 saut=347 famille=101
+[ 513.00s] fils: 1=1329932R 2=0B 3=338B 4=54B 7=128R 14=77R (blocs/s par fil)
+[ 515.00s] alive: pump=11789 frames=11086 reads=4849 eip=10e00640 sw=35313 io=6513ms jit=4415ms n=9928 sync=616ms fail=0 va=30MB spr=5/64MB cel=28/500KB big=0 jm=299MB fam=27/47 gil=thr4/>=0ms/acq=2489965 dans=native!scomp_explode2_114 run=1:B:339707773,2:B:7,3:B:191482,4:R:1131523,7:R:426297,14:R:9888
+[ 515.00s] hot: grille=1968 coll=53248 rle=58267 lum=0 blend=0 expl=7081 blit=0 lent=0
+[ 515.00s] scompplat: appels=1264 fils-distincts=1 sortie-max=4096 o
+[ 515.00s] traps: total=2435356 fenetre=109324 images=245 par-image=446
+[ 515.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 515.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0
+[ 515.00s] csintrin: enter=560103 (replis=14) leave=560117 esp-hisse=1120234
+[ 515.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 515.00s] MEM: libre user=3072 Ko cdram=55296 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25255 Ko reserve=25432/38912 Ko libre=176 Ko | dont box86: custom=1216 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 515.00s] emis: blocs=9928 x86=1943563o arm=11180284o expansion=5.752x
+[ 515.00s] mmu: fold=1 sites=28041 pliables=8479 plies=8479 | stack=3 tetes=62442 maillons=20049 (pop=8738 push=11311) | refus emis=0 saut=347 famille=101
+[ 523.00s] fils: 1=1055628R 2=0B 3=287B 4=458B 7=138R 14=106R (blocs/s par fil)
+[ 525.00s] alive: pump=12125 frames=11274 reads=4935 eip=10e014a0 sw=35929 io=6633ms jit=4540ms n=10154 sync=631ms fail=0 va=30MB spr=5/64MB cel=28/500KB big=0 jm=299MB fam=27/47 gil=- run=1:B:350165146,2:B:7,3:B:194338,4:B:1136430,7:R:427680,14:R:10988
+[ 525.00s] hot: grille=2155 coll=73728 rle=59500 lum=0 blend=0 expl=7166 blit=0 lent=0
+[ 525.00s] scompplat: appels=1264 fils-distincts=1 sortie-max=4096 o
+[ 525.00s] traps: total=2538228 fenetre=102872 images=187 par-image=550
+[ 525.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 525.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0
+[ 525.00s] csintrin: enter=570868 (replis=14) leave=570881 esp-hisse=1141763
+[ 525.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 525.00s] MEM: libre user=3072 Ko cdram=54272 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25294 Ko reserve=25312/38912 Ko libre=17 Ko | dont box86: custom=1280 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 525.00s] emis: blocs=10154 x86=1999605o arm=11474304o expansion=5.738x
+[ 525.00s] mmu: fold=1 sites=28673 pliables=8763 plies=8763 | stack=3 tetes=64185 maillons=20603 (pop=8948 push=11655) | refus emis=0 saut=353 famille=101
+[ 533.00s] fils: 1=1169006R 2=0B 3=310B 4=151B 7=128R 14=70R (blocs/s par fil)
+[ 535.00s] alive: pump=12383 frames=11503 reads=4935 eip=019df21c sw=36601 io=6633ms jit=4542ms n=10164 sync=631ms fail=0 va=30MB spr=5/64MB cel=28/500KB big=0 jm=299MB fam=27/47 gil=- run=1:R:362396515,2:B:7,3:B:197593,4:B:1136990,7:R:428992,14:R:11734
+[ 535.00s] hot: grille=2385 coll=73728 rle=60583 lum=0 blend=0 expl=7166 blit=0 lent=0
+[ 535.00s] scompplat: appels=1264 fils-distincts=1 sortie-max=4096 o
+[ 535.00s] traps: total=2634005 fenetre=95777 images=230 par-image=416
+[ 535.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 535.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0
+[ 535.00s] csintrin: enter=583371 (replis=14) leave=583385 esp-hisse=1166770
+[ 535.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 535.00s] MEM: libre user=3072 Ko cdram=54272 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25294 Ko reserve=25312/38912 Ko libre=17 Ko | dont box86: custom=1280 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 535.00s] emis: blocs=10164 x86=2000167o arm=11478524o expansion=5.738x
+[ 535.00s] mmu: fold=1 sites=28681 pliables=8769 plies=8769 | stack=3 tetes=64195 maillons=20605 (pop=8950 push=11655) | refus emis=0 saut=353 famille=101
+[ 543.00s] fils: 1=1278010R 2=0B 3=338B 4=56B 7=141R 14=76R (blocs/s par fil)
+[ 545.00s] alive: pump=12654 frames=11749 reads=4935 eip=0197588d sw=37307 io=6633ms jit=4544ms n=10171 sync=632ms fail=0 va=30MB spr=5/64MB cel=28/500KB big=0 jm=299MB fam=27/47 gil=- run=1:R:375372109,2:B:7,3:B:201037,4:B:1137550,7:R:430439,14:R:12500
+[ 545.00s] hot: grille=2630 coll=73728 rle=61638 lum=0 blend=0 expl=7166 blit=0 lent=0
+[ 545.00s] scompplat: appels=1264 fils-distincts=1 sortie-max=4096 o
+[ 545.00s] traps: total=2735646 fenetre=101641 images=246 par-image=413
+[ 545.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 545.00s] coeurs: invite-main=v0/rc0/m0x10000/c-1/d0
+[ 545.00s] csintrin: enter=596777 (replis=14) leave=596791 esp-hisse=1193582
+[ 545.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 545.00s] MEM: libre user=3072 Ko cdram=54272 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25294 Ko reserve=25312/38912 Ko libre=17 Ko | dont box86: custom=1280 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 545.00s] emis: blocs=10171 x86=2000733o arm=11482972o expansion=5.739x
+[ 545.00s] mmu: fold=1 sites=28690 pliables=8770 plies=8770 | stack=3 tetes=64224 maillons=20619 (pop=8955 push=11664) | refus emis=0 saut=353 famille=101
+[ 553.00s] fils: 1=1271695R 2=0B 3=338B 4=54B 7=129R 14=72R (blocs/s par fil)
+[ 556.00s] alive: pump=12909 frames=11995 reads=4935 eip=019a0ed4 sw=38011 io=6633ms jit=4544ms n=10171 sync=632ms fail=0 va=30MB spr=5/64MB cel=28/500KB big=0 jm=299MB fam=27/47 gil=thr1/>=0ms/acq=2896910 dans=KERNEL32.dll!QueryPerformanceCounter run=1:R:388350205,2:B:7,3:B:204460,4:B:1138110,7:R:431751,14:R:13142
+[ 556.00s] hot: grille=2876 coll=73728 rle=62799 lum=0 blend=0 expl=7166 blit=0 lent=0
+[ 556.00s] scompplat: appels=1264 fils-distincts=1 sortie-max=4096 o
+[ 556.00s] traps: total=2836580 fenetre=100934 images=247 par-image=408
+[ 556.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 556.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0
+[ 556.00s] csintrin: enter=610047 (replis=14) leave=610060 esp-hisse=1220121
+[ 556.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 556.00s] MEM: libre user=3072 Ko cdram=54272 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25294 Ko reserve=25312/38912 Ko libre=17 Ko | dont box86: custom=1280 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 556.00s] emis: blocs=10171 x86=2000733o arm=11482972o expansion=5.739x
+[ 556.00s] mmu: fold=1 sites=28690 pliables=8770 plies=8770 | stack=3 tetes=64224 maillons=20619 (pop=8955 push=11664) | refus emis=0 saut=353 famille=101
+[ 563.00s] fils: 1=1272494B 2=0B 3=338B 4=54B 7=140R 14=68R (blocs/s par fil)
+[ 566.00s] alive: pump=13164 frames=12242 reads=4935 eip=10e01b30 sw=38719 io=6633ms jit=4544ms n=10171 sync=632ms fail=0 va=30MB spr=5/64MB cel=28/500KB big=0 jm=299MB fam=27/47 gil=- run=1:B:401328096,2:B:7,3:B:207946,4:B:1138670,7:R:433187,14:R:13898
+[ 566.00s] hot: grille=3124 coll=73728 rle=63744 lum=0 blend=0 expl=7166 blit=0 lent=0
+[ 566.00s] scompplat: appels=1264 fils-distincts=1 sortie-max=4096 o
+[ 566.00s] traps: total=2936342 fenetre=99762 images=247 par-image=403
+[ 566.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 566.00s] coeurs: invite-main=v0/rc0/m0x10000/c-1/d0
+[ 566.00s] csintrin: enter=622942 (replis=14) leave=622956 esp-hisse=1245912
+[ 566.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 566.00s] MEM: libre user=3072 Ko cdram=54272 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25294 Ko reserve=25312/38912 Ko libre=17 Ko | dont box86: custom=1280 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 566.00s] emis: blocs=10171 x86=2000733o arm=11482972o expansion=5.739x
+[ 566.00s] mmu: fold=1 sites=28690 pliables=8770 plies=8770 | stack=3 tetes=64224 maillons=20619 (pop=8955 push=11664) | refus emis=0 saut=353 famille=101
+[ 573.00s] fils: 1=1270479B 2=0B 3=340B 4=54B 7=129R 14=71R (blocs/s par fil)
+[ 576.00s] alive: pump=13419 frames=12489 reads=4935 eip=10e01b30 sw=39426 io=6633ms jit=4544ms n=10171 sync=632ms fail=0 va=30MB spr=5/64MB cel=28/500KB big=0 jm=299MB fam=27/47 gil=thr1/>=0ms/acq=3099911 dans=USER32.dll!PeekMessageA run=1:B:414308342,2:B:7,3:B:211411,4:B:1139230,7:R:434515,14:R:14582
+[ 576.00s] hot: grille=3371 coll=73728 rle=64756 lum=0 blend=0 expl=7166 blit=0 lent=0
+[ 576.00s] scompplat: appels=1264 fils-distincts=1 sortie-max=4096 o
+[ 576.00s] traps: total=3037103 fenetre=100761 images=247 par-image=407
+[ 576.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 576.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0
+[ 576.00s] csintrin: enter=636070 (replis=14) leave=636084 esp-hisse=1272168
+[ 576.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 576.00s] MEM: libre user=3072 Ko cdram=54272 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25294 Ko reserve=25312/38912 Ko libre=17 Ko | dont box86: custom=1280 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 576.00s] emis: blocs=10171 x86=2000733o arm=11482972o expansion=5.739x
+[ 576.00s] mmu: fold=1 sites=28690 pliables=8770 plies=8770 | stack=3 tetes=64224 maillons=20619 (pop=8955 push=11664) | refus emis=0 saut=353 famille=101
+[ 583.00s] fils: 1=1270140R 2=0B 3=340B 4=54B 7=138R 14=54R (blocs/s par fil)
+[ 586.00s] alive: pump=13675 frames=12737 reads=4935 eip=10e01b30 sw=40135 io=6633ms jit=4544ms n=10171 sync=632ms fail=0 va=30MB spr=5/64MB cel=28/500KB big=0 jm=299MB fam=27/47 gil=thr1/>=0ms/acq=3200121 dans=d2vhost.dll!d2vGlideFlush run=1:R:427281265,2:B:7,3:B:214876,4:B:1139790,7:R:435914,14:R:15164
+[ 586.00s] hot: grille=3619 coll=73728 rle=65596 lum=0 blend=0 expl=7166 blit=0 lent=0
+[ 586.00s] scompplat: appels=1264 fils-distincts=1 sortie-max=4096 o
+[ 586.00s] traps: total=3135673 fenetre=98570 images=248 par-image=397
+[ 586.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 586.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0
+[ 586.00s] csintrin: enter=648771 (replis=14) leave=648785 esp-hisse=1297570
+[ 586.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 586.00s] MEM: libre user=3072 Ko cdram=54272 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25294 Ko reserve=25312/38912 Ko libre=17 Ko | dont box86: custom=1280 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 586.00s] emis: blocs=10171 x86=2000733o arm=11482972o expansion=5.739x
+[ 586.00s] mmu: fold=1 sites=28690 pliables=8770 plies=8770 | stack=3 tetes=64224 maillons=20619 (pop=8955 push=11664) | refus emis=0 saut=353 famille=101
+[ 593.00s] fils: 1=1272199R 2=0B 3=340B 4=54B 7=129R 14=84R (blocs/s par fil)
+[ 596.00s] alive: pump=13932 frames=12985 reads=4935 eip=10e01b30 sw=40846 io=6633ms jit=4544ms n=10171 sync=632ms fail=0 va=30MB spr=5/64MB cel=28/500KB big=0 jm=299MB fam=27/47 gil=thr1/>=0ms/acq=3302968 dans=d2vhost.dll!d2vGlideFlush run=1:R:440332072,2:B:7,3:B:218362,4:B:1140350,7:R:437242,14:R:16046
+[ 596.00s] hot: grille=3866 coll=73728 rle=66684 lum=0 blend=0 expl=7166 blit=0 lent=0
+[ 596.00s] scompplat: appels=1264 fils-distincts=1 sortie-max=4096 o
+[ 596.00s] traps: total=3237105 fenetre=101432 images=248 par-image=409
+[ 597.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 597.00s] coeurs: invite-main=v0/rc0/m0x10000/c-1/d0
+[ 597.00s] csintrin: enter=662171 (replis=14) leave=662185 esp-hisse=1324370
+[ 597.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 597.00s] MEM: libre user=3072 Ko cdram=54272 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25294 Ko reserve=25312/38912 Ko libre=17 Ko | dont box86: custom=1280 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 597.00s] emis: blocs=10171 x86=2000733o arm=11482972o expansion=5.739x
+[ 597.00s] mmu: fold=1 sites=28690 pliables=8770 plies=8770 | stack=3 tetes=64224 maillons=20619 (pop=8955 push=11664) | refus emis=0 saut=353 famille=101
+[ 603.00s] fils: 1=1277404B 2=0B 3=338B 4=56B 7=136R 14=82R (blocs/s par fil)
+[ 607.00s] alive: pump=14189 frames=13233 reads=4935 eip=01afe779 sw=41556 io=6633ms jit=4544ms n=10171 sync=632ms fail=0 va=30MB spr=5/64MB cel=28/500KB big=0 jm=299MB fam=27/47 gil=- run=1:R:453379084,2:B:7,3:B:221827,4:B:1140910,7:R:438641,14:R:16909
+[ 607.00s] hot: grille=4113 coll=73728 rle=67798 lum=0 blend=0 expl=7166 blit=0 lent=0
+[ 607.00s] scompplat: appels=1264 fils-distincts=1 sortie-max=4096 o
+[ 607.00s] traps: total=3338684 fenetre=101579 images=248 par-image=409
+[ 607.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 607.00s] coeurs: invite-main=v0/rc0/m0x10000/c-1/d0
+[ 607.00s] csintrin: enter=675592 (replis=14) leave=675606 esp-hisse=1351212
+[ 607.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 607.00s] MEM: libre user=3072 Ko cdram=54272 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25294 Ko reserve=25312/38912 Ko libre=17 Ko | dont box86: custom=1280 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 607.00s] emis: blocs=10171 x86=2000733o arm=11482972o expansion=5.739x
+[ 607.00s] mmu: fold=1 sites=28690 pliables=8770 plies=8770 | stack=3 tetes=64224 maillons=20619 (pop=8955 push=11664) | refus emis=0 saut=353 famille=101
+[ 613.00s] fils: 1=1270090R 2=0B 3=338B 4=54B 7=129R 14=67R (blocs/s par fil)
+[ 617.00s] alive: pump=14445 frames=13481 reads=4935 eip=10e01b30 sw=42265 io=6633ms jit=4544ms n=10171 sync=632ms fail=0 va=30MB spr=5/64MB cel=28/500KB big=0 jm=299MB fam=27/47 gil=thr1/>=0ms/acq=3506939 dans=d2vhost.dll!d2vGlideFlush run=1:R:466388496,2:B:7,3:B:225292,4:B:1141470,7:R:439969,14:R:17563
+[ 617.00s] hot: grille=4362 coll=73728 rle=68751 lum=0 blend=0 expl=7166 blit=0 lent=0
+[ 617.00s] scompplat: appels=1264 fils-distincts=1 sortie-max=4096 o
+[ 617.00s] traps: total=3438446 fenetre=99762 images=248 par-image=402
+[ 617.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 617.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0
+[ 617.00s] csintrin: enter=688483 (replis=14) leave=688496 esp-hisse=1376993
+[ 617.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 617.00s] MEM: libre user=3072 Ko cdram=54272 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25294 Ko reserve=25312/38912 Ko libre=17 Ko | dont box86: custom=1280 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 617.00s] emis: blocs=10171 x86=2000733o arm=11482972o expansion=5.739x
+[ 617.00s] mmu: fold=1 sites=28690 pliables=8770 plies=8770 | stack=3 tetes=64224 maillons=20619 (pop=8955 push=11664) | refus emis=0 saut=353 famille=101
+[ 623.00s] fils: 1=1264897R 2=0B 3=338B 4=54B 7=138R 14=54R (blocs/s par fil)
+[ 627.00s] alive: pump=14702 frames=13730 reads=4935 eip=01afe779 sw=42977 io=6633ms jit=4544ms n=10171 sync=632ms fail=0 va=30MB spr=5/64MB cel=28/500KB big=0 jm=299MB fam=27/47 gil=- run=1:R:479386653,2:B:7,3:B:228778,4:B:1142030,7:R:441384,14:R:18145
+[ 627.00s] hot: grille=4610 coll=73728 rle=69537 lum=0 blend=0 expl=7166 blit=0 lent=0
+[ 627.00s] scompplat: appels=1264 fils-distincts=1 sortie-max=4096 o
+[ 627.00s] traps: total=3536894 fenetre=98448 images=249 par-image=395
+[ 627.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 627.00s] coeurs: invite-main=v0/rc0/m0x10000/c-1/d0
+[ 627.00s] csintrin: enter=701131 (replis=14) leave=701144 esp-hisse=1402289
+[ 627.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 627.00s] MEM: libre user=3072 Ko cdram=54272 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25294 Ko reserve=25312/38912 Ko libre=17 Ko | dont box86: custom=1280 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 627.00s] emis: blocs=10171 x86=2000733o arm=11482972o expansion=5.739x
+[ 627.00s] mmu: fold=1 sites=28690 pliables=8770 plies=8770 | stack=3 tetes=64224 maillons=20619 (pop=8955 push=11664) | refus emis=0 saut=353 famille=101
+[ 633.00s] fils: 1=1266864B 2=0B 3=340B 4=54B 7=131R 14=71R (blocs/s par fil)
+[ 637.00s] alive: pump=14959 frames=13979 reads=4935 eip=0197588d sw=43690 io=6633ms jit=4544ms n=10171 sync=632ms fail=0 va=30MB spr=5/64MB cel=28/500KB big=0 jm=299MB fam=27/47 gil=- run=1:R:492414096,2:B:7,3:B:232264,4:B:1142604,7:R:442744,14:R:18869
+[ 638.00s] hot: grille=4859 coll=73728 rle=70422 lum=0 blend=0 expl=7166 blit=0 lent=0
+[ 638.00s] scompplat: appels=1264 fils-distincts=1 sortie-max=4096 o
+[ 638.00s] traps: total=3636303 fenetre=99409 images=249 par-image=399
+[ 638.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 638.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0
+[ 638.00s] csintrin: enter=713919 (replis=14) leave=713933 esp-hisse=1427866
+[ 638.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 638.00s] MEM: libre user=3072 Ko cdram=54272 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25294 Ko reserve=25312/38912 Ko libre=17 Ko | dont box86: custom=1280 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 638.00s] emis: blocs=10171 x86=2000733o arm=11482972o expansion=5.739x
+[ 638.00s] mmu: fold=1 sites=28690 pliables=8770 plies=8770 | stack=3 tetes=64224 maillons=20619 (pop=8955 push=11664) | refus emis=0 saut=353 famille=101
+[ 643.00s] fils: 1=1273357R 2=0B 3=340B 4=54B 7=138R 14=74R (blocs/s par fil)
+[ 648.00s] alive: pump=15216 frames=14228 reads=4935 eip=01aff623 sw=44402 io=6633ms jit=4544ms n=10171 sync=632ms fail=0 va=30MB spr=5/64MB cel=28/500KB big=0 jm=299MB fam=27/47 gil=- run=1:R:505560094,2:B:7,3:B:235750,4:B:1143164,7:R:444159,14:R:19675
+[ 648.00s] hot: grille=5108 coll=73728 rle=71544 lum=0 blend=0 expl=7166 blit=0 lent=0
+[ 648.00s] scompplat: appels=1264 fils-distincts=1 sortie-max=4096 o
+[ 648.00s] traps: total=3738627 fenetre=102324 images=249 par-image=410
+[ 648.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 648.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0
+[ 648.00s] csintrin: enter=727459 (replis=14) leave=727472 esp-hisse=1454945
+[ 648.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 648.00s] MEM: libre user=3072 Ko cdram=54272 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25294 Ko reserve=25312/38912 Ko libre=17 Ko | dont box86: custom=1280 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 648.00s] emis: blocs=10171 x86=2000733o arm=11482972o expansion=5.739x
+[ 648.00s] mmu: fold=1 sites=28690 pliables=8770 plies=8770 | stack=3 tetes=64224 maillons=20619 (pop=8955 push=11664) | refus emis=0 saut=353 famille=101
+[ 653.00s] fils: 1=1277006R 2=0B 3=338B 4=54B 7=131R 14=73R (blocs/s par fil)
+[ 658.00s] alive: pump=15475 frames=14477 reads=4935 eip=01aff623 sw=45115 io=6633ms jit=4544ms n=10171 sync=632ms fail=0 va=30MB spr=5/64MB cel=28/500KB big=0 jm=299MB fam=27/47 gil=- run=1:R:518693392,2:B:7,3:B:239215,4:B:1143724,7:R:445503,14:R:20435
+[ 658.00s] hot: grille=5357 coll=73728 rle=72653 lum=0 blend=0 expl=7166 blit=0 lent=0
+[ 658.00s] scompplat: appels=1264 fils-distincts=1 sortie-max=4096 o
+[ 658.00s] traps: total=3841167 fenetre=102540 images=249 par-image=411
+[ 658.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 658.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0
+[ 658.00s] csintrin: enter=740916 (replis=14) leave=740930 esp-hisse=1481860
+[ 658.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 658.00s] MEM: libre user=3072 Ko cdram=54272 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25294 Ko reserve=25312/38912 Ko libre=17 Ko | dont box86: custom=1280 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 658.00s] emis: blocs=10171 x86=2000733o arm=11482972o expansion=5.739x
+[ 658.00s] mmu: fold=1 sites=28690 pliables=8770 plies=8770 | stack=3 tetes=64224 maillons=20619 (pop=8955 push=11664) | refus emis=0 saut=353 famille=101
+[ 663.00s] fils: 1=1268072B 2=0B 3=338B 4=54B 7=139R 14=76R (blocs/s par fil)
+[ 668.00s] alive: pump=15746 frames=14726 reads=4935 eip=10e01b30 sw=45830 io=6633ms jit=4547ms n=10178 sync=632ms fail=0 va=30MB spr=5/64MB cel=28/500KB big=0 jm=299MB fam=27/47 gil=thr1/>=0ms/acq=4019138 dans=d2vhost.dll!d2vGlideFlush run=1:R:531346531,2:B:7,3:B:242722,4:B:1144298,7:R:446950,14:R:21209
+[ 668.00s] hot: grille=5605 coll=73728 rle=73733 lum=0 blend=0 expl=7166 blit=0 lent=0
+[ 668.00s] scompplat: appels=1264 fils-distincts=1 sortie-max=4096 o
+[ 668.00s] traps: total=3942771 fenetre=101604 images=247 par-image=411
+[ 668.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 668.00s] coeurs: invite-main=v0/rc0/m0x10000/c-1/d0
+[ 668.00s] csintrin: enter=754192 (replis=14) leave=754205 esp-hisse=1508411
+[ 668.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 668.00s] MEM: libre user=3072 Ko cdram=54272 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25294 Ko reserve=25312/38912 Ko libre=17 Ko | dont box86: custom=1280 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 668.00s] emis: blocs=10178 x86=2001415o arm=11487636o expansion=5.739x
+[ 668.00s] mmu: fold=1 sites=28697 pliables=8773 plies=8773 | stack=3 tetes=64260 maillons=20637 (pop=8969 push=11668) | refus emis=0 saut=354 famille=101
+[ 672.00s] lazyseek(10s): evites=3531 (paresseux=5120 vrais-fseek=1589) fin-de-fichier=2 taille=13
+[ 672.00s] entree: resolution du jeu -> 800x600 (Glide)
+[ 672.00s] famine: sieste thr 1 eip=01a276e0
+[ 673.00s] SCHED-NATIVE: pile+TIB du fil 12 recyclees pour le fil 15 (reutilisations=7)
+[ 673.00s] SCHED-NATIVE: pile+TIB du fil 13 recyclees pour le fil 16 (reutilisations=8)
+[ 673.00s] fils: 1=1038369B 2=0B 3=315B 4=3790B 7=141R (blocs/s par fil)
+[ 678.00s] alive: pump=15957 frames=14876 reads=5726 eip=10e00640 sw=46579 io=7329ms jit=4751ms n=10952 sync=677ms fail=0 va=16MB spr=0/8MB cel=1/500KB big=0 jm=299MB fam=28/49 gil=- run=1:B:542352029,2:B:7,3:B:245683,4:R:1206552,7:R:454747,17:R:348
+[ 678.00s] hot: grille=5668 coll=73728 rle=74310 lum=0 blend=0 expl=9049 blit=0 lent=0
+[ 678.00s] scompplat: appels=1480 fils-distincts=1 sortie-max=4096 o
+[ 678.00s] traps: total=4092882 fenetre=150111 images=150 par-image=1000
+[ 678.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 678.00s] coeurs: invite-main=v0/rc0/m0x10000/c32767/d0
+[ 678.00s] csintrin: enter=801796 (replis=14) leave=801810 esp-hisse=1603620
+[ 679.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 679.00s] MEM: libre user=2048 Ko cdram=53248 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25216 Ko reserve=25312/38912 Ko libre=96 Ko | dont box86: custom=1344 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 679.00s] emis: blocs=10952 x86=2074517o arm=12014904o expansion=5.791x
+[ 679.00s] mmu: fold=1 sites=29257 pliables=9135 plies=9135 | stack=3 tetes=66036 maillons=21148 (pop=9341 push=11807) | refus emis=0 saut=377 famille=101
+[ 684.00s] fils: 1=768799B 2=0B 3=340B 4=6843B 7=786R (blocs/s par fil)
+[ 685.00s] pathcache: resolutions=73 (ecriture=12 donnees=34 introuvables=18 auto=9) | balayages=14 (constructions=14 parcours=0) | consultations-dossier=116 dont-absent-sans-balayage=70 | invalidations=12 re-verifications=0 replis=0 dont-INDEX-PERIME=0 | courses=0 aveugles=0 | entrees 1.14d=28,save=101
+[ 687.00s] ExitProcess code=0 chain: 01b81ab5 01b81df1 01b84f50 01b81e16 01b8292b 01b84f50
+[ 687.00s] trapcnt: 4126875 prises sur 229 creneaux actifs
+[ 687.00s] trapcnt  1:      1791632   43.4%  KERNEL32.dll!GetTickCount
+[ 687.00s] trapcnt  2:       809426   19.6%  KERNEL32.dll!LeaveCriticalSection
+[ 687.00s] trapcnt  3:       809426   19.6%  KERNEL32.dll!EnterCriticalSection
+[ 687.00s] trapcnt  4:       105311    2.6%  USER32.dll!wsprintfA
+[ 687.00s] trapcnt  5:        75537    1.8%  d2vhost.dll!d2vGlideTexUpload
+[ 687.00s] trapcnt  6:        74747    1.8%  native!d2_cell_rle_114
+[ 687.00s] trapcnt  7:        73728    1.8%  GDI32.dll!GetPixel
+[ 687.00s] trapcnt  8:        73728    1.8%  native!d2_coll_lookup_114
+[ 687.00s] trapcnt  9:        35209    0.9%  KERNEL32.dll!VirtualAlloc
+[ 687.00s] trapcnt 10:        33601    0.8%  KERNEL32.dll!Sleep
+[ 687.00s] signe: knob=0 motifs_vus=118 reecrits_bit30=0
+[ 687.00s] === fastmmu (D2_MMUFOLD=1 D2_MMUSTACK=3) ===
+[ 687.00s] absolus: sites=29574 pliables=9284 plies=9284
+[ 687.00s] pile: tetes=66633 maillons=21341 (POP=9467 maillon-de-moins, PUSH=11874 instruction-de-moins)
+[ 687.00s] pile refus: code_emis_entre=0 cible_de_saut=382 autre_famille=105
+[ 687.00s] === FIN fastmmu ===
+[ 687.00s] tlscnt: RIEN A DIRE (build sans -DD2_TLSCOUNT, ou aucune traversee)
+[ 687.00s] interlocked: atomiques=25275 replis=0 (dont non-alignes=0) | ordre=RELAXED (mono-coeur epingle)
+[ 687.00s] blocs/fil: total=546159658 fils=17 max=100(fil 1) | 1:544127590,4:1259389,7:455789,3:248961,5:39427,14:21451,12:3463,8:1088,17:818,9:793,13:301,10:171
+[ 687.00s] famine: detections=28 siestes=49 sautees-gil=59
+[ 687.00s] [emis] blocs=11237 x86=2090645o arm=12144436o expansion=5.808x
+[ 687.00s] [blocs] executes=544127590
+[ 687.00s] sortie: rejeu + flush + son + GPU arretes avant les rapports
+[ 687.00s] [b5] servis=1791632 | horloge groupee=non index direct=OUI (n=173)
+[ 687.00s] scheduler stopped: shutdown requested | frame=15044 main-exit=0x00000000
+[ 687.00s] lazyseek(final): evites=4690 (paresseux=6474 vrais-fseek=1784) fin-de-fichier=2 taille=13
+[ 687.00s] [nopend] mode=0 | fin-de-bloc: appels=0 relaches=0 | archivage: besoin=0 pessimiste=0 coupes=0 | PASSE 3: pessimiste=0 coupes=0
+[ 687.00s] [csintrin] enter=809412 (replis=14) leave=809426 tryenter=0 esp-hisse=1618852
+[ 687.00s] [inlinehot] creneaux IAT inlines=0 (gle=0 sle=0 tls=0 tick=0) sched=native
+[ 687.00s] [EIPPROF] === total (fin de run) ===
+[ 687.00s] pathcache: resolutions=73 (ecriture=12 donnees=34 introuvables=18 auto=9) | balayages=14 (constructions=14 parcours=0) | consultations-dossier=116 dont-absent-sans-balayage=70 | invalidations=12 re-verifications=0 replis=0 dont-INDEX-PERIME=0 | courses=0 aveugles=0 | entrees 1.14d=28,save=101
+[ 687.00s] CLEAN EXIT (game path, frame=15044)
+[ 687.00s] sortie: ExitProcess sans destructeurs

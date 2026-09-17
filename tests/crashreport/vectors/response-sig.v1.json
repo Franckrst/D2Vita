@@ -1,0 +1,106 @@
+{
+  "description": "Response signature vectors: X-D2V-Signature is the standard base64 (with padding) of the Ed25519 signature (RFC 8032, SHA-512, no prehash, no context) of the exact UTF-8 bytes of the response body. cases must verify and, signed with seed_hex, reproduce signature_b64; negative_cases must not verify.",
+  "algorithm": "Ed25519",
+  "cases": [
+    {
+      "name": "decision_upload",
+      "seed_hex": "0e76a716e5010216cc99ff82461406810eeb7121f21eeb8d361e598a25b6a86f",
+      "public_key_hex": "74abf80957cb70afede4c6349d0a5788b33f52961b076a52ac13c34f59c67322",
+      "body_utf8": "{\"v\":1,\"report_id\":\"01J9Z6T4Q8M3K7V2B5N0XWAYCD\",\"signature\":\"SZYGIRBIXGHOM3AH\",\"action\":\"upload\",\"upload\":{\"token\":\"eyJyIjoiMDFKOVo2VDRROE0zSzdWMkI1TjBYV0FZQ0QiLCJlIjoxNzg5Mjg2MDAwfQ.q8vLbWEt\",\"expires_unix\":1789286000,\"artifacts\":[{\"name\":\"crash_txt\",\"max_bytes\":65536},{\"name\":\"crash_log\",\"max_bytes\":65536},{\"name\":\"boot_progress\",\"max_bytes\":327680}]},\"retry_after_s\":null,\"disable_until_unix\":null}",
+      "signature_b64": "VxvOWSU4kYPDrmLNIjO/i2a6GpSJ7fR44UNWd4FDSYNEW00jhNYu/FefwzgdmNInmDmmdtwbWPmNiTLsxMIDAg=="
+    },
+    {
+      "name": "decision_count_only",
+      "seed_hex": "0e76a716e5010216cc99ff82461406810eeb7121f21eeb8d361e598a25b6a86f",
+      "public_key_hex": "74abf80957cb70afede4c6349d0a5788b33f52961b076a52ac13c34f59c67322",
+      "body_utf8": "{\"v\":1,\"report_id\":\"01J9Z6T4Q8M3K7V2B5N0XWAYCD\",\"signature\":\"SZYGIRBIXGHOM3AH\",\"action\":\"count_only\",\"upload\":null,\"retry_after_s\":null,\"disable_until_unix\":null}",
+      "signature_b64": "NQyVGMxaLijph/LNL6hL6hdDxWWaMfJi0DvFdUUzu+2SMFxzFsYKeFqeOXIpTtyDXK1hC/9v0x8oRoLxoMKoDQ=="
+    },
+    {
+      "name": "error_rate_limited",
+      "seed_hex": "0e76a716e5010216cc99ff82461406810eeb7121f21eeb8d361e598a25b6a86f",
+      "public_key_hex": "74abf80957cb70afede4c6349d0a5788b33f52961b076a52ac13c34f59c67322",
+      "body_utf8": "{\"v\":1,\"error\":\"rate_limited\",\"message\":\"daily claim limit reached for this installation\",\"retry_after_s\":32400}",
+      "signature_b64": "t2IYep3PpDAuS0fldIAV2ZqnaIP0XWGRN4p5fYwDWImSzS8R0PyPbEDG4k4gONBba92bJpsXXegdvhCqCg1YDA=="
+    },
+    {
+      "name": "error_not_accepting",
+      "seed_hex": "0e76a716e5010216cc99ff82461406810eeb7121f21eeb8d361e598a25b6a86f",
+      "public_key_hex": "74abf80957cb70afede4c6349d0a5788b33f52961b076a52ac13c34f59c67322",
+      "body_utf8": "{\"v\":1,\"error\":\"not_accepting\",\"message\":\"crash reports are paused\",\"disable_until_unix\":1789372800}",
+      "signature_b64": "/kaM3Kpep7qJB9gJ0Io0zxBpTc00tfIY1nxqdkGU6wJErP3M1ZzVZ2EVfmuWH0d//wMLSkHi4+gJI0g7hyQjAg=="
+    },
+    {
+      "name": "error_exists",
+      "seed_hex": "0e76a716e5010216cc99ff82461406810eeb7121f21eeb8d361e598a25b6a86f",
+      "public_key_hex": "74abf80957cb70afede4c6349d0a5788b33f52961b076a52ac13c34f59c67322",
+      "body_utf8": "{\"v\":1,\"error\":\"exists\",\"message\":\"artifact already stored\",\"report_id\":\"01J9Z6T4Q8M3K7V2B5N0XWAYCD\",\"artifact\":\"crash_txt\"}",
+      "signature_b64": "NNE9YXyWc/KrDdl1TlT/T6u1uaAv5Kt2kAaFfb48rHmd9GIGo3Rk19dUjznHBlKIF/uts9PHkmGri7BNsfFcCg=="
+    },
+    {
+      "name": "artifact_stored",
+      "seed_hex": "0e76a716e5010216cc99ff82461406810eeb7121f21eeb8d361e598a25b6a86f",
+      "public_key_hex": "74abf80957cb70afede4c6349d0a5788b33f52961b076a52ac13c34f59c67322",
+      "body_utf8": "{\"v\":1,\"report_id\":\"01J9Z6T4Q8M3K7V2B5N0XWAYCD\",\"name\":\"crash_txt\",\"bytes\":2210}",
+      "signature_b64": "ATpQjvzmym+qjkuFV+yv88MC6xWutZ2Gbl+ayIc7utdbNuf2s2p/Vux1W8NqE7fv5GjrfTIr7R9Fu5wWUU3JBw=="
+    },
+    {
+      "name": "complete_response",
+      "seed_hex": "0e76a716e5010216cc99ff82461406810eeb7121f21eeb8d361e598a25b6a86f",
+      "public_key_hex": "74abf80957cb70afede4c6349d0a5788b33f52961b076a52ac13c34f59c67322",
+      "body_utf8": "{\"v\":1,\"report_id\":\"01J9Z6T4Q8M3K7V2B5N0XWAYCD\",\"sample_stored\":true}",
+      "signature_b64": "E/62dsE/cNv8NXvfzeTd2v2Q6SJdQfeUmTs+LYQZB44H+Z2v3txR9B63X4jQKRqt9SH1lqqe3TpAFML1tllaBw=="
+    },
+    {
+      "name": "error_non_ascii_message",
+      "seed_hex": "5de60d77093f2b4beabbe02e2a67e74a4950c99a61a1901c79dbfa9487dc431c",
+      "public_key_hex": "8dbd2a3abe32bb7bf352146c9079faa76d7c03cee55c2e34f68352c1161cd3b0",
+      "body_utf8": "{\"v\":1,\"error\":\"invalid_payload\",\"message\":\"champ inconnu \u00ab caf\u00e9 \u00bb \ud83d\udd25\"}",
+      "signature_b64": "KgDgJ73zvj5DJ0ldyKUurqZSvyrI1HTq9ReoCauuEwRWkMe/0a/OxGzxFBw4lXuzQZWtsIDSM0X+De75r60mDw=="
+    },
+    {
+      "name": "empty_body",
+      "seed_hex": "5de60d77093f2b4beabbe02e2a67e74a4950c99a61a1901c79dbfa9487dc431c",
+      "public_key_hex": "8dbd2a3abe32bb7bf352146c9079faa76d7c03cee55c2e34f68352c1161cd3b0",
+      "body_utf8": "",
+      "signature_b64": "LsenftqKk8HsHFb3NzlajCaEDr2Syq7id/Zp80vSFqqPaKGO6TnCUYaA2/zM16bHeWLALs3bbFMdvLmE5QKIBw=="
+    }
+  ],
+  "negative_cases": [
+    {
+      "name": "body_modified",
+      "public_key_hex": "74abf80957cb70afede4c6349d0a5788b33f52961b076a52ac13c34f59c67322",
+      "body_utf8": "{\"v\":1,\"report_id\":\"01J9Z6T4Q8M3K7V2B5N0XWAYCD\",\"sample_stored\":false}",
+      "signature_b64": "E/62dsE/cNv8NXvfzeTd2v2Q6SJdQfeUmTs+LYQZB44H+Z2v3txR9B63X4jQKRqt9SH1lqqe3TpAFML1tllaBw==",
+      "expect": "invalid"
+    },
+    {
+      "name": "trailing_newline_added",
+      "public_key_hex": "74abf80957cb70afede4c6349d0a5788b33f52961b076a52ac13c34f59c67322",
+      "body_utf8": "{\"v\":1,\"report_id\":\"01J9Z6T4Q8M3K7V2B5N0XWAYCD\",\"signature\":\"SZYGIRBIXGHOM3AH\",\"action\":\"count_only\",\"upload\":null,\"retry_after_s\":null,\"disable_until_unix\":null}\n",
+      "signature_b64": "NQyVGMxaLijph/LNL6hL6hdDxWWaMfJi0DvFdUUzu+2SMFxzFsYKeFqeOXIpTtyDXK1hC/9v0x8oRoLxoMKoDQ==",
+      "expect": "invalid"
+    },
+    {
+      "name": "signature_r_bit_flipped",
+      "public_key_hex": "74abf80957cb70afede4c6349d0a5788b33f52961b076a52ac13c34f59c67322",
+      "body_utf8": "{\"v\":1,\"report_id\":\"01J9Z6T4Q8M3K7V2B5N0XWAYCD\",\"signature\":\"SZYGIRBIXGHOM3AH\",\"action\":\"upload\",\"upload\":{\"token\":\"eyJyIjoiMDFKOVo2VDRROE0zSzdWMkI1TjBYV0FZQ0QiLCJlIjoxNzg5Mjg2MDAwfQ.q8vLbWEt\",\"expires_unix\":1789286000,\"artifacts\":[{\"name\":\"crash_txt\",\"max_bytes\":65536},{\"name\":\"crash_log\",\"max_bytes\":65536},{\"name\":\"boot_progress\",\"max_bytes\":327680}]},\"retry_after_s\":null,\"disable_until_unix\":null}",
+      "signature_b64": "VhvOWSU4kYPDrmLNIjO/i2a6GpSJ7fR44UNWd4FDSYNEW00jhNYu/FefwzgdmNInmDmmdtwbWPmNiTLsxMIDAg==",
+      "expect": "invalid"
+    },
+    {
+      "name": "signature_s_plus_group_order",
+      "public_key_hex": "74abf80957cb70afede4c6349d0a5788b33f52961b076a52ac13c34f59c67322",
+      "body_utf8": "{\"v\":1,\"report_id\":\"01J9Z6T4Q8M3K7V2B5N0XWAYCD\",\"signature\":\"SZYGIRBIXGHOM3AH\",\"action\":\"upload\",\"upload\":{\"token\":\"eyJyIjoiMDFKOVo2VDRROE0zSzdWMkI1TjBYV0FZQ0QiLCJlIjoxNzg5Mjg2MDAwfQ.q8vLbWEt\",\"expires_unix\":1789286000,\"artifacts\":[{\"name\":\"crash_txt\",\"max_bytes\":65536},{\"name\":\"crash_log\",\"max_bytes\":65536},{\"name\":\"boot_progress\",\"max_bytes\":327680}]},\"retry_after_s\":null,\"disable_until_unix\":null}",
+      "signature_b64": "VxvOWSU4kYPDrmLNIjO/i2a6GpSJ7fR44UNWd4FDSYMxL0OAnjlBVC48u9v7kbE8mDmmdtwbWPmNiTLsxMIDEg==",
+      "expect": "invalid"
+    },
+    {
+      "name": "other_public_key",
+      "public_key_hex": "8dbd2a3abe32bb7bf352146c9079faa76d7c03cee55c2e34f68352c1161cd3b0",
+      "body_utf8": "{\"v\":1,\"report_id\":\"01J9Z6T4Q8M3K7V2B5N0XWAYCD\",\"signature\":\"SZYGIRBIXGHOM3AH\",\"action\":\"upload\",\"upload\":{\"token\":\"eyJyIjoiMDFKOVo2VDRROE0zSzdWMkI1TjBYV0FZQ0QiLCJlIjoxNzg5Mjg2MDAwfQ.q8vLbWEt\",\"expires_unix\":1789286000,\"artifacts\":[{\"name\":\"crash_txt\",\"max_bytes\":65536},{\"name\":\"crash_log\",\"max_bytes\":65536},{\"name\":\"boot_progress\",\"max_bytes\":327680}]},\"retry_after_s\":null,\"disable_until_unix\":null}",
+      "signature_b64": "VxvOWSU4kYPDrmLNIjO/i2a6GpSJ7fR44UNWd4FDSYNEW00jhNYu/FefwzgdmNInmDmmdtwbWPmNiTLsxMIDAg==",
+      "expect": "invalid"
+    }
+  ]
+}

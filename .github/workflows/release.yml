@@ -1,0 +1,46 @@
+name: Release VPK
+
+# Triggered by pushing a version tag (e.g. v0.1.0). Builds the same two-step
+# pipeline documented in docs-site/installation.md (engine, then the VPK),
+# forced to channel=release, and attaches the resulting VPK to a GitHub
+# Release named after the tag.
+#
+# First run on this workflow will need watching: the VitaSDK Docker image
+# and the build scripts have never been exercised inside GitHub Actions
+# before, only on the maintainer's own machine.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    container:
+      image: vitasdk/vitasdk:latest
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Mark repo safe for git (container runs as a different user)
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build engine (winx86, target Vita)
+        run: TARGET=vita bash third_party/winx86/build.sh
+
+      - name: Build release VPK
+        run: D2VPK_CHANNEL=release D2VPK_REBUILD=1 bash tools/build_rt_boot_vpk.sh
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build-vita/d2vita_boot.vpk
+          generate_release_notes: true

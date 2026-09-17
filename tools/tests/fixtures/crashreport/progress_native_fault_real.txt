@@ -1,0 +1,195 @@
+[ 420.00s] flushfil: lots=1/img fil-occupe=2443 us/img | attentes du jeu=3 (31 us/img, max 48393 us) | recopie textures=223 us/img (187 Ko/img) attentes-tampon=0 replis=0 | ring: occupation-max=24 Ko/2048 Ko attentes-dll=0 perdus=0
+[ 420.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=10, +1 depuis le dernier resume) detenteur-au-releve=thr 1 acq=892769 dans=d2vhost.dll!d2vGlideFlush — le filet ne desaffame pas pendant ce temps run=1:R:59089270,2:B:7,3:B:170084,4:B:735378,5:B:816848
+[ 425.00s] alive: pump=20180 frames=10320 reads=3403 eip=118006e0 sw=37580 io=2648ms jit=1119ms n=2850 sync=157ms fail=0 va=17MB spr=0/8MB cel=0/500KB big=0 jm=301MB fam=4/5 gil=- run=1:B:59804529,2:B:7,3:B:171995,4:B:743122,5:B:826403
+[ 425.00s] hot: grille=0 coll=0 rle=39416 lum=0 blend=0 expl=2531 blit=0 lent=0
+[ 425.00s] audio(10s): voix=1/10 creees=9 grains=447 famine=447 us/grain=80 sortie=23138 rest=0 verrou=36192Kio play=4 stop=6 s=10.4 sansvue=0 uncoup=0/0 resamp=0 puits=vita-bgm codec=h9896/a9898/repli0
+[ 425.00s] scompplat: appels=32 fils-distincts=1 sortie-max=4096 o
+[ 425.00s] traps: total=864992 fenetre=19383 images=260 par-image=74
+[ 425.00s] io(10s): lectures=56 octets=336K hote=77ms (1375us/lect) tailles: <=4K=28 <=64K=28 <=512K=0 >512K=0 seq=56 saut=0 | ram=53/304K carte=3 lect 3/384K 74ms direct=0 | tampons=1280K pic=1280K poignees=10 vols=0 refus=0
+[ 425.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 425.00s] io/fichiers(10s): d2music.mpq n=56 336K 77ms seq=56 ram=53 carte=3/384K;
+[ 425.00s] coeurs: invite-main=v0/rc0/m0x10000/c-1/d0 flushfil=v1/rc0/m0x20000/c-1/d1 d2_audio=v1/rc0/m0x20000/c-1/d1
+[ 425.00s] csintrin: enter=156672 (replis=2) leave=156674 esp-hisse=313348
+[ 425.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[ 426.00s] MEM: libre user=5120 Ko cdram=74752 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=22075 Ko reserve=22444/38912 Ko libre=368 Ko
+[ 426.00s] emis: blocs=2850 x86=517762o arm=3123712o expansion=6.033x
+[ 426.00s] mmu: fold=1 sites=8573 pliables=3066 plies=3066 | stack=3 tetes=17686 maillons=4789 (pop=2202 push=2587) | refus emis=0 saut=35 famille=57
+[ 427.00s] fils: 1=141932B 2=0B 3=384B 4=1462B 5=1921B (blocs/s par fil)
+[ 429.00s] --- images les plus lentes (fenetre, 10416 images vues) ---
+[ 429.00s] lente#01 f10195 297ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=297ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=183 | invite ech=0 000000=0 000000=0 000000=0
+[ 429.00s] lente#02 f10326 270ms | io=54ms gx=0ms attente-invitee=246ms INEXPLIQUE=-30ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=153 | invite ech=0 000000=0 000000=0 000000=0
+[ 429.00s] lente#03 f9667 196ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=196ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=183 | invite ech=0 000000=0 000000=0 000000=0
+[ 429.00s] lente#04 f9944 162ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=162ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=183 | invite ech=0 000000=0 000000=0 000000=0
+[ 429.00s] lente#05 f9694 147ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=147ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=183 | invite ech=0 000000=0 000000=0 000000=0
+[ 429.00s] lente#06 f10194 137ms | io=0ms gx=0ms attente-invitee=16ms INEXPLIQUE=121ms | blocs=0 jit=0ms sync=0ms run=0ms reads=0 scomp=0 sw=0 look=75 | invite ech=0 000000=0 000000=0 000000=0
+[ 429.00s] lente#07 f10188 114ms | io=0ms gx=0ms attente-invitee=14ms INEXPLIQUE=99ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=187 | invite ech=0 000000=0 000000=0 000000=0
+[ 429.00s] lente#08 f9937 112ms | io=0ms gx=0ms attente-invitee=23ms INEXPLIQUE=89ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=180 | invite ech=0 000000=0 000000=0 000000=0
+[ 430.00s] rendu: img=250 (24.9/s) attente=15153us/img spins=1/img sleep=1/img wfso=0/img tick=0/img pompe=Game+0xfa5c8(475) sim=0 (0.0/s)
+[ 430.00s] fogsleep: Sleep(0) de Fog dormis=20157 (credit borne 20 ms)
+[ 430.00s] jeu: dessinees=0/fen sautees=0/fen periode-rendu=40ms periode-sim=40ms | pompe:Game+0xfa5c8(475) | sleep:Game+0xfa67a(475) Game+0xf61fe(10)
+[ 430.00s] phase: img=250 (24.9/s) ticks=0 | par image: sim=0 dessin=0 flush=141 autre=39875 (image=40016 us, tour=0) | dessins=0 flushs=250 tours=0
+[ 430.00s] phase/cout: crochets=0/img refus=0 perdus=0 flush-hors-dessin=250 horloge=674ns onedraw=0
+[ 430.00s] frames: n=253 fps=25.2 pire=297ms@f10195 (blocs=0 jit=0ms sync=0ms reads=2 scomp=0 sw=0) | fen: blocs=0 jit=0ms reads=54
+[ 430.00s] ring: 466 enr/img (etat=343 redondants=0 evites-dll=122 dessins=122 lots=122) | 488 sommets/img | 21 Ko/img | texup=3 (178 Ko/img) | attentes=0 perdus=0 | h=0x9d343beb5c5de9b8
+[ 430.00s] gxm: atlas-plein=0 | lots=32 sommets=488 | atlas: pages=29/128 cellules=4448 reussites=100% (940/940) evictions=0 (vivantes=0 en-vol=0) copies=0 (0 Ko/img) | liaisons manquees=0% ordre=1264122 repli=0 perimees=0 | perdus=0 melange-inconnu=0 fmt-autre=0 | surdessin=0 Kpx/img (0% de l'ecran) lots-par-palette=melanges | non-couverts=0 px/img (0% de l'ecran, pire 0)
+[ 430.00s] gxm: images=253 lots/img=32 sommets/img=488 appels/img=33 pages=29 rendu=960x544 soumission-us=255 attente-gpu-us=323 presentation-us=470 mode=1 en-vol=0,07 attentes-tampon=18 vidages=0 rappels=10447 vsync=1 | recopie-us=25 debut-scene-us=29 lots-us=104 fin-scene-us=95 finish-us=323 setframebuf-us=470 somme-us=1048 total-submit-us=1078 | pal=shader effacement=plat melange=mesure sonde=0 f=d2_ring_f palette-debordee=0 filtre-refuse/img=0
+[ 430.00s] gxm-flush: total-us=140 (parcours-ring-us=523 televersements-us=1011 soumission-us=1082 hors-replay-us=0) | televersement: n/img=3 octets-moy=49152 us/tele=272 hachage-us/tele=0 (GRPROF=0)
+[ 430.00s] flushfil: lots=1/img fil-occupe=2618 us/img | attentes du jeu=10 (137 us/img, max 48393 us) | recopie textures=217 us/img (178 Ko/img) attentes-tampon=0 replis=0 | ring: occupation-max=24 Ko/2048 Ko attentes-dll=0 perdus=0
+[ 435.00s] io(10s): lectures=55 octets=324K hote=23ms (431us/lect) tailles: <=4K=28 <=64K=27 <=512K=0 >512K=0 seq=55 saut=0 | ram=53/303K carte=2 lect 2/256K 21ms direct=0 | tampons=1280K pic=1280K poignees=10 vols=0 refus=0
+[ 435.00s] io/fichiers(10s): d2music.mpq n=55 324K 23ms seq=55 ram=53 carte=2/256K;
+[ 436.00s] alive: pump=20709 frames=10593 reads=3461 eip=118006e0 sw=38555 io=2726ms jit=1119ms n=2850 sync=157ms fail=0 va=17MB spr=0/8MB cel=0/500KB big=0 jm=301MB fam=4/5 gil=- run=1:B:61355012,2:B:7,3:B:176279,4:B:759196,5:B:847823
+[ 436.00s] hot: grille=0 coll=0 rle=40464 lum=0 blend=0 expl=2531 blit=0 lent=0
+[ 436.00s] audio(10s): voix=1/10 creees=9 grains=465 famine=465 us/grain=78 sortie=23139 rest=0 verrou=37120Kio play=4 stop=6 s=10.8 sansvue=0 uncoup=0/0 resamp=0 puits=vita-bgm codec=h10128/a10130/repli0
+[ 436.00s] scompplat: appels=32 fils-distincts=1 sortie-max=4096 o
+[ 436.00s] traps: total=885020 fenetre=20028 images=268 par-image=74
+[ 436.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 436.00s] coeurs: invite-main=v0/rc0/m0x10000/c-1/d0 flushfil=v1/rc0/m0x20000/c1/d1 d2_audio=v1/rc0/m0x20000/c-1/d1
+[ 436.00s] csintrin: enter=160362 (replis=2) leave=160364 esp-hisse=320728
+[ 436.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[ 436.00s] MEM: libre user=5120 Ko cdram=74752 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=22075 Ko reserve=22444/38912 Ko libre=368 Ko
+[ 436.00s] emis: blocs=2850 x86=517762o arm=3123712o expansion=6.033x
+[ 436.00s] mmu: fold=1 sites=8573 pliables=3066 plies=3066 | stack=3 tetes=17686 maillons=4789 (pop=2202 push=2587) | refus emis=0 saut=35 famille=57
+[ 437.00s] fils: 1=142393R 2=0B 3=399B 4=1550B 5=1995B (blocs/s par fil)
+[ 440.00s] rendu: img=251 (24.9/s) attente=15524us/img spins=1/img sleep=1/img wfso=0/img tick=0/img pompe=Game+0xfa5c8(496) sim=0 (0.0/s)
+[ 440.00s] fogsleep: Sleep(0) de Fog dormis=20652 (credit borne 20 ms)
+[ 440.00s] jeu: dessinees=0/fen sautees=0/fen periode-rendu=40ms periode-sim=40ms | pompe:Game+0xfa5c8(496) | sleep:Game+0xfa67a(496)
+[ 440.00s] phase: img=251 (25.0/s) ticks=0 | par image: sim=0 dessin=0 flush=2 autre=39997 (image=39999 us, tour=0) | dessins=0 flushs=251 tours=0
+[ 440.00s] phase/cout: crochets=0/img refus=0 perdus=0 flush-hors-dessin=251 horloge=674ns onedraw=0
+[ 440.00s] frames: n=251 fps=25.0 pire=69ms@f10689 (blocs=0 jit=0ms sync=0ms reads=0 scomp=0 sw=0) | fen: blocs=0 jit=0ms reads=54
+[ 440.00s] ring: 467 enr/img (etat=344 redondants=0 evites-dll=122 dessins=122 lots=122) | 488 sommets/img | 21 Ko/img | texup=4 (192 Ko/img) | attentes=0 perdus=0 | h=0xe2da78c83b757546
+[ 440.00s] gxm: atlas-plein=0 | lots=32 sommets=488 | atlas: pages=29/128 cellules=4448 reussites=100% (1004/1004) evictions=0 (vivantes=0 en-vol=0) copies=0 (0 Ko/img) | liaisons manquees=0% ordre=1294744 repli=0 perimees=0 | perdus=0 melange-inconnu=0 fmt-autre=0 | surdessin=0 Kpx/img (0% de l'ecran) lots-par-palette=melanges | non-couverts=0 px/img (0% de l'ecran, pire 0)
+[ 440.00s] gxm: images=251 lots/img=32 sommets/img=488 appels/img=33 pages=29 rendu=960x544 soumission-us=255 attente-gpu-us=28 presentation-us=477 mode=1 en-vol=0,00 attentes-tampon=0 vidages=0 rappels=10698 vsync=1 | recopie-us=24 debut-scene-us=29 lots-us=104 fin-scene-us=95 finish-us=28 setframebuf-us=477 somme-us=760 total-submit-us=776 | pal=shader effacement=plat melange=mesure sonde=0 f=d2_ring_f palette-debordee=0 filtre-refuse/img=0
+[ 440.00s] gxm-flush: total-us=2 (parcours-ring-us=523 televersements-us=1083 soumission-us=780 hors-replay-us=0) | televersement: n/img=4 octets-moy=49152 us/tele=270 hachage-us/tele=0 (GRPROF=0)
+[ 440.00s] flushfil: lots=1/img fil-occupe=2389 us/img | attentes du jeu=0 (0 us/img, max 48393 us) | recopie textures=232 us/img (192 Ko/img) attentes-tampon=0 replis=0 | ring: occupation-max=24 Ko/2048 Ko attentes-dll=0 perdus=0
+[ 444.00s] input: autopilote coupe (prise en main)
+[ 444.00s] pathcache: resolutions=51 (ecriture=3 donnees=25 introuvables=17 auto=6) | balayages=9 (constructions=9 parcours=0) | consultations-dossier=87 dont-absent-sans-balayage=59 | invalidations=7 re-verifications=0 replis=0 dont-INDEX-PERIME=0 | courses=0 aveugles=0 | entrees 1.14d=28,save2=99
+[ 444.00s] io: SHORT read h=81000015 want=8192 got=1030 eof=0 err=0 file=ux0:data/d2vita/save2/ABCDE.d2s
+[ 444.00s] io: SHORT read h=81000015 want=4096 got=0 eof=0 err=0 file=ux0:data/d2vita/save2/ABCDE.d2s
+[ 444.00s] io: SHORT read h=81000016 want=8192 got=1096 eof=0 err=0 file=ux0:data/d2vita/save2/VITA.d2s
+[ 444.00s] io: SHORT read h=81000016 want=4096 got=0 eof=0 err=0 file=ux0:data/d2vita/save2/VITA.d2s
+[ 445.00s] io: SHORT read h=81000017 want=8192 got=1285 eof=0 err=0 file=ux0:data/d2vita/save2/ABC.d2s
+[ 445.00s] io: SHORT read h=81000017 want=4096 got=0 eof=0 err=0 file=ux0:data/d2vita/save2/ABC.d2s
+[ 445.00s] io: SHORT read h=81000018 want=8192 got=335 eof=0 err=0 file=ux0:data/d2vita/save2/AAAA.d2s
+[ 445.00s] io: SHORT read h=81000018 want=4096 got=0 eof=0 err=0 file=ux0:data/d2vita/save2/AAAA.d2s
+[ 445.00s] dcc: decodeur natif actif (1er sprite servi)
+[ 445.00s] io(10s): lectures=299 octets=1204K hote=362ms (1211us/lect) tailles: <=4K=208 <=64K=91 <=512K=0 >512K=0 seq=194 saut=105 | ram=232/1075K carte=67 lect 71/2659K 357ms direct=0 | tampons=1280K pic=1408K poignees=10 vols=0 refus=0
+[ 445.00s] io/fichiers(10s): d2char.mpq n=110 210K 145ms seq=39 ram=83 carte=26/832K; d2data.mpq n=75 547K 92ms seq=69 ram=62 carte=12/864K; d2exp.mpq n=26 77K 58ms seq=6 ram=14 carte=11/352K; d2music.mpq n=53 320K 35ms seq=53 ram=50 carte=3/384K; Patch_D2.mpq n=27 44K 22ms seq=23 ram=23 carte=3/96K;
+[ 446.00s] alive: pump=21161 frames=10816 reads=3761 eip=01a02f09 sw=39557 io=3092ms jit=1278ms n=3240 sync=177ms fail=0 va=17MB spr=0/8MB cel=6/500KB big=0 jm=301MB fam=4/5 gil=- run=1:R:62991982,2:B:7,3:B:180122,4:B:790245,5:B:867044
+[ 446.00s] hot: grille=0 coll=0 rle=41542 lum=0 blend=0 expl=2823 blit=0 lent=0
+[ 446.00s] audio(10s): voix=1/10 creees=9 grains=435 famine=435 us/grain=79 sortie=23139 rest=0 verrou=38112Kio play=5 stop=7 s=10.1 sansvue=0 uncoup=0/0 resamp=0 puits=vita-bgm codec=h10344/a10346/repli0
+[ 446.00s] scompplat: appels=107 fils-distincts=1 sortie-max=4096 o
+[ 446.00s] traps: total=916438 fenetre=31418 images=225 par-image=139
+[ 446.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 446.00s] coeurs: invite-main=v0/rc0/m0x10000/c-1/d0 flushfil=v1/rc0/m0x20000/c-1/d1 d2_audio=v1/rc0/m0x20000/c-1/d1
+[ 446.00s] csintrin: enter=167890 (replis=2) leave=167892 esp-hisse=335784
+[ 446.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[ 446.00s] MEM: libre user=5120 Ko cdram=71680 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=22542 Ko reserve=23216/38912 Ko libre=673 Ko
+[ 446.00s] emis: blocs=3240 x86=591593o arm=3531640o expansion=5.969x
+[ 446.00s] mmu: fold=1 sites=9876 pliables=3548 plies=3548 | stack=3 tetes=20133 maillons=5582 (pop=2574 push=3008) | refus emis=0 saut=48 famille=66
+[ 447.00s] fils: 1=189322B 2=0B 3=382B 4=3050B 5=1911B (blocs/s par fil)
+[ 450.00s] rendu: img=222 (22.1/s) attente=14124us/img spins=1/img sleep=1/img wfso=0/img tick=0/img pompe=Game+0xfa5c8(434) sim=0 (0.0/s)
+[ 450.00s] fogsleep: Sleep(0) de Fog dormis=21083 (credit borne 20 ms)
+[ 450.00s] jeu: dessinees=0/fen sautees=0/fen periode-rendu=40ms periode-sim=40ms | pompe:Game+0xfa5c8(434) | sleep:Game+0xfa67a(434) Game+0xf61fe(1)
+[ 450.00s] phase: img=222 (22.1/s) ticks=0 | par image: sim=0 dessin=0 flush=81 autre=45104 (image=45185 us, tour=0) | dessins=0 flushs=222 tours=0
+[ 450.00s] phase/cout: crochets=0/img refus=0 perdus=0 flush-hors-dessin=222 horloge=674ns onedraw=0
+[ 450.00s] frames: n=222 fps=22.1 pire=1269ms@f10793 (blocs=319 jit=139ms sync=17ms reads=252 scomp=367 sw=0) | fen: blocs=390 jit=159ms reads=302
+[ 450.00s] ring: 607 enr/img (etat=394 redondants=0 evites-dll=213 dessins=211 lots=208) | 845 sommets/img | 34 Ko/img | texup=8 (87 Ko/img) | attentes=0 perdus=0 | h=0x10d88058bbf6cf9b
+[ 450.00s] gxm: atlas-plein=0 | lots=42 sommets=845 | atlas: pages=39/128 cellules=12492 reussites=74% (1443/1932) evictions=0 (vivantes=0 en-vol=0) copies=489 (3 Ko/img) | liaisons manquees=0% ordre=1341028 repli=0 perimees=0 | perdus=0 melange-inconnu=0 fmt-autre=0 | surdessin=0 Kpx/img (0% de l'ecran) lots-par-palette=melanges | non-couverts=0 px/img (0% de l'ecran, pire 0)
+[ 450.00s] gxm: images=222 lots/img=42 sommets/img=845 appels/img=43 pages=39 rendu=960x544 soumission-us=288 attente-gpu-us=72 presentation-us=429 mode=1 en-vol=0,01 attentes-tampon=3 vidages=0 rappels=10920 vsync=1 | recopie-us=41 debut-scene-us=27 lots-us=124 fin-scene-us=92 finish-us=72 setframebuf-us=429 somme-us=788 total-submit-us=845 | pal=shader effacement=plat melange=mesure sonde=0 f=d2_ring_f palette-debordee=0 filtre-refuse/img=0
+[ 450.00s] gxm-flush: total-us=81 (parcours-ring-us=761 televersements-us=610 soumission-us=849 hors-replay-us=0) | televersement: n/img=8 octets-moy=10270 us/tele=70 hachage-us/tele=0 (GRPROF=0)
+[ 450.00s] flushfil: lots=1/img fil-occupe=2222 us/img | attentes du jeu=2 (79 us/img, max 48393 us) | recopie textures=109 us/img (87 Ko/img) attentes-tampon=0 replis=0 | ring: occupation-max=48 Ko/2048 Ko attentes-dll=0 perdus=0
+[ 455.00s] JIT BRIDE : reserve systeme atteinte (libre 5120 Ko, plancher 4096 Ko) — interpretation en repli, voir fail=
+[ 455.00s] NATIVE FAULT thr 1 eip=0192f040 addr=0192f040
+[ 455.00s] === DYNAREC PROFILE (D2_JITPROFILE) : TRONQUE - frontiere Rogue jamais franchie ===
+[ 455.00s] frontiere_rogue: frame=-1 t=450027ms | fin: frame=11031 t=450027ms
+[ 455.00s] === DYNAREC PROFILE: PRE-ROGUE ===
+[ 455.00s] total_us=450027172
+[ 455.00s] jit_compile_us=1432017
+[ 455.00s] guest_run_us=2240406594
+[ 455.00s] lookup_us=1425184
+[ 455.00s] icache_sync_us=182962
+[ 455.00s] dynablocks_created=3329
+[ 455.00s] x86_insns_compiled=186927
+[ 455.00s] arm_bytes_generated=3680548
+[ 455.00s] cache_hits=989803
+[ 455.00s] cache_misses=3459
+[ 455.00s] recompiles=0
+[ 455.00s] invalidations=0
+[ 455.00s] jit_compile_pct=0.31
+[ 455.00s] lookup_pct=0.31
+[ 455.00s] icache_sync_pct=0.04
+[ 455.00s] avg_compile_us_per_block=430.16
+[ 455.00s] avg_x86_insns_per_block=56.15
+[ 455.00s] avg_arm_bytes_per_block=1105.60
+[ 455.00s] exclusif: exec_et_traps_us=2237549393 (497.20%)  hors_invite_us=0 (0.00%)
+[ 455.00s] note: icache_sync est INCLUS dans jit_compile_us (12.77% du JIT)
+[ 455.00s] fills=3459 fill_fail=130
+[ 455.00s] === DYNAREC PROFILE: POST-ROGUE ===
+[ 455.00s] total_us=5
+[ 455.00s] jit_compile_us=0
+[ 455.00s] guest_run_us=0
+[ 456.00s] lookup_us=0
+[ 456.00s] icache_sync_us=0
+[ 456.00s] dynablocks_created=0
+[ 456.00s] x86_insns_compiled=0
+[ 456.00s] arm_bytes_generated=0
+[ 456.00s] cache_hits=0
+[ 456.00s] cache_misses=0
+[ 456.00s] recompiles=0
+[ 456.00s] invalidations=0
+[ 456.00s] jit_compile_pct=0.00
+[ 456.00s] lookup_pct=0.00
+[ 456.00s] icache_sync_pct=0.00
+[ 456.00s] avg_compile_us_per_block=n/a
+[ 456.00s] avg_x86_insns_per_block=n/a
+[ 456.00s] avg_arm_bytes_per_block=n/a
+[ 456.00s] exclusif: exec_et_traps_us=0 (0.00%)  hors_invite_us=5 (100.00%)
+[ 456.00s] note: icache_sync est INCLUS dans jit_compile_us (0.00% du JIT)
+[ 456.00s] fills=0 fill_fail=0
+[ 456.00s] === PRE vs POST ===
+[ 456.00s] compile_time_ratio=n/a
+[ 456.00s] new_blocks_ratio=n/a
+[ 456.00s] cache_miss_ratio=n/a
+[ 456.00s] arm_generated_ratio=n/a
+[ 456.00s] methode: lookup ECHANTILLONNE 1/64 (pre smp=15517/993134, post smp=0/0), biais horloge retire=854ns
+[ 456.00s] === FIN DYNAREC PROFILE ===
+[ 456.00s] === FRAME PROFILE : 11031 images, moyenne 40ms ===
+[ 456.00s] note: blocs/jit/sync/reads/scomp exacts, run= approche (+/- une tranche)
+[ 456.00s] repartition: <50ms=10832 50-100=129 100-250=61 250-500=6 500-1000=1 >=1s=2
+[ 456.00s] --- images les plus lentes (final, 11031 images vues) ---
+[ 456.00s] lente#01 f2 3481ms | io=835ms gx=0ms attente-invitee=0ms INEXPLIQUE=2282ms | blocs=508 jit=331ms sync=31ms run=2199ms reads=962 scomp=2171 sw=0 look=48319 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] lente#02 f10793 1269ms | io=330ms gx=0ms attente-invitee=0ms INEXPLIQUE=781ms | blocs=319 jit=139ms sync=17ms run=0ms reads=252 scomp=367 sw=0 look=11258 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] lente#03 f2913 730ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=730ms | blocs=0 jit=0ms sync=0ms run=0ms reads=4 scomp=0 sw=0 look=289 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] lente#04 f660 379ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=379ms | blocs=0 jit=0ms sync=0ms run=0ms reads=4 scomp=0 sw=0 look=289 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] lente#05 f227 369ms | io=102ms gx=0ms attente-invitee=15ms INEXPLIQUE=202ms | blocs=131 jit=41ms sync=6ms run=0ms reads=81 scomp=240 sw=0 look=3012 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] lente#06 f10195 297ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=297ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=183 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] lente#07 f2163 276ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=276ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=183 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] lente#08 f10326 270ms | io=54ms gx=0ms attente-invitee=246ms INEXPLIQUE=-30ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=153 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] lente#09 f6665 266ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=266ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=183 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] lente#10 f8166 229ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=229ms | blocs=0 jit=0ms sync=0ms run=0ms reads=0 scomp=0 sw=0 look=71 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] lente#11 f7 222ms | io=55ms gx=0ms attente-invitee=0ms INEXPLIQUE=73ms | blocs=233 jit=81ms sync=12ms run=0ms reads=40 scomp=123 sw=0 look=1683 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] alive: pump=21590 frames=11031 reads=3842 eip=0192f040 sw=40364 io=3152ms jit=1432ms n=3459 sync=182ms fail=130 va=17MB spr=0/8MB cel=6/500KB big=0 jm=301MB fam=4/5 gil=-
+[ 456.00s] lente#12 f4414 218ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=218ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=183 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] hot: grille=0 coll=0 rle=43412 lum=0 blend=0 expl=2933 blit=0 lent=0
+[ 456.00s] lente#13 f911 201ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=201ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=183 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] audio(10s): voix=1/10 creees=9 grains=439 famine=439 us/grain=77 sortie=23141 rest=0 verrou=39040Kio play=6 stop=24 s=10.2 sansvue=0 uncoup=0/0 resamp=0 puits=vita-bgm codec=h10544/a10546/repli0
+[ 456.00s] lente#14 f9667 196ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=196ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=183 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] scompplat: appels=107 fils-distincts=1 sortie-max=4096 o
+[ 456.00s] lente#15 f8442 187ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=187ms | blocs=0 jit=0ms sync=0ms run=0ms reads=0 scomp=0 sw=0 look=71 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] traps: total=966406 fenetre=49968 images=213 par-image=234
+[ 456.00s] lente#16 f5915 185ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=185ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=183 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x80028021/c-1/d-1
+[ 456.00s] lente#17 f4683 177ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=177ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=175 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0 flushfil=v1/rc0/m0x20000/c-1/d1 d2_audio=v1/rc0/m0x20000/c-1/d1
+[ 456.00s] csintrin: enter=178811 (replis=2) leave=178813 esp-hisse=357626
+[ 456.00s] lente#18 f4433 168ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=168ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=175 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[ 456.00s] lente#19 f8191 168ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=168ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=183 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] MEM: libre user=6144 Ko cdram=71680 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=22535 Ko reserve=23216/38912 Ko libre=680 Ko
+[ 456.00s] emis: blocs=3329 x86=614737o arm=3680548o expansion=5.987x
+[ 456.00s] lente#20 f6437 168ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=168ms | blocs=0 jit=0ms sync=0ms run=0ms reads=0 scomp=0 sw=0 look=71 | invite ech=0 000000=0 000000=0 000000=0
+[ 456.00s] mmu: fold=1 sites=9983 pliables=3604 plies=3604 | stack=3 tetes=20417 maillons=5636 (pop=2619 push=3017) | refus emis=0 saut=51 famille=66
+[ 457.00s] lente#21 f2669 168ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=168ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=183 | invite ech=0 000000=0 000000=0 000000=0
+[ 457.00s] lente#22 f910 163ms | io=0ms gx=0ms attente-invitee=15ms INEXPLIQUE=147ms | blocs=0 jit=0ms sync=0ms run=0ms reads=0 scomp=0 sw=0 look=75 | invite ech=0 000000=0 000000=0 000000=0
+[ 457.00s] lente#23 f3431 163ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=163ms | blocs=0 jit=0ms sync=0ms run=0ms reads=0 scomp=0 sw=0 look=71 | invite ech=0 000000=0 000000=0 000000=0
+[ 457.00s] lente#24 f9944 162ms | io=0ms gx=0ms attente-invitee=0ms INEXPLIQUE=162ms | blocs=0 jit=0ms sync=0ms run=0ms reads=2 scomp=0 sw=0 look=183 | invite ech=0 000000=0 000000=0 000000=0

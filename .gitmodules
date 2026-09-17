@@ -1,0 +1,6 @@
+[submodule "third_party/StormLib"]
+	path = third_party/StormLib
+	url = https://github.com/ladislav-zezula/StormLib.git
+[submodule "third_party/winx86"]
+	path = third_party/winx86
+	url = https://github.com/Franckrst/WinVita.git

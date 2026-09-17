@@ -1,0 +1,358 @@
+# tools/shim_seq.allow — transitions de corps de shim explicitement autorisees
+# pour une comparaison a une revision ANTERIEURE a une extraction (Phase 3 du
+# decoupage winx86/d2vita). Une ligne = une transition EXACTE : cle, empreinte
+# avant, empreinte apres, raison. Rien d'autre n'est excuse, et une derive
+# ULTERIEURE de ces memes cles redevient fatale.
+#
+# Vide pour l'instant : aucune extraction n'a encore eu lieu. A peupler au fil
+# des extractions, meme mecanique que carn-vita (tools/shim_seq.allow de ce
+# depot-la sert de reference pour le format).
+#
+# Pour une regression PURE (rien n'a du changer), comparer a HEAD SANS ce
+# fichier :  tools/shim_seq.sh
+#
+# ------------------------------------------------------------------------
+# ENSEMBLE : ce fichier n'excuse QUE des transitions de corps. Un changement
+# de multiplicite n'a volontairement aucun mecanisme d'autorisation, il doit
+# etre verifie a la main et trace ici. Un seul a ce jour :
+#
+# 2026-09-11, aides d'adresse — WS2_32.dll!#10 et WS2_32.dll!#11 passent de
+# DEUX inscriptions a UNE. Le helper W() de rt_boot.cpp inscrivait chaque
+# ordinal sur les DEUX noms de DLL, alors que les deux ne s'accordent pas sur
+# ces ordinaux (WSOCK32 10=inet_addr 11=inet_ntoa 12=ioctlsocket ; WS2_32
+# 10=ioctlsocket 11=inet_addr 12=inet_ntoa). Il plantait donc une inscription
+# FAUSSE sur chacune de ces deux cles, aussitot ecrasee par la bonne fonction.
+# winx86 inscrit desormais chaque paire sur le BON ordinal, directement.
+# VERIFIE une cle a la fois, pas deduit : les deux cles EXISTENT toujours et
+# leur corps gagnant est INCHANGE (WS2_32!#10 = ioctlsocket 8bc9718442bc,
+# WS2_32!#11 = inet_addr e532d2af355d) ; seules les deux inscriptions mortes
+# disparaissent. EFFECTIF est reste identique sur les 637 autres cles.
+# 2026-09-11, retrait des inscriptions en DOUBLE — cinq cles passent de DEUX
+# inscriptions a UNE. Elles ont ete revelees par la page generee docs-site/
+# shims.md, pas par une intuition. Aucune cle ne disparait : shim_seq confirme
+# "EFFECTIF: identique (meme corps gagnant pour les 643 cles)", 648 -> 643
+# inscriptions. Chaque cas verifie A LA MAIN, corps gagnant CONSERVE tel quel :
+#
+#   ADVAPI32.dll!CheckTokenMembership  les deux corps etaient IDENTIQUES
+#                                      (meme empreinte a773c76767eb).
+#   ADVAPI32.dll!GetUserNameA          corps differents : le perdant rendait
+#                                      "Player" avec garde `if(b)`, le gagnant
+#                                      rend "player" sans garde. Le GAGNANT est
+#                                      conserve — c'est lui qui a toujours ete
+#                                      effectif, donc le seul valide par les
+#                                      essais en ligne. La garde manquante est
+#                                      documentee comme reserve dans winx86.
+#   USER32.dll!wsprintfA               l'extraction du 2026-09-10 les avait
+#   USER32.dll!wvsprintfA              inscrites, mais rt_boot.cpp les
+#                                      reinscrivait plus tard : les corps
+#                                      extraits n'ont JAMAIS ete effectifs.
+#                                      Les deux formateurs ne sont PAS
+#                                      equivalents (le vivant borne a 1024,
+#                                      protege tampon et %s nuls, ignore %p),
+#                                      donc on retire le mort, on ne substitue
+#                                      pas. do_wsprintf, qui n'avait plus que
+#                                      ces deux appelants, est retire aussi.
+#   WINTRUST.dll!WinVerifyTrust        les deux corps rendaient 0
+#                                      (ERROR_SUCCESS) ; seul le perdant portait
+#                                      une trace CRYPTLOG. Le site survivant
+#                                      porte desormais les DEUX raisons (porte
+#                                      Authenticode de CheckRevision.dll et
+#                                      anti-tamper 1.14). C'est la cle qui a
+#                                      donne son nom a la regle : elle est
+#                                      desormais conforme a cette regle.
+#
+# Pour valider une extraction qui a legitimement change des corps :
+#   ALLOW_REORDER=1 ALLOW_BODY=tools/shim_seq.allow tools/shim_seq.sh <ref-avant>
+#
+# cle                          avant         apres         raison
+ADVAPI32.dll!RegisterServiceCtrlHandlerA	af48691ea910	fd0d5d40cad6	extraction ADVAPI32 2026-09-10 : A() supprime, ces 3 appels orphelins passent par REG() deja en portee (meme corps, texte d'appel different -> empreinte differente, comportement identique)
+ADVAPI32.dll!SetServiceStatus	f26c31644614	d2b83768768d	extraction ADVAPI32 2026-09-10 : idem RegisterServiceCtrlHandlerA (A() -> REG())
+ADVAPI32.dll!StartServiceCtrlDispatcherA	066efa9f1493	c8bdb9485ca4	extraction ADVAPI32 2026-09-10 : idem RegisterServiceCtrlHandlerA (A() -> REG())
+USER32.dll!LoadStringW	cd8cd6759262	bd3ded02f2f9	extraction USER32 2026-09-10 (winx86) : gwrite_wc(c,buf,0) inline en c.write(buf,&z,2) avec z=0 pour eviter une dependance winx86->d2vita (meme corps machine, texte d'appel different)
+KERNEL32.dll!EnumProcessModules	52079f910d32	622a0ef566aa	extraction PSAPI 2026-09-10 (winx86) : g_modByBase (map<base,PeImage*> d2vita) -> Bridge::loaded_modules() (vector<pair<base,size>> generique) ; meme resultat, structure de donnees differente donc texte differe
+KERNEL32.dll!GetModuleInformation	07d2f1b020f6	24cf071e8b76	extraction PSAPI 2026-09-10 (winx86) : idem EnumProcessModules ; le 3e champ ecrit (EntryPoint~base) passe de it->second->load_base() a h, les deux valent la meme chose (h EST le load_base, cle de g_modByBase)
+KERNEL32.dll!K32EnumProcessModules	7af851322738	c1ebf6346fb8	extraction PSAPI 2026-09-10 (winx86) : idem EnumProcessModules (meme lambda enum_process_modules, deux noms de DLL)
+KERNEL32.dll!K32GetModuleInformation	15144490bb8e	31478ced6a0d	extraction PSAPI 2026-09-10 (winx86) : idem GetModuleInformation (meme lambda get_module_information, deux noms de DLL)
+PSAPI.DLL!GetModuleInformation	bc23a72cc5e8	4bcf08d88628	extraction PSAPI 2026-09-10 (winx86) : idem GetModuleInformation (meme lambda, troisieme nom de DLL d'enregistrement)
+VERSION.dll!GetFileVersionInfoSizeW	6b8c0f37f363	b05e2c511f29	extraction VERSION 2026-09-10 (winx86) : build_verinfo(host_path(n)) direct -> br.version_resource_bytes(n) (indirection via Bridge::set_version_resource_source, meme resultat, meme build_verinfo() copie dans win32_shims_version.cpp)
+VERSION.dll!GetFileVersionInfoW	dce9198f03dc	8ceaaf0d067e	extraction VERSION 2026-09-10 (winx86) : idem GetFileVersionInfoSizeW
+VERSION.dll!VerQueryValueA	828a605d0b5a	7858920d8ead	extraction VERSION 2026-09-10 (winx86) : corps inchange, texte d'appel different (REG() de rt_boot.cpp -> br.register_shim() direct dans win32_shims_version.cpp)
+VERSION.dll!VerQueryValueW	1a9bc2db27ca	84e12874ef65	extraction VERSION 2026-09-10 (winx86) : vfn(c,p) locale (gread_wc+filtre ASCII) -> gread_narrow_wide(c,p) (meme algorithme, copie locale a winx86 pour ne pas dependre de gread_wc de d2vita)
+USER32.dll!GetSystemMetrics	da66b6c3d545	e06526d2df5f	decouplage GDI32/fenetre 2026-09-10 (winx86) : g_scrW/g_scrH (globales d2vita, gagnantes par ecrasement sur le stub winx86 "return 0" preexistant) -> wx86_screen_w()/wx86_screen_h() (accesseurs generiques, poses par wx86_set_screen_size(800,600) cote d2vita) ; VERIFIE : meme valeur, le stub qui perdait deja l'ecrasement est retire, pas de regression
+USER32.dll!IntersectRect	d1711e7ca25d	f6afb60daa7c	decouplage GDI32/fenetre 2026-09-10 (winx86) : corps d2vita gagnant (deja le seul avec gestion du cas degenere) conserve tel quel dans win32_shims_user32.cpp, texte d'appel different ; VERIFIE contre l'ancien gagnant, comportement identique
+USER32.dll!OffsetRect	39b83db6bd00	e897c7f084c3	decouplage GDI32/fenetre 2026-09-10 (winx86) : idem IntersectRect (corps gagnant deplace tel quel)
+USER32.dll!PtInRect	9095e7c94d16	315ee363aa74	decouplage GDI32/fenetre 2026-09-10 (winx86) : idem IntersectRect (corps gagnant deplace tel quel)
+USER32.dll!SetRect	4548f41cb010	9bb5294b7bbc	decouplage GDI32/fenetre 2026-09-10 (winx86) : deux corps d2vita coexistaient (rt_boot.cpp lignes ~7933 et ~8042, le second gagnant par ecrasement) ; le gagnant (ecrit les 4 champs RECT depuis arg1..4) est celui deplace, le perdant supprime ; VERIFIE contre l'ancien gagnant, comportement identique
+USER32.dll!UnionRect	45d9438ae00f	6175aea527fb	decouplage GDI32/fenetre 2026-09-10 (winx86) : idem IntersectRect (corps gagnant deplace tel quel, gestion explicite du cas degenere conservee)
+GDI32.dll!GetDeviceCaps	60f6acd1b96d	5f1946b029a6	decouplage GDI32/fenetre 2026-09-10 (winx86) : litteraux 800u/600u (HORZRES/VERTRES) -> wx86_screen_w()/wx86_screen_h() ; meme valeur (poses par wx86_set_screen_size(800,600) au boot), texte d'appel different
+USER32.dll!BeginPaint	7021d7676816	820b8a1c3b43	decouplage GDI32/fenetre 2026-09-10 (winx86) : g_scrW/g_scrH (rcPaint.right/bottom) -> wx86_screen_w()/wx86_screen_h() ; meme valeur, corps deplace tel quel sinon
+USER32.dll!CopyRect	58f9cb6e67ff	c7afed6ef73a	decouplage GDI32/fenetre 2026-09-10 (winx86) : corps deplace tel quel (variable locale s2 renommee s), aucun changement de logique
+USER32.dll!EnumDisplaySettingsA	85b397cbdf7f	ba96bca601b6	decouplage GDI32/fenetre 2026-09-10 (winx86) : g_scrW/g_scrH -> wx86_screen_w()/wx86_screen_h() ; meme valeur, reste cote d2vita (bloc "couverture complete des imports", non deplace)
+USER32.dll!GetClientRect	af502d8a0aea	fdb74e4c7f4b	decouplage GDI32/fenetre 2026-09-10 (winx86) : g_scrW/g_scrH -> wx86_screen_w()/wx86_screen_h() ; meme valeur, corps deplace tel quel sinon
+USER32.dll!GetCursorPos	965895bf5f29	9e468949dd7c	decouplage GDI32/fenetre 2026-09-10 (winx86) : lecture directe g_curX/g_curY -> wx86_get_cursor() ; meme valeur (etat deplace en bloc avec l'accesseur), corps deplace tel quel sinon
+USER32.dll!GetMonitorInfoA	bf09be6fdce0	d22be1312d13	decouplage GDI32/fenetre 2026-09-10 (winx86) : g_scrW/g_scrH -> wx86_screen_w()/wx86_screen_h() ; meme valeur, reste cote d2vita (bloc "couverture complete des imports", non deplace)
+USER32.dll!GetWindowPlacement	ac671f86fc49	1f980a49751d	decouplage GDI32/fenetre 2026-09-10 (winx86) : g_scrW/g_scrH -> wx86_screen_w()/wx86_screen_h() ; meme valeur, reste cote d2vita (bloc "couverture complete des imports", non deplace)
+USER32.dll!GetWindowRect	eee667edc008	079f1c734019	decouplage GDI32/fenetre 2026-09-10 (winx86) : g_scrW/g_scrH -> wx86_screen_w()/wx86_screen_h() ; meme valeur, corps deplace tel quel sinon
+USER32.dll!InflateRect	92c59012d984	2b466956f879	decouplage GDI32/fenetre 2026-09-10 (winx86) : corps deplace tel quel (arithmetique explicitement castee int32_t au lieu du wraparound uint32_t implicite) ; meme resultat bit a bit
+USER32.dll!MapVirtualKeyA	a3ed5b68a87b	ee943829827e	decouplage GDI32/fenetre 2026-09-10 (winx86) : inj_scan(c2vita) -> wx86_scan_code() (meme table scancode PC/AT dupliquee localement pour ne pas dependre de d2vita) ; meme resultat pour tout code d'entree
+USER32.dll!SetCursorPos	0ae833a0e4c1	f9828394fb60	decouplage GDI32/fenetre 2026-09-10 (winx86) : clamp en dur (>799/>599) -> wx86_set_cursor() (clamp a wx86_screen_w()-1/wx86_screen_h()-1 = 799/599) ; meme bornes
+WSOCK32.dll!#8	ff5fc68bbaa3	64a2478d26d9	audit+extraction WSOCK32 2026-09-10 (winx86) : htonl, corps identique (bswap32), deplace dans win32_shims_wsock32.cpp ; texte d'appel different
+WS2_32.dll!#8	ff5fc68bbaa3	99251ef39e9d	audit+extraction WSOCK32 2026-09-10 (winx86) : idem WSOCK32.dll!#8 (htonl, meme fonction partagee, deux noms de DLL)
+WSOCK32.dll!#9	2f90bf349c0b	aa9077b56be6	audit+extraction WSOCK32 2026-09-10 (winx86) : htons, corps identique (byte-swap 16 bits), deplace dans win32_shims_wsock32.cpp ; texte d'appel different
+WS2_32.dll!#9	2f90bf349c0b	0d36b34df97e	audit+extraction WSOCK32 2026-09-10 (winx86) : idem WSOCK32.dll!#9 (htons, meme fonction partagee, deux noms de DLL)
+WSOCK32.dll!#14	590e0a86c029	6b74cdd517c9	audit+extraction WSOCK32 2026-09-10 (winx86) : ntohl, corps identique a htonl (bswap32), deplace ; texte d'appel different
+WS2_32.dll!#14	590e0a86c029	e8f727bebb45	audit+extraction WSOCK32 2026-09-10 (winx86) : idem WSOCK32.dll!#14 (ntohl)
+WSOCK32.dll!#15	1d6a3b109e64	a697b547c0f9	audit+extraction WSOCK32 2026-09-10 (winx86) : ntohs, corps identique a htons, deplace ; texte d'appel different
+WS2_32.dll!#15	1d6a3b109e64	2fb0a03d21e2	audit+extraction WSOCK32 2026-09-10 (winx86) : idem WSOCK32.dll!#15 (ntohs)
+WSOCK32.dll!#57	c2dc6472a0ba	9a4fbec87686	audit+extraction WSOCK32 2026-09-10 (winx86) : gethostname, ecrit "vita" (plateforme winx86, pas un litteral D2) dans le buffer appelant ; corps identique, deplace
+WS2_32.dll!#57	c2dc6472a0ba	4eb8e49a01ec	audit+extraction WSOCK32 2026-09-10 (winx86) : idem WSOCK32.dll!#57 (gethostname)
+WSOCK32.dll!#101	42d46a2b34f5	8923584ed696	audit+extraction WSOCK32 2026-09-10 (winx86) : WSAAsyncSelect, bouchon "return 0" inchange, deplace ; texte d'appel different
+WS2_32.dll!#101	42d46a2b34f5	1028202cf377	audit+extraction WSOCK32 2026-09-10 (winx86) : idem WSOCK32.dll!#101 (WSAAsyncSelect)
+WSOCK32.dll!#112	af3c132670d5	f6c8e7e7717e	audit+extraction WSOCK32 2026-09-10 (winx86) : WSAIsBlocking, bouchon "return 0" inchange, deplace ; texte d'appel different
+WS2_32.dll!#112	af3c132670d5	a42af5d8fac2	audit+extraction WSOCK32 2026-09-10 (winx86) : idem WSOCK32.dll!#112 (WSAIsBlocking)
+WSOCK32.dll!#115	ee1ffc463a41	facf0ca54989	audit+extraction WSOCK32 2026-09-10 (winx86) : WSAStartup, corps identique (remplit WSADATA a l'adresse fournie par l'appelant, argc=2 preserve a l'octet pres — cf. bug Fog .rdata deja documente) ; deplace, texte d'appel different
+WS2_32.dll!#115	ee1ffc463a41	ff35e4836acb	audit+extraction WSOCK32 2026-09-10 (winx86) : idem WSOCK32.dll!#115 (WSAStartup)
+WSOCK32.dll!#116	2fe2eb0daa5f	1ba513630daa	audit+extraction WSOCK32 2026-09-10 (winx86) : WSACleanup, bouchon "return 0" (0 argument) inchange, deplace ; texte d'appel different
+WS2_32.dll!#116	2fe2eb0daa5f	0a8845dfe083	audit+extraction WSOCK32 2026-09-10 (winx86) : idem WSOCK32.dll!#116 (WSACleanup)
+
+# --- decouplage WSOCK32 2026-09-11 (poussee vers winx86 des primitives
+# socket reellement generiques ; voir tools/win32_shims_wsock32.cpp pour la
+# repartition detaillee). ENSEMBLE : WS2_32.dll!#12 passe de 2 a 1 inscription
+# (l'ancien W(12,...) d2vita plantait un enregistrement transitoire faux sur ce
+# slot via son effet de bord de double-DLL, corrige ensuite par l'override WS2
+# local ; ce W(12,...) a disparu avec ioctlsocket, l'effet de bord avec lui —
+# le corps GAGNANT (inet_ntoa, WS2(12,...), inchange) est identique avant/apres,
+# verifie a la lecture du code, pas suppose) ---
+WS2_32.dll!#1	b2d3c8319935	680e7df71ec3	decouplage WSOCK32 2026-09-11 (winx86) : accept, bouchon "return -1" -> vraie implementation POSIX (table de sockets, wx86_sock_alloc) ; D2 n'exerce jamais ce chemin, valide en isolation (voir commit)
+WS2_32.dll!#10	1875d217d83f	8bc9718442bc	decouplage WSOCK32 2026-09-11 (winx86) : ioctlsocket (slot WS2), meme logique FIONBIO, table de sockets deplacee (wx86_sock_get/set_nonblock)
+WS2_32.dll!#111	e668f0ab4d6c	f9eee201f1a8	decouplage WSOCK32 2026-09-11 (winx86) : WSAGetLastError, meme logique (10093 si reseau off sinon le dernier code), store deplace (wx86_net_last_error)
+WS2_32.dll!#13	410ced0a26db	9320aaf122e2	decouplage WSOCK32 2026-09-11 (winx86) : listen, bouchon "return -1" -> vraie implementation POSIX ; D2 n'exerce jamais ce chemin, valide en isolation
+WS2_32.dll!#16	9e4cacab27e9	b6074942e921	decouplage WSOCK32 2026-09-11 : recv, coeur generique (recv+emulation blocage) -> wx86_recv_blocking() ; instrumentation D2_NETWATCH/slog conservee ici
+WS2_32.dll!#19	733fdd161395	6f73f14fe6ee	decouplage WSOCK32 2026-09-11 : send, coeur generique -> wx86_send_simple() ; instrumentation D2_NETWATCH conservee ici
+WS2_32.dll!#2	d34ca8196a26	4ba81676ec37	decouplage WSOCK32 2026-09-11 (winx86) : bind, bouchon "return -1" -> vraie implementation POSIX ; D2 n'exerce jamais ce chemin, valide en isolation
+WS2_32.dll!#21	8d0d6413b74f	f481fd7311bc	decouplage WSOCK32 2026-09-11 (winx86) : setsockopt, meme logique SO_KEEPALIVE/TCP_NODELAY, table de sockets deplacee
+WS2_32.dll!#22	43fb6d51ecca	585fcc02f331	decouplage WSOCK32 2026-09-11 (winx86) : shutdown, corps identique, table de sockets deplacee
+WS2_32.dll!#23	97d38ea9f528	83c69660a981	decouplage WSOCK32 2026-09-11 (winx86) : socket, corps identique (AF_INET/SOCK_STREAM/DGRAM), table de sockets + nonblock deplaces
+WS2_32.dll!#3	c8efe1b2a5f7	bacdf745f92a	decouplage WSOCK32 2026-09-11 (winx86) : closesocket, corps identique, table de sockets deplacee
+WS2_32.dll!#4	0cfd707db530	4c51d1031d0c	decouplage WSOCK32 2026-09-11 : connect, orchestration D2/BNCS inchangee (ports, redirection, horloge) ; la boucle poll+SO_ERROR generique remplacee par wx86_connect_wait()
+WS2_32.dll!#5	b7b59f5b3ce8	0987bc43f03b	decouplage WSOCK32 2026-09-11 (winx86) : getpeername, corps identique, table de sockets deplacee
+WS2_32.dll!#52	c7ae4c5d36a8	f23ef74abe92	decouplage WSOCK32 2026-09-11 : gethostbyname, marshalling hostent inchange (misc()/put_cstr restent ici), resolution d2vita_net_resolve -> wx86_net_resolve
+WS2_32.dll!#6	240e5746ee19	6f15f5306086	decouplage WSOCK32 2026-09-11 (winx86) : getsockname, corps identique, table de sockets deplacee
+WS2_32.dll!#7	0347f0ba736c	2060b4186421	decouplage WSOCK32 2026-09-11 (winx86) : getsockopt, corps identique (SO_ERROR/SO_TYPE), table de sockets deplacee
+WSOCK32.dll!#1	b2d3c8319935	7e3a3ccc5ea0	decouplage WSOCK32 2026-09-11 (winx86) : idem WS2_32.dll!#1 (accept, deux noms de DLL)
+WSOCK32.dll!#111	e668f0ab4d6c	ef63578b3649	decouplage WSOCK32 2026-09-11 (winx86) : idem WS2_32.dll!#111 (WSAGetLastError)
+WSOCK32.dll!#12	39de0ffdafa2	267158c1124d	decouplage WSOCK32 2026-09-11 (winx86) : ioctlsocket (slot WSOCK32), idem WS2_32.dll!#10
+WSOCK32.dll!#13	410ced0a26db	b88bba6c5059	decouplage WSOCK32 2026-09-11 (winx86) : idem WS2_32.dll!#13 (listen)
+WSOCK32.dll!#16	9e4cacab27e9	b6074942e921	decouplage WSOCK32 2026-09-11 : idem WS2_32.dll!#16 (recv, meme corps partage)
+WSOCK32.dll!#19	733fdd161395	6f73f14fe6ee	decouplage WSOCK32 2026-09-11 : idem WS2_32.dll!#19 (send, meme corps partage)
+WSOCK32.dll!#2	d34ca8196a26	193bfd52a9a3	decouplage WSOCK32 2026-09-11 (winx86) : idem WS2_32.dll!#2 (bind)
+WSOCK32.dll!#21	8d0d6413b74f	ebbd357c8312	decouplage WSOCK32 2026-09-11 (winx86) : idem WS2_32.dll!#21 (setsockopt)
+WSOCK32.dll!#22	43fb6d51ecca	a6fad9c14955	decouplage WSOCK32 2026-09-11 (winx86) : idem WS2_32.dll!#22 (shutdown)
+WSOCK32.dll!#23	97d38ea9f528	67f6a1401a16	decouplage WSOCK32 2026-09-11 (winx86) : idem WS2_32.dll!#23 (socket)
+WSOCK32.dll!#3	c8efe1b2a5f7	2d74309df93f	decouplage WSOCK32 2026-09-11 (winx86) : idem WS2_32.dll!#3 (closesocket)
+WSOCK32.dll!#4	0cfd707db530	4c51d1031d0c	decouplage WSOCK32 2026-09-11 : idem WS2_32.dll!#4 (connect, meme corps partage)
+WSOCK32.dll!#5	b7b59f5b3ce8	e0b8ff9acd2e	decouplage WSOCK32 2026-09-11 (winx86) : idem WS2_32.dll!#5 (getpeername)
+WSOCK32.dll!#52	c7ae4c5d36a8	f23ef74abe92	decouplage WSOCK32 2026-09-11 : idem WS2_32.dll!#52 (gethostbyname, meme corps partage)
+WSOCK32.dll!#6	240e5746ee19	4ba24c406096	decouplage WSOCK32 2026-09-11 (winx86) : idem WS2_32.dll!#6 (getsockname)
+WSOCK32.dll!#7	0347f0ba736c	2e919e5fbc9e	decouplage WSOCK32 2026-09-11 (winx86) : idem WS2_32.dll!#7 (getsockopt)
+WS2_32.dll!#4	4c51d1031d0c	ce4a9c14eb5a	observateur reseau 2026-09-11 : connect devient generique dans winx86 (route generique + notification), la politique D2 passe dans d2_net_observe
+WS2_32.dll!#16	b6074942e921	84bb7e9e6c18	observateur reseau 2026-09-11 : recv devient generique dans winx86, netwatch/journal D2GS passent dans d2_net_observe
+WS2_32.dll!#19	6f73f14fe6ee	c8993692762b	observateur reseau 2026-09-11 : send devient generique dans winx86, netwatch passe dans d2_net_observe
+WSOCK32.dll!#4	4c51d1031d0c	087feb5c360b	observateur reseau 2026-09-11 : idem WS2_32.dll!#4 (connect, meme corps partage)
+WSOCK32.dll!#16	b6074942e921	c5e1d03fbac2	observateur reseau 2026-09-11 : idem WS2_32.dll!#16 (recv, meme corps partage)
+WSOCK32.dll!#19	6f73f14fe6ee	dd32876458dc	observateur reseau 2026-09-11 : idem WS2_32.dll!#19 (send, meme corps partage)
+WSOCK32.dll!#10	c50fcd6246a1	ccd925c70732	aides d'adresse 2026-09-11 : inet_addr passe dans winx86 (l'allocateur de brouillon invite est devenu un primitif du moteur) ; corps equivalent, lecture de chaine invitee par wx86_guest_cstr au lieu de gread_mb
+WS2_32.dll!#11	a446ce3e1ff9	e532d2af355d	aides d'adresse 2026-09-11 : idem WSOCK32.dll!#10 (inet_addr, meme corps partage, ordinal WS2)
+WSOCK32.dll!#11	d33bdd19b752	ee48a589b773	aides d'adresse 2026-09-11 : inet_ntoa passe dans winx86 ET devient une VRAIE implementation — l'ancien corps rendait la chaine "127.0.0.1" ecrite en dur quel que soit l'argument. MESURE le 2026-09-11 : cet ordinal n'est JAMAIS appele par D2 sur le trajet en ligne complet (0 occurrence de [ws] #11 sur un run de 900 images allant jusqu'a SID_AUTH_CHECK PASSED), le correctif est donc sans effet observable ici — c'est un defaut latent repare, pas un changement de comportement constate.
+WS2_32.dll!#12	8c532886ee46	80f3ee625975	aides d'adresse 2026-09-11 : idem WSOCK32.dll!#11 (inet_ntoa, meme corps partage, ordinal WS2). Cet ordinal-la avait deja la vraie implementation ; il gagne le cache par adresse (une allocation definitive par adresse distincte au lieu d'une par appel), ce qui rapproche aussi du contrat Winsock reel (tampon statique).
+WSOCK32.dll!#52	f23ef74abe92	837f14829d61	aides d'adresse 2026-09-11 : gethostbyname passe dans winx86, structure hostent identique a l'octet pres (les ecritures mortes he+12 de l'ancien corps supprimees, etat final inchange), plus un cache par nom qui corrige cinq allocations DEFINITIVES par appel ; le journal de resolution passe par l'evenement WX86_NET_RESOLVE
+WS2_32.dll!#52	f23ef74abe92	fa2a274b4fdc	aides d'adresse 2026-09-11 : idem WSOCK32.dll!#52 (gethostbyname, meme corps partage, ordinal WS2)
+KERNEL32.dll!MemoryBarrier	3326b3f5258e	8785ad238755	vague 2 KERNEL32 2026-09-11 : le corps inlinait les deux branches (SEQ_CST / signal fence) autour de g_ilkSeq ; il appelle desormais wx86_ilk_fence() du moteur, qui porte EXACTEMENT les deux memes branches sur la meme condition. Changement de TEXTE, pas de comportement : c'est la seule facon de retirer g_ilkSeq du portage, puisque le drapeau part avec les atomiques.
+KERNEL32.dll!SetEvent	46fbdee4e131	d2e8a5ff990d	synchro 2026-09-11 : l'appel direct ap_signal(e) devient wx86_sync_notify(WX86_SYNC_EVENT_SET). MEME effet, un niveau d'indirection en plus : l'observateur enregistre par ce portage rappelle ap_signal. C'est le prix d'avoir sorti l'objet noyau (KEvent -> WxEvent, moteur) sans emporter le profilage du portage avec lui.
+KERNEL32.dll!ResetEvent	e5f84a5f9e74	f6c55aaf8d09	synchro 2026-09-11 : idem SetEvent. Les deux horodatages du profilage asynchrone (t_reset/t_set) vivaient DANS la structure KEvent ; ils vivent maintenant dans une table laterale de ce portage, alimentee par l'observateur. L'etat produit est le meme : reset ouvre l'intervalle, set le ferme.
+KERNEL32.dll!WaitForSingleObject	7a80ff593c27	ab1d489d8029	synchro 2026-09-11 : idem, cote lecture — le site qui fermait l'intervalle « signalement -> vu » lisait e->t_set dans l'objet noyau, il lit desormais la table laterale. Aucune logique d'attente touchee : ni le delai, ni le reveil, ni la table de handles.
+KERNEL32.dll!LeaveCriticalSection	8b6ee62f7491	ee46f2ae0177	double chemin 2026-09-11 : le corps recopiait le cache MRU, le decrement et le reveil, MOT POUR MOT identiques a ceux du chemin rapide du dynarec (cs_leave_intrinsic). Deux corps a garder synchronises a la main, sur le chemin le plus chaud du projet. Ils appellent desormais TOUS LES DEUX wx86_crit_leave() : ils ne peuvent plus diverger. Meme logique, meme ordre d'operations.
+KERNEL32.dll!DeleteCriticalSection	572acfe68c34	45f3b1d63be9	double chemin 2026-09-11 : la carte des sections critiques et son cache MRU vivent dans le moteur, donc l'effacement passe par wx86_crit_forget() qui fait les deux (effacer et invalider le MRU) au lieu de les faire ici a la main. Le remise a zero proprietaire/compte et le reveil avant effacement sont conserves a l'identique — c'est ce qui evite l'interblocage du decodeur de sprites a l'entree en partie.
+KERNEL32.dll!CloseHandle	12f5494aea9d	ab5817646901	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!CreateEventA	7e452512cc92	c466d2d83ef8	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!CreateEventW	a2c241ad2610	1b15e7694bf5	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!CreateIoCompletionPort	7551f1494a76	9549df79452c	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!CreateThread	4266a97df16b	c3131542d3b4	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!CreateToolhelp32Snapshot	0bc0d1025152	d613aea7543a	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!GetExitCodeThread	4996e79396b4	6efb78f188bf	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!GetQueuedCompletionStatus	af0ba69a1aee	692931d0bf5e	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!GetThreadContext	a1867c3b2e6e	0d44e752e85b	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!OpenThread	3be6381bf88b	f537e5cbf085	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!PostQueuedCompletionStatus	5cd37bab43f1	4ab87e657e17	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!PulseEvent	75d46725a857	12ec44fb9747	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!ReleaseMutex	4394abfe74e6	e0cfdaf7d569	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!ReleaseSemaphore	4992e9b6b2e7	0e4784470f06	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!ResetEvent	f6c55aaf8d09	2141d5d087dd	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!ResumeThread	33dfc29dd97b	2a7038139eb5	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!SetEvent	d2e8a5ff990d	43ad72040e09	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!TerminateThread	b58e373ab7df	d0d586d63b54	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!WaitForMultipleObjects	aff84e4dc3fb	1abb9d6f8cdd	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!WaitForSingleObject	ab1d489d8029	437f2f0a9b54	fusion des tables de handles 2026-09-11 : le portage tenait sa PROPRE table de handles alors que le moteur en avait une, inutilisee. Deux tables pour le meme objet, c'est exactement l'accident desamorce la veille sur les sections critiques : invisible a la compilation, payable en interblocage. Le corps passe de l'iterateur d'une std::map locale a wx86_handle_find/add du moteur — meme recherche, meme test de type, meme suite. Le compteur d'identifiants est partage lui aussi (wx86_handle_next_id), sans quoi l'instantane de processus, qui n'est pas un objet attendable, aurait fini par numeroter comme un handle existant.
+KERNEL32.dll!CreateEventA	c466d2d83ef8	fe0d6c0b3172	famille synchro 2026-09-11 : le corps part au moteur (win32_shims_sync.cpp). La PROPRIETE de l'etat etait deja cote moteur (table de handles, objets noyau, compteur d'identifiants), le corps peut donc suivre sans laisser de jumeau. Ce qui change dans le texte : l'instrumentation de ce portage — trace de synchronisation et journal d'attente, tous deux derriere des interrupteurs eteints par defaut, plus les compteurs de profilage — ne vit plus dans le corps mais dans d2_sync_observe(), rebranchee par l'observateur. Semantique Win32 inchangee : memes champs ecrits, meme reveil d'ordonnanceur, meme valeur de retour.
+KERNEL32.dll!CreateEventW	1b15e7694bf5	103e2ab0bb35	famille synchro 2026-09-11 : le corps part au moteur (win32_shims_sync.cpp). La PROPRIETE de l'etat etait deja cote moteur (table de handles, objets noyau, compteur d'identifiants), le corps peut donc suivre sans laisser de jumeau. Ce qui change dans le texte : l'instrumentation de ce portage — trace de synchronisation et journal d'attente, tous deux derriere des interrupteurs eteints par defaut, plus les compteurs de profilage — ne vit plus dans le corps mais dans d2_sync_observe(), rebranchee par l'observateur. Semantique Win32 inchangee : memes champs ecrits, meme reveil d'ordonnanceur, meme valeur de retour.
+KERNEL32.dll!GetExitCodeThread	6efb78f188bf	c9b234da8aec	famille synchro 2026-09-11 : le corps part au moteur (win32_shims_sync.cpp). La PROPRIETE de l'etat etait deja cote moteur (table de handles, objets noyau, compteur d'identifiants), le corps peut donc suivre sans laisser de jumeau. Ce qui change dans le texte : l'instrumentation de ce portage — trace de synchronisation et journal d'attente, tous deux derriere des interrupteurs eteints par defaut, plus les compteurs de profilage — ne vit plus dans le corps mais dans d2_sync_observe(), rebranchee par l'observateur. Semantique Win32 inchangee : memes champs ecrits, meme reveil d'ordonnanceur, meme valeur de retour.
+KERNEL32.dll!PulseEvent	12ec44fb9747	75a9dcfb6276	famille synchro 2026-09-11 : le corps part au moteur (win32_shims_sync.cpp). La PROPRIETE de l'etat etait deja cote moteur (table de handles, objets noyau, compteur d'identifiants), le corps peut donc suivre sans laisser de jumeau. Ce qui change dans le texte : l'instrumentation de ce portage — trace de synchronisation et journal d'attente, tous deux derriere des interrupteurs eteints par defaut, plus les compteurs de profilage — ne vit plus dans le corps mais dans d2_sync_observe(), rebranchee par l'observateur. Semantique Win32 inchangee : memes champs ecrits, meme reveil d'ordonnanceur, meme valeur de retour.
+KERNEL32.dll!ReleaseMutex	e0cfdaf7d569	825cda710a0a	famille synchro 2026-09-11 : le corps part au moteur (win32_shims_sync.cpp). La PROPRIETE de l'etat etait deja cote moteur (table de handles, objets noyau, compteur d'identifiants), le corps peut donc suivre sans laisser de jumeau. Ce qui change dans le texte : l'instrumentation de ce portage — trace de synchronisation et journal d'attente, tous deux derriere des interrupteurs eteints par defaut, plus les compteurs de profilage — ne vit plus dans le corps mais dans d2_sync_observe(), rebranchee par l'observateur. Semantique Win32 inchangee : memes champs ecrits, meme reveil d'ordonnanceur, meme valeur de retour.
+KERNEL32.dll!ResetEvent	2141d5d087dd	2c75f3fc6bed	famille synchro 2026-09-11 : le corps part au moteur (win32_shims_sync.cpp). La PROPRIETE de l'etat etait deja cote moteur (table de handles, objets noyau, compteur d'identifiants), le corps peut donc suivre sans laisser de jumeau. Ce qui change dans le texte : l'instrumentation de ce portage — trace de synchronisation et journal d'attente, tous deux derriere des interrupteurs eteints par defaut, plus les compteurs de profilage — ne vit plus dans le corps mais dans d2_sync_observe(), rebranchee par l'observateur. Semantique Win32 inchangee : memes champs ecrits, meme reveil d'ordonnanceur, meme valeur de retour.
+KERNEL32.dll!SetEvent	43ad72040e09	c7256e0648a9	famille synchro 2026-09-11 : le corps part au moteur (win32_shims_sync.cpp). La PROPRIETE de l'etat etait deja cote moteur (table de handles, objets noyau, compteur d'identifiants), le corps peut donc suivre sans laisser de jumeau. Ce qui change dans le texte : l'instrumentation de ce portage — trace de synchronisation et journal d'attente, tous deux derriere des interrupteurs eteints par defaut, plus les compteurs de profilage — ne vit plus dans le corps mais dans d2_sync_observe(), rebranchee par l'observateur. Semantique Win32 inchangee : memes champs ecrits, meme reveil d'ordonnanceur, meme valeur de retour.
+# ------------------------------------------------------------------------
+# 2026-09-11, ANGLE MORT DE L'OUTIL CORRIGE — le total passe de 643 a 652.
+# Ce n'est PAS un ajout d'inscriptions : ce sont NEUF inscriptions qui
+# existaient depuis toujours et que le filet ne voyait pas. shim_seq ne
+# reconnaissait que les unites declarees dans UNITS ; une unite oubliee ne
+# declenchait aucune alerte, ses inscriptions disparaissaient simplement du
+# releve. phase_hooks_install et ringtag_hooks_install (src/runtime/
+# phase_hooks.cpp, 14 appels a register_shim) etaient dans ce cas.
+# Le controle echoue desormais bruyamment sur toute unite non declaree, et
+# c'est lui qui a trouve ces deux-la. Un filet qui compte faux est pire
+# qu'un filet absent.
+KERNEL32.dll!CreateFileMappingA	d945235598f7	d6313a78f86a	tables de fichiers 2026-09-11 : le compteur de poignees de mapping appartient au moteur (wx86_fmap_next_id) au lieu d'etre une variable locale au portage. Meme espace de numeros, meme depart (0x83100000), meme increment — la seule difference est QUI le possede. Transferer le compteur avec la table est le point important : garder le compteur ici aurait fabrique deux series de numeros pour une seule table, exactement l'accident evite sur les handles noyau.
+KERNEL32.dll!CreateFileMappingW	ea2136390dd7	fba4d1bf6643	tables de fichiers 2026-09-11 : idem CreateFileMappingA (meme corps, variante large).
+# ------------------------------------------------------------------------
+# 2026-09-11, famille LOCALE : le service de locale passe au moteur.
+KERNEL32.dll!GetSystemDefaultLCID	3dea6b5dfac6	46ddce692e3d	famille locale 2026-09-11 : le corps lit le LCID par l'accesseur du moteur (wx86_locale_lcid()) au lieu d'une variable de ce fichier. La VALEUR est la meme — le portage la pose une fois a l'init depuis la langue systeme de la console ou LC_ALL/LANG, D2_LCID la force comme avant. Seul le proprietaire du stockage change : les tables LCID -> page de codes / nom de langue / separateurs sont de la connaissance Windows, pas du jeu, et le second portage en portait la meme copie, table pour table. Aucune semantique Win32 modifiee.
+KERNEL32.dll!GetSystemDefaultLangID	00ded615ded1	f0348b403c5f	famille locale 2026-09-11 : le corps lit le LCID par l'accesseur du moteur (wx86_locale_lcid()) au lieu d'une variable de ce fichier. La VALEUR est la meme — le portage la pose une fois a l'init depuis la langue systeme de la console ou LC_ALL/LANG, D2_LCID la force comme avant. Seul le proprietaire du stockage change : les tables LCID -> page de codes / nom de langue / separateurs sont de la connaissance Windows, pas du jeu, et le second portage en portait la meme copie, table pour table. Aucune semantique Win32 modifiee.
+KERNEL32.dll!GetSystemDefaultUILanguage	8fc8a4bd87c7	402d55a30267	famille locale 2026-09-11 : le corps lit le LCID par l'accesseur du moteur (wx86_locale_lcid()) au lieu d'une variable de ce fichier. La VALEUR est la meme — le portage la pose une fois a l'init depuis la langue systeme de la console ou LC_ALL/LANG, D2_LCID la force comme avant. Seul le proprietaire du stockage change : les tables LCID -> page de codes / nom de langue / separateurs sont de la connaissance Windows, pas du jeu, et le second portage en portait la meme copie, table pour table. Aucune semantique Win32 modifiee.
+KERNEL32.dll!GetThreadLocale	b9ba05ae6d68	11b16a5a3b2a	famille locale 2026-09-11 : le corps lit le LCID par l'accesseur du moteur (wx86_locale_lcid()) au lieu d'une variable de ce fichier. La VALEUR est la meme — le portage la pose une fois a l'init depuis la langue systeme de la console ou LC_ALL/LANG, D2_LCID la force comme avant. Seul le proprietaire du stockage change : les tables LCID -> page de codes / nom de langue / separateurs sont de la connaissance Windows, pas du jeu, et le second portage en portait la meme copie, table pour table. Aucune semantique Win32 modifiee.
+KERNEL32.dll!GetUserDefaultLCID	5ae7cdd6e7cf	83a3a26fe654	famille locale 2026-09-11 : le corps lit le LCID par l'accesseur du moteur (wx86_locale_lcid()) au lieu d'une variable de ce fichier. La VALEUR est la meme — le portage la pose une fois a l'init depuis la langue systeme de la console ou LC_ALL/LANG, D2_LCID la force comme avant. Seul le proprietaire du stockage change : les tables LCID -> page de codes / nom de langue / separateurs sont de la connaissance Windows, pas du jeu, et le second portage en portait la meme copie, table pour table. Aucune semantique Win32 modifiee.
+KERNEL32.dll!GetUserDefaultLangID	6f1302daf96d	900b04f160d5	famille locale 2026-09-11 : le corps lit le LCID par l'accesseur du moteur (wx86_locale_lcid()) au lieu d'une variable de ce fichier. La VALEUR est la meme — le portage la pose une fois a l'init depuis la langue systeme de la console ou LC_ALL/LANG, D2_LCID la force comme avant. Seul le proprietaire du stockage change : les tables LCID -> page de codes / nom de langue / separateurs sont de la connaissance Windows, pas du jeu, et le second portage en portait la meme copie, table pour table. Aucune semantique Win32 modifiee.
+KERNEL32.dll!GetUserDefaultUILanguage	97b79cda8f11	3f04e1a9402a	famille locale 2026-09-11 : le corps lit le LCID par l'accesseur du moteur (wx86_locale_lcid()) au lieu d'une variable de ce fichier. La VALEUR est la meme — le portage la pose une fois a l'init depuis la langue systeme de la console ou LC_ALL/LANG, D2_LCID la force comme avant. Seul le proprietaire du stockage change : les tables LCID -> page de codes / nom de langue / separateurs sont de la connaissance Windows, pas du jeu, et le second portage en portait la meme copie, table pour table. Aucune semantique Win32 modifiee.
+
+# ------------------------------------------------------------------------
+# ORDRE (et non ENSEMBLE/EFFECTIF) : ce fichier n'a aucun mecanisme pour
+# l'ordre — c'est ALLOW_REORDER=1 qui l'accepte. On le TRACE ici quand meme,
+# parce qu'un « ORDRE: DIVERGENT » accepte sans trace ecrite est un verdict
+# qu'on apprend a ignorer.
+#
+# 2026-09-12, vague 2 « locale » (KERNEL32 locale / chaines / console).
+# 36 cles quittent tools/rt_boot.cpp pour winx86 (win32_shims_locale.cpp).
+# Elles etaient dispersees en QUATRE endroits du fichier et sont desormais
+# inscrites en UN seul point, d'ou 8 zones de diff dans la sequence.
+# Ce que le filet dit exactement :
+#   ENSEMBLE: identique (652 inscriptions, cles et multiplicites)
+#   EFFECTIF: identique (meme corps gagnant pour les 652 cles)
+# Ce n'est pas une deduction : chacune des 36 cles a ete comptee sur le releve
+# de la revision de reference et n'avait qu'UNE inscription, donc aucun corps
+# gagnant ne peut changer de place.
+# Filet PROUVE le meme jour, sur le MEME arbre, par deux fautes temoins :
+#   * corps modifie (GetConsoleCP 437 -> 1252)  => EFFECTIF: DIVERGENT
+#   * inscription retiree (GetConsoleCP)        => ENSEMBLE: DIVERGENT
+# Les deux ont ete rendues puis annulees ; le verdict est redevenu
+# ENSEMBLE/EFFECTIF identiques.
+
+# ------------------------------------------------------------------------
+# 2026-09-12, PLAN MEMOIRE -> winx86 (win32_shims_memory.cpp).
+#
+# Dix-sept cles partent ; CINQ ne dependaient de rien et leur empreinte est
+# INCHANGEE (HeapCreate, GetProcessHeap, VirtualProtect,
+# FlushInstructionCache, GetSystemInfo) — c'est le temoin que le deplacement
+# lui-meme ne touche pas au texte. Les DOUZE ci-dessous changent d'empreinte
+# parce que leur corps designe autrement l'ETAT qu'il utilise :
+#
+#   * l'allocation passe par la region que le portage CONCEDE au moteur
+#     (g_heapA/g_vaA -> plan.heap/plan.va) : meme objet, meme appel ;
+#   * les compteurs et les lignes de journal deviennent des notifications a
+#     l'observateur, emises AUX MEMES ENDROITS et dans le MEME ORDRE ;
+#   * la RAM annoncee devient un reglage du consommateur, pose a 256 Mo au
+#     site d'installation, c'est-a-dire la valeur d'avant ;
+#   * VirtualQuery gagne une garde de pointeur nul sur le descripteur de
+#     regions, qui est arme.
+#
+# Une seule difference de comportement, et elle est ecrite dans le moteur :
+# l'adresse de retour de l'appelant est desormais lue a CHAQUE
+# « MEM_RELEASE tombe a cote » et non plus seulement aux quatre premieres (le
+# compteur qui bornait la lecture appartient a l'observateur). Le journal
+# reste borne a quatre.
+#
+# ENSEMBLE est reste identique sur les 652 inscriptions.
+KERNEL32.dll!GlobalAlloc          43fb7df0c090 f0fdf9452719  # tas -> region concedee
+KERNEL32.dll!GlobalFree           9483d9604b4d dde2c7747133  # tas -> region concedee
+KERNEL32.dll!GlobalMemoryStatus   0446e53dcf2f 3d2217ef09e7  # RAM annoncee -> reglage du consommateur (256 Mo, inchange)
+KERNEL32.dll!HeapAlloc            6194f059efec c7131bfc0985  # tas -> region concedee
+KERNEL32.dll!HeapFree             3ebb1380ddae cab000b62a0a  # tas -> region concedee
+KERNEL32.dll!HeapReAlloc          ec3b44f1f3f3 665de907373f  # tas -> region concedee
+KERNEL32.dll!HeapSize             59525c350bff 317a4ffd1ad1  # tas -> region concedee
+KERNEL32.dll!LocalAlloc           11b32f25ad34 406f088f0807  # tas -> region concedee
+KERNEL32.dll!LocalFree            74769a9e1bdf 349600e25d70  # tas -> region concedee
+KERNEL32.dll!VirtualAlloc         4e447b936429 de8ecbd069a3  # arene concedee + compteurs/journal -> observateur
+KERNEL32.dll!VirtualFree          ee807440dfc2 b7dc336e3cbc  # arene concedee + compteurs/journal -> observateur
+KERNEL32.dll!VirtualQuery         24266079e4df 6e0d6dcd7f1d  # descripteur de regions fourni par le consommateur
+
+# ------------------------------------------------------------------------
+# 2026-09-12, ATTENTE -> winx86 (win32_shims_wait.cpp) et le semaphore rendu
+# a win32_shims_sync.cpp.
+#
+# Neuf corps changent d'empreinte. Aucun ne change de semantique :
+#
+#   * WaitForSingleObject / WaitForMultipleObjects — le corps est le meme
+#     (celui du second portage l'est au caractere pres, commentaires compris).
+#     Ce qui change : la trace, le journal d'attente, le chronometrage et le
+#     profilage des chargements asynchrones passent par un observateur, appele
+#     AUX MEMES ENDROITS et dans le MEME ORDRE. L'objet d'attente multiple
+#     n'est plus un jumeau du portage mais le WxMultiWait du moteur.
+#     Une difference assumee : le comptage de boucle (lw_count) se faisait
+#     AVANT le controle « y a-t-il un ordonnanceur ? ». Il se fait desormais
+#     apres. Sans ordonnanceur, lw_tid() rend 0xFFFFFFFE et le compteur ne
+#     comptait de toute facon PAS (verifie, pas suppose : lw_count exige
+#     lw_tid()==g_lwTid, et g_lwTid n'est arme qu'a la premiere image).
+#   * Sleep — le prelude propre au jeu (adresses 0x4c715/0x4c744, 0xfa67a,
+#     periode de rendu) RESTE au portage. Seule la queue generique devient un
+#     appel a wx86_wait_sleep().
+#   * SleepEx — meme queue. Sleep et SleepEx avaient chacun leur PROPRE
+#     evenement « jamais signale » ; ils partagent maintenant le meme. Un
+#     evenement manuel jamais signale n'a pas d'etat observable (l'etat
+#     d'attente vit dans GuestThread, pas dans le Waitable) et celui de Sleep
+#     etait deja partage par tous les fils.
+#   * SwitchToThread, les trois shims du port d'achevement, ReleaseSemaphore —
+#     g_sched devient wx86_sched(), is_kind devient wx86_is_kind, KIocp/
+#     KSemaphore deviennent WxIocp/WxSemaphore. Memes objets, memes appels.
+#
+# ENSEMBLE est reste identique sur les 652 inscriptions.
+KERNEL32.dll!CreateIoCompletionPort      9549df79452c f4ea24d406cf  # WxIocp + wx86_sched()
+KERNEL32.dll!GetQueuedCompletionStatus   692931d0bf5e 3f2fcf7fb716  # WxIocp + wx86_sched()
+KERNEL32.dll!PostQueuedCompletionStatus  4ab87e657e17 e7ccd32b98ad  # WxIocp + wx86_sched()
+KERNEL32.dll!ReleaseSemaphore            0e4784470f06 972025ca89e8  # WxSemaphore + wx86_sched(), rendu a la famille sync
+KERNEL32.dll!Sleep                       8f2f72acf988 e621453d673a  # queue generique -> wx86_wait_sleep(), prelude du jeu conserve
+KERNEL32.dll!SleepEx                     0427720390ca dbdd2e74a893  # queue generique -> wx86_wait_sleep()
+KERNEL32.dll!SwitchToThread              52443bc1a6d6 31fac32f468e  # wx86_sched()
+KERNEL32.dll!WaitForMultipleObjects      1abb9d6f8cdd d3ed776aa184  # WxMultiWait + instrumentation -> observateur
+KERNEL32.dll!WaitForSingleObject         437f2f0a9b54 b8cf19bc1fea  # instrumentation -> observateur
+
+# ------------------------------------------------------------------------
+# 2026-09-12, campagne de fidelite + verrou reseau (rapatriement du travail du
+# 2026-09-06). Onze corps changent VOLONTAIREMENT — ce sont des corrections de
+# comportement assumees, chacune couverte par un test qui coupe (D2FIDTEST
+# 24/24 contre 18/24 sous D2_FID_AVANT=1, D2KEYSTORETEST, D2NETGUARDTEST).
+# Une derive ULTERIEURE de ces memes cles redevient fatale.
+KERNEL32.dll!GetCurrentProcessId      3e78d8c10ed1 ab1c80190b63  le PID 1 n'existe pas sous Windows ; delegue a wx86_win_pid()
+KERNEL32.dll!GetCurrentThreadId       f9a67eb5c6ac bde9b01db9a7  vue invitee des tid en multiples de 4 (wx86_win_tid)
+KERNEL32.dll!CreateThread             c3131542d3b4 3e22944aae5d  le tid rendu a l'invite passe en vue invitee
+KERNEL32.dll!OpenThread               f537e5cbf085 66e89d9a280c  conversion inverse vue invitee -> id d'ordonnanceur
+KERNEL32.dll!IsProcessorFeaturePresent 5e19e6d3a7a3 1263fdbefbf0  reponses DERIVEES de notre propre cpuid au lieu de 0 pour tout
+KERNEL32.dll!GetModuleFileNameA       9b53ec724c27 45f8b002f7c5  un handle inconnu ECHOUE au lieu de rendre le chemin de l'exe
+KERNEL32.dll!GetModuleFileNameW       2b309f402379 f798d95f3bd7  idem
+KERNEL32.dll!GetModuleFileNameExA     b335c18022d1 76740b3abda9  idem
+KERNEL32.dll!GetModuleFileNameExW     1d82785a2e3e 9a95b43e0744  idem
+PSAPI.DLL!GetModuleFileNameExA        3d5845a69070 a84174a30201  idem
+ADVAPI32.dll!CryptHashData            e9908a545de7 b7f0fc95cfd6  releve la chaine de version REELLEMENT hachee (piege console)
+#
+# ENSEMBLE : quatre cles APPARAISSENT — WSOCK32/WS2_32 #17 (recvfrom) et #20
+# (sendto). Elles n'avaient jamais ete inscrites nulle part : un appel tombait
+# sur le shim par defaut, donc arret controle + derive ESP. Ajout PUR, aucun
+# corps existant touche ; verifie a la main et par D2NETGUARDTEST (ESP identique
+# en sortie des douze appels du banc).
+#
+# select et __WSAFDIsSet passent dans winx86 (wx86_select, wx86_fd_isset). Les
+# quatre corps changent VOLONTAIREMENT : semantique Winsock (WSAEINVAL,
+# WSAENOTSOCK, WSAENETDOWN rendus apres le delai demande ; reset signale dans
+# readfds seul ; pas de retour anticipe). Couvert par D2_SELECTTEST, qui coupe
+# quand l'un de ces deux defauts est reintroduit.
+WSOCK32.dll!#18                       b0aa87723400 eb8d7c267fbc  select nominal (wx86_select)
+WS2_32.dll!#18                        b0aa87723400 7e27662a59e4  idem
+WSOCK32.dll!#151                      7ec706dc70d7 e7f97870a7fd  __WSAFDIsSet (wx86_fd_isset), borne 64 -> 1024 entrees
+WS2_32.dll!#151                       7ec706dc70d7 2a06d09cd8db  idem

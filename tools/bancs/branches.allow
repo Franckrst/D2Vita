@@ -1,0 +1,16 @@
+# tools/bancs/branches.allow — branches DELIBEREMENT laissees hors de main.
+#
+# Une ligne = un nom de branche, un espace, et la RAISON. Rien d'autre n'est
+# excuse par ce fichier : il ne dispense pas de trier, il enregistre qu'on a
+# trie. Une branche qui y figure sans raison lisible est un blanc-seing, et
+# c'est exactement ce que la porte existe pour empecher.
+#
+# Ce fichier doit rester COURT. S'il grossit, ce n'est pas le fichier qui a un
+# probleme.
+# (vide : aucune branche n'est actuellement gardee hors de main)
+#
+# runtime-fidelity-warden a ete retiree le 2026-09-12 apres verification, et
+# non sur la foi de cette ligne : main porte 736 lignes de tools/bncs_local.py
+# contre 596 sur la branche, et CHAQUE fonction ajoutee par la branche existe
+# deja dans main. Le commit reste atteignable par le tag annote
+# archive/runtime-fidelity-warden, pousse sur origin.

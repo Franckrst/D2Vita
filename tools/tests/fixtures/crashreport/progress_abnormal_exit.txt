@@ -1,0 +1,53 @@
+[ 672.00s] entree: resolution du jeu -> 800x600 (Glide)
+[ 672.00s] famine: sieste thr 1 eip=01a276e0
+[ 673.00s] SCHED-NATIVE: pile+TIB du fil 12 recyclees pour le fil 15 (reutilisations=7)
+[ 673.00s] SCHED-NATIVE: pile+TIB du fil 13 recyclees pour le fil 16 (reutilisations=8)
+[ 673.00s] fils: 1=1038369B 2=0B 3=315B 4=3790B 7=141R (blocs/s par fil)
+[ 678.00s] alive: pump=15957 frames=14876 reads=5726 eip=10e00640 sw=46579 io=7329ms jit=4751ms n=10952 sync=677ms fail=0 va=16MB spr=0/8MB cel=1/500KB big=0 jm=299MB fam=28/49 gil=- run=1:B:542352029,2:B:7,3:B:245683,4:R:1206552,7:R:454747,17:R:348
+[ 678.00s] hot: grille=5668 coll=73728 rle=74310 lum=0 blend=0 expl=9049 blit=0 lent=0
+[ 678.00s] scompplat: appels=1480 fils-distincts=1 sortie-max=4096 o
+[ 678.00s] traps: total=4092882 fenetre=150111 images=150 par-image=1000
+[ 678.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 678.00s] coeurs: invite-main=v0/rc0/m0x10000/c32767/d0
+[ 678.00s] csintrin: enter=801796 (replis=14) leave=801810 esp-hisse=1603620
+[ 679.00s] clk: arm=444 bus=222 gpu=222 xbar=166
+[ 679.00s] MEM: libre user=2048 Ko cdram=53248 Ko phycont=26624 Ko (rc=0) | tas newlib: en-cours=25216 Ko reserve=25312/38912 Ko libre=96 Ko | dont box86: custom=1344 Ko sauts=11264 Ko | piscine JIT 14336/16384 Ko
+[ 679.00s] emis: blocs=10952 x86=2074517o arm=12014904o expansion=5.791x
+[ 679.00s] mmu: fold=1 sites=29257 pliables=9135 plies=9135 | stack=3 tetes=66036 maillons=21148 (pop=9341 push=11807) | refus emis=0 saut=377 famille=101
+[ 684.00s] fils: 1=768799B 2=0B 3=340B 4=6843B 7=786R (blocs/s par fil)
+[ 685.00s] pathcache: resolutions=73 (ecriture=12 donnees=34 introuvables=18 auto=9) | balayages=14 (constructions=14 parcours=0) | consultations-dossier=116 dont-absent-sans-balayage=70 | invalidations=12 re-verifications=0 replis=0 dont-INDEX-PERIME=0 | courses=0 aveugles=0 | entrees 1.14d=28,save=101
+[ 687.00s] ExitProcess code=4294967295 chain: 019097be 0190a0ed 0190b451 01b0c108
+[ 687.00s] trapcnt: 4126875 prises sur 229 creneaux actifs
+[ 687.00s] trapcnt  1:      1791632   43.4%  KERNEL32.dll!GetTickCount
+[ 687.00s] trapcnt  2:       809426   19.6%  KERNEL32.dll!LeaveCriticalSection
+[ 687.00s] trapcnt  3:       809426   19.6%  KERNEL32.dll!EnterCriticalSection
+[ 687.00s] trapcnt  4:       105311    2.6%  USER32.dll!wsprintfA
+[ 687.00s] trapcnt  5:        75537    1.8%  d2vhost.dll!d2vGlideTexUpload
+[ 687.00s] trapcnt  6:        74747    1.8%  native!d2_cell_rle_114
+[ 687.00s] trapcnt  7:        73728    1.8%  GDI32.dll!GetPixel
+[ 687.00s] trapcnt  8:        73728    1.8%  native!d2_coll_lookup_114
+[ 687.00s] trapcnt  9:        35209    0.9%  KERNEL32.dll!VirtualAlloc
+[ 687.00s] trapcnt 10:        33601    0.8%  KERNEL32.dll!Sleep
+[ 687.00s] signe: knob=0 motifs_vus=118 reecrits_bit30=0
+[ 687.00s] === fastmmu (D2_MMUFOLD=1 D2_MMUSTACK=3) ===
+[ 687.00s] absolus: sites=29574 pliables=9284 plies=9284
+[ 687.00s] pile: tetes=66633 maillons=21341 (POP=9467 maillon-de-moins, PUSH=11874 instruction-de-moins)
+[ 687.00s] pile refus: code_emis_entre=0 cible_de_saut=382 autre_famille=105
+[ 687.00s] === FIN fastmmu ===
+[ 687.00s] tlscnt: RIEN A DIRE (build sans -DD2_TLSCOUNT, ou aucune traversee)
+[ 687.00s] interlocked: atomiques=25275 replis=0 (dont non-alignes=0) | ordre=RELAXED (mono-coeur epingle)
+[ 687.00s] blocs/fil: total=546159658 fils=17 max=100(fil 1) | 1:544127590,4:1259389,7:455789,3:248961,5:39427,14:21451,12:3463,8:1088,17:818,9:793,13:301,10:171
+[ 687.00s] famine: detections=28 siestes=49 sautees-gil=59
+[ 687.00s] [emis] blocs=11237 x86=2090645o arm=12144436o expansion=5.808x
+[ 687.00s] [blocs] executes=544127590
+[ 687.00s] sortie: rejeu + flush + son + GPU arretes avant les rapports
+[ 687.00s] [b5] servis=1791632 | horloge groupee=non index direct=OUI (n=173)
+[ 687.00s] scheduler stopped: shutdown requested | frame=24971 main-exit=0xffffffff
+[ 687.00s] lazyseek(final): evites=4690 (paresseux=6474 vrais-fseek=1784) fin-de-fichier=2 taille=13
+[ 687.00s] [nopend] mode=0 | fin-de-bloc: appels=0 relaches=0 | archivage: besoin=0 pessimiste=0 coupes=0 | PASSE 3: pessimiste=0 coupes=0
+[ 687.00s] [csintrin] enter=809412 (replis=14) leave=809426 tryenter=0 esp-hisse=1618852
+[ 687.00s] [inlinehot] creneaux IAT inlines=0 (gle=0 sle=0 tls=0 tick=0) sched=native
+[ 687.00s] [EIPPROF] === total (fin de run) ===
+[ 687.00s] pathcache: resolutions=73 (ecriture=12 donnees=34 introuvables=18 auto=9) | balayages=14 (constructions=14 parcours=0) | consultations-dossier=116 dont-absent-sans-balayage=70 | invalidations=12 re-verifications=0 replis=0 dont-INDEX-PERIME=0 | courses=0 aveugles=0 | entrees 1.14d=28,save=101
+[ 687.00s] CLEAN EXIT (game path, frame=24971)
+[ 687.00s] sortie: ExitProcess sans destructeurs

@@ -1,0 +1,32 @@
+# La liste des shims (docs-site/shims.md) est GENEREE depuis les sources. Une
+# liste perimee est pire qu'une absence de liste : elle fait conclure de travers
+# sur la frontiere moteur/jeu. Ce job la regenere et echoue si elle a bouge sans
+# etre recommitee.
+#
+# Il lui faut les sources de winx86 : le sous-module est declare en SSH
+# (git@gitlab.com:...), que la CI ne sait pas cloner telle quelle.
+# GIT_SUBMODULE_FORCE_HTTPS reecrit l'URL vers HTTPS + CI_JOB_TOKEN -- ce qui
+# suppose que le projet winx86 autorise le jeton de CI de ce projet-ci
+# (Settings > CI/CD > Token Access). Si ce job echoue au clonage plutot qu'a la
+# comparaison, c'est cette autorisation qu'il faut regarder en premier.
+doc-shims:
+  stage: test
+  image: python:3.12-slim
+  variables:
+    GIT_SUBMODULE_STRATEGY: normal
+    GIT_SUBMODULE_PATHS: third_party/winx86
+    GIT_SUBMODULE_FORCE_HTTPS: "true"
+  script:
+    - tools/gen_shim_doc.py --check
+
+pages:
+  stage: deploy
+  image: python:3.12-slim
+  script:
+    - pip install --no-cache-dir mkdocs-material mkdocs-static-i18n
+    - mkdocs build -d public
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"

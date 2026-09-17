@@ -1,0 +1,50 @@
+site_name: d2vita
+site_description: Port of Diablo II — Lord of Destruction to PS Vita
+site_url: https://d2-vita-bb378b.gitlab.io/
+repo_url: https://github.com/Franckrst/D2Vita
+docs_dir: docs-site
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: red
+      accent: amber
+  features:
+    - navigation.sections
+    - content.code.copy
+    - toc.follow
+
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - "Three-level validation": validation.md
+  - "Native ports and measured gains": gains.md
+  - Installation: installation.md
+  - "Online play": en-ligne.md
+  - "Fidelity Warden / anti-cheat": fidelite-warden.md
+  - "Controller and keyboard": controles.md
+  - "Win32 shim list": shims.md
+  - "The project's AI tooling": outils-ia.md
+  - "Privacy — crash reports": privacy.md
+  - Lexicon: lexique.md
+
+plugins:
+  - i18n:
+      docs_structure: suffix
+      languages:
+        - locale: en
+          name: English
+          build: true
+          default: true
+        - locale: fr
+          name: Français
+          build: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - tables
+  - toc:
+      permalink: true

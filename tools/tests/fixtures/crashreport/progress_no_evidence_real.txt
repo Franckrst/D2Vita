@@ -1,0 +1,248 @@
+[   0.00s] env.txt: D2SCRIPT=
+[   0.00s] env.txt: D2CMDFILE=ux0:data/d2vita/d2cmd.txt
+[   0.00s] env.txt: QUANTUM=20000000
+[   0.00s] env.txt: D2SCHED=native
+[   0.00s] env.txt: D2WRITE=ux0:data/d2vita/save2
+[   0.00s] env.txt: D2_SELECTBLOCK=1
+[   0.00s] env.txt: NATIVECELLLOOP=1
+[   0.00s] env.txt: D2_CALLRET=1
+[   0.00s] env.txt: D2_NOPUMPWAIT=1
+[   0.00s] env.txt: D2_LAZYSEEK=1
+[   0.00s] env.txt: D2_FRAMEPROF=1
+[   0.00s] env.txt: D2_FRAMEUS=1
+[   0.00s] env.txt: D2_CELLOPT=63
+[   0.00s] env.txt: D2_MMUSTACK=3
+[   0.00s] env.txt: D2_MMUFOLD=1
+[   0.00s] env.txt: D2_BUDGETTAIL=1
+[   0.00s] env.txt: D2_CSINTRIN=1
+[   0.00s] env.txt: D2_B5=1
+[   0.00s] env.txt: D2ARGS=game.exe -3dfx
+[   0.00s] env.txt: D2_GLIDERING=1
+[   0.00s] env.txt: D2_GLIDEGXM=1
+[   0.00s] env.txt: D2_GXMCLEAR=plat
+[   0.00s] env.txt: D2_YIELD=1
+[   0.00s] env.txt: D2_FOGSLEEP=1
+[   0.00s] env.txt: D2_LOOPWATCH=1
+[   0.00s] env.txt: D2_PHASEPROF=1
+[   0.00s] env.txt: D2_GXMASYNC=1
+[   0.00s] env.txt: D2_IOSTAT=1
+[   0.00s] env.txt: D2_READAHEAD=128
+[   0.00s] env.txt: D2_READAHEAD_MIN=32
+[   0.00s] env.txt: D2_READAHEAD_JUMP=8
+[   0.00s] env.txt: D2_READAHEAD_WIN=32
+[   0.00s] env.txt: D2_READAHEAD_MAX=8192
+[   0.00s] env.txt: NATIVEDCC=1
+[   0.00s] env.txt: D2_NETSLEEP=0
+[   0.00s] env.txt: D2_TEXHASH=1
+[   0.00s] env.txt: NATIVELIGHTMAP=1
+[   0.00s] env.txt: D2_FLUSHFIL=1
+[   0.00s] env.txt: D2_YIELD_US=20
+[   0.00s] env.txt: D2_GAMESLEEP=0
+[   0.00s] env.txt: D2_SON=1
+[   0.00s] env.txt: D2_LAGWATCH=80
+[   0.00s] env.txt: D2_LAGWATCH_NOSAMP=1
+[   0.00s] mem-budget(pre-arena) rc=0 user=324608 KB cdram=114688 KB phycont=26624 KB
+[   0.00s] clocks: arm444=0 bus222=0 gpu222=0 xbar166=0 (0=ok) relu arm=500 bus=222 gpu=222 xbar=166
+[   0.00s] flavour: PORTAGES — lumiere/blend/RLE/collision/grille/SCompExplode actifs
+[   0.00s] rtc: rc=0x00000000 tick=63924453663789709 unix=1788856863
+[   0.00s] platform_init: config baked, present ready
+[   0.00s] present: async thread on core 2 (rc=0x00000000) (D2_PRESENTZC=0)
+[   0.00s] present: auto-epinglage masque=0x40000 rc=0x00000000 relu=0x40000
+[   0.00s] pathcache: index de repertoire ACTIF (D2_PATHCACHE=(non pose, defaut=actif)) — re-verification par balayage toutes les 16 reponses « absent » d'un meme nom
+[   0.00s] memblock RW 297 MB ok (uid=0x4001017d)
+[   1.00s] arena probe ok: 0x01000000
+[   1.00s] arena probe ok: 0x0f000000
+[   1.00s] arena probe ok: 0x10000000
+[   1.00s] arena probe ok: 0x10800000
+[   1.00s] arena probe ok: 0x10bf0000
+[   1.00s] arena probe ok: 0x11000000
+[   1.00s] arena probe ok: 0x11400000
+[   1.00s] arena probe ok: 0x118ff000
+[   1.00s] dynarec: pliage fastmmu des absolus ACTIF (D2_MMUFOLD=1)
+[   1.00s] dynarec: chaine fastmmu POP=ACTIF PUSH=ACTIF (D2_MMUSTACK=3)
+[   1.00s] mode: 1.14 monolith
+[   2.00s] readahead: ARME — tampon 128 Kio (saut 8 Kio, adaptatif=1), fenetres/poignee=32, plafond 8192 Kio (stdio non tamponne)
+[   2.00s] lagwatch: ARME seuil=80 ms | echantillonnage=COUPE (D2_LAGWATCH_NOSAMP) | lire les lignes « lente#NN ... | invite ech=... »
+[   2.00s] [b5] horloge groupee=OUI | index direct=OUI (fenetre=154 creneaux @0x11800700)
+[   2.00s] csintrin: Enter@0x118005e0 Leave@0x118005d0 TryEnter@0x00000000 ARME
+[   2.00s] [inlinehot] natif: guest-inline coupe (page de ticks non rafraichie sous natif)
+[   2.00s] phaseprof: dessin crochete (alternate sur Game+0x4c990, +0x5fde0, +0x60190 ; sortie par trap de retour) onedraw=0 sieste=1000us
+[   2.00s] phaseprof: ARME — sim Game+0x12fd90, dessin [0x7a0484], tour Game+0x4efa0, flush = corps hote ; horloge=735ns/lecture
+[   2.00s] native scomp (1.14d): hook alternate pose sur Game+0x15240
+[   2.00s] portage: boucle de cellules Game+0xf8b80 ARMEE
+[   2.00s] cellopt: masque=0x3f [sansvecteur cachevue mots32 bandes echelle identite ] recensement=0
+[   2.00s] cellpar: ouvriers=0/0 mode=bandes coeurs=12 part=egale min=8 spin=20000 cessions=2000 sieste=200us vol=100000
+[   2.00s] portages natifs points chauds: lumiere/blend/RLE/collision/grille poses
+[   2.00s] portage: pose de lumiere dynamique Game+0x75420 ARMEE (NATIVELIGHTMAP)
+[   2.00s] roomguard v3: validation coords au marshaller
+[   2.00s] dcc: decodeur natif arme sur 0x60bff0 (NATIVEDCC)
+[   2.00s] sched: backend=NATIVE (GIL sur les shims, code traduit sans GIL ; mono-coeur epingle sur Vita)
+[   2.00s] famine: filet arme (fenetre=200ms sieste=1000us)
+[   2.00s] clock: real-time mode on
+[   2.00s] natif: MAXSW/QUANTUM ignores (mecanique coop)
+[   2.00s] scheduler.run() entered
+[   2.00s] watchdog: auto-epinglage masque=0x40000 rc=0x00000000 relu=0x40000
+[   2.00s] watchdog: arme (USER_2 createur [D2_COEURS], prio relue=160)
+[   2.00s] famine: battement auto-epinglage masque=0x40000 rc=0x00000000 relu=0x40000
+[   2.00s] famine: battement arme (Sce brut, USER_2 createur [D2_COEURS], prio relue=160)
+[   2.00s] vm-domain: BRACKET close+open arme (premier rc=0x00000000)
+[   2.00s] time: GSTAFT wall=1788856865
+[   2.00s] fils: 1=0R 2=0R (blocs/s par fil)
+[   2.00s] famine: detection #1 (fenetre=200ms frames=0 wakes=0 running=2 expirees=0 sautees-gil=0) run=1:R:11700,2:R:0
+[   2.00s] famine: sieste thr 1 eip=01909e15
+[   2.00s] famine: sieste thr 2 eip=019027c0
+[   2.00s] time: GetLocalTime y=2026 m=9 d=8
+[   3.00s] pathcache: resolutions=1 (ecriture=1 donnees=0 introuvables=0 auto=0) | balayages=1 (constructions=1 parcours=0) | consultations-dossier=1 dont-absent-sans-balayage=0 | invalidations=0 re-verifications=0 replis=0 dont-INDEX-PERIME=0 | courses=0 aveugles=0 | entrees save2=99
+[   3.00s] file W D2260908.txt disp=4 -> h=81000001
+[   3.00s] famine: sieste thr 3 eip=0190f970
+[   3.00s] ini: D2.ini ABSENT (ux0:data/d2vita/1.14d/D2.ini) -> defauts de l'appelant
+[   3.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=1, +1 depuis le dernier resume) detenteur-au-releve=thr 1 acq=1985 dans=KERNEL32.dll!CreateFileA — le filet ne desaffame pas pendant ce temps run=1:R:16131,2:B:7,3:B:2090
+[   3.00s] file W D2260908.txt disp=4 -> h=81000009
+[   4.00s] file W locale disp=2 -> h=8100000f
+[   4.00s] file W locale disp=2 -> h=81000010
+[   4.00s] sched-native: set_no_preempt no-op (dynarec cache is lock-protected; spec D7)
+[   4.00s] ring: ARME — en-tete 0x020d6740 donnees 0x01ed6740 taille 2048 Ko, TMU annoncee 4 Mio (v1) dedup-DLL=oui
+[   4.00s] fenetre: activee (WM_ACTIVATEAPP/ACTIVATE/SETFOCUS)
+[   4.00s] gxm[init] entree d2gxm_init | libre user=16384 Ko cdram=110592 Ko
+[   4.00s] gxm: chien de garde uid=0x400201bf start=0x00000000
+[   4.00s] gxm: sceGxmInitialize rc=0x00000000 | file: max en attente=1 (carrousel=2, doit valoir carrousel-1) taille donnees=8
+[   4.00s] gxm[init] contexte | libre user=14336 Ko cdram=91136 Ko
+[   4.00s] gxm[init] tampons d'affichage | libre user=14336 Ko cdram=87040 Ko
+[   4.00s] gxm[init] cible de rendu | libre user=14336 Ko cdram=87040 Ko
+[   4.00s] gxm[init] patcher de shaders | libre user=14336 Ko cdram=87040 Ko
+[   4.00s] gxm: shaders v=ux0 (380 o) f=ux0 (628 o) [d2_ring_f]
+[   4.00s] gxm: effacement PLAT ARME (ux0 (228 o))
+[   4.00s] gxm[init] sommets/indices/palettes | libre user=14336 Ko cdram=81920 Ko
+[   4.00s] gxm: PRET — fenetre 800x600 -> 960x544, libre user=14336 Ko cdram=81920 Ko
+[   4.00s] gxm: memoire — RAM user 16384 -> 14336 Ko (cout 2048 Ko), cdram libre 81920 Ko, placement GPU=CDRAM | USSE en RAM user par obligation (144 Ko)
+[   4.00s] gxm: mode=ASYNCHRONE-FILE carrousel=2 vsync=1 rendement-us=50 effacement=plat melange=mesure sonde=0 incrust=oui | pal=shader f=d2_ring_f filtre=point
+[   4.00s] gxm: atlas 32 Mio, pages 512x512 (max 128), fenetre 800x600, lots coupes par palette=non
+[   5.00s] flushfil: ARME — flush deporte (attente textures 4096 Ko), le fil de jeu ne fait plus que remettre la tete
+[   5.00s] flushfil: fil parti, epinglage masque=0x20000 rc=0x00000000 relu=0x20000
+[   5.00s] rendu: fil de presentation = tid 1
+[   5.00s] gxm[async 0]: EndScene rc=0x00000000, slot=0 prec=1 -> PadHeartbeat
+[   5.00s] gxm[async 0]: PadHeartbeat rc=0x00000000 -> AddEntry (rappels=0)
+[   5.00s] gxm[async 0]: AddEntry rc=0x00000000 en 31691 us | rappels=0 presentee=0 pixels-non-noirs=0
+[   5.00s] audio: port BGM ouvert (port=256 len=512 22050 Hz stereo, sans reechantillonnage)
+[   5.00s] audio: fil cree (prio=0x10000100 pile=64Ko)
+[   5.00s] [son] puits=vita-bgm cadence=temps-reel grain=512 (22050 Hz 2ch)
+[   5.00s] audio: auto-epinglage masque=0x20000 rc=0x00000000 relu=0x20000
+[   5.00s] [son] DirectSoundCreate -> DS_OK (objet invite 0x02103298, vtable 0x02103210)
+[   5.00s] [son] DirectSoundCreate -> DS_OK (objet invite 0x02103298, vtable 0x02103210)
+[   5.00s] [son] DirectSoundCreate -> DS_OK (objet invite 0x02103298, vtable 0x02103210)
+[   5.00s] scomp: explode natif actif (1er secteur servi)
+[   8.00s] gxm: palette -> emplacement 1 | [0]=ff000000 [1]=ff240000 [2]=ff1c1808 [255]=ffffffff
+[   8.00s] input: mapping par defaut
+[   8.00s] gxm[async 1]: EndScene rc=0x00000000, slot=1 prec=0 -> PadHeartbeat
+[   8.00s] gxm[async 1]: PadHeartbeat rc=0x00000000 -> AddEntry (rappels=1)
+[   8.00s] input: cadence 30 Hz (tap<7, L<6 ticks)
+[   8.00s] input: controles physiques actifs
+[   8.00s] gxm[async 1]: AddEntry rc=0x00000000 en 35452 us | rappels=1 presentee=0 pixels-non-noirs=268
+[   8.00s] entree: resolution du jeu -> 640x480 (Glide)
+[   8.00s] gxm[async 2]: EndScene rc=0x00000000, slot=0 prec=1 -> PadHeartbeat
+[   8.00s] gxm[async 2]: PadHeartbeat rc=0x00000000 -> AddEntry (rappels=2)
+[   8.00s] gxm[async 2]: AddEntry rc=0x00000000 en 23753 us | rappels=2 presentee=1 pixels-non-noirs=282
+[   8.00s] pathcache: resolutions=44 (ecriture=2 donnees=23 introuvables=17 auto=2) | balayages=8 (constructions=8 parcours=0) | consultations-dossier=82 dont-absent-sans-balayage=57 | invalidations=6 re-verifications=0 replis=0 dont-INDEX-PERIME=0 | courses=0 aveugles=0 | entrees 1.14d=28,save2=99
+[   8.00s] entree: resolution du jeu -> 800x600 (Glide)
+[   9.00s] gxm: palette -> emplacement 2 | [0]=ff000000 [1]=ff240000 [2]=ff1c1808 [255]=ffffffff
+[   9.00s] gxm[lot 0]: page=1 melange=0 drapeaux=0x5 cst=0x000000ff indices=18 | s0=(0.0,0.0) uv0=(0.5000,0.5000) argb0=ffffffff pal0=0.1562
+[   9.00s] gxm[page 1]: cellule (256,256) octets 22 22 22 22 22 22 22 22
+[   9.00s] gxm[lot 0]: page=1 melange=0 drapeaux=0x5 cst=0x000000ff indices=18 | s0=(0.0,0.0) uv0=(0.5000,0.5000) argb0=ffffffff pal0=0.1562
+[   9.00s] gxm[page 1]: cellule (256,256) octets 22 22 22 22 22 22 22 22
+[   9.00s] gxm[lot 0]: page=1 melange=0 drapeaux=0x5 cst=0x000000ff indices=18 | s0=(0.0,0.0) uv0=(0.5000,0.5000) argb0=ffffffff pal0=0.1562
+[   9.00s] gxm[page 1]: cellule (256,256) octets 22 22 22 22 22 22 22 22
+[   9.00s] gxm[lot 0]: page=1 melange=0 drapeaux=0x5 cst=0x000000ff indices=18 | s0=(0.0,0.0) uv0=(0.5000,0.5000) argb0=ffffffff pal0=0.1562
+[   9.00s] gxm[page 1]: cellule (256,256) octets 22 22 22 22 22 22 22 22
+[   9.00s] gxm[lot 0]: page=1 melange=0 drapeaux=0x5 cst=0x000000ff indices=18 | s0=(0.0,0.0) uv0=(0.5000,0.5000) argb0=ffffffff pal0=0.1562
+[   9.00s] gxm[page 1]: cellule (256,256) octets 22 22 22 22 22 22 22 22
+[   9.00s] gxm[lot 0]: page=1 melange=0 drapeaux=0x5 cst=0x000000ff indices=18 | s0=(0.0,0.0) uv0=(0.5000,0.5000) argb0=ffffffff pal0=0.1562
+[   9.00s] gxm[page 1]: cellule (256,256) octets 22 22 22 22 22 22 22 22
+[  12.00s] alive: pump=182 frames=100 reads=1121 eip=118006e0 sw=591 io=1240ms jit=1062ms n=2686 sync=163ms fail=0 va=17MB spr=0/8MB cel=0/500KB big=0 jm=301MB fam=4/7 gil=- run=1:B:1880115,2:B:7,3:B:9374,4:B:128507,5:B:10140
+[  12.00s] hot: grille=0 coll=0 rle=312 lum=0 blend=0 expl=2286 blit=0 lent=0
+[  12.00s] audio(10s): voix=1/10 creees=9 grains=328 famine=329 us/grain=43 sortie=23104 rest=0 verrou=576Kio play=2 stop=0 s=7.6 sansvue=0 uncoup=0/0 resamp=0 puits=vita-bgm codec=h1104/a1106/repli0
+[  12.00s] scompplat: appels=32 fils-distincts=1 sortie-max=4096 o
+[  12.00s] traps: total=94569 fenetre=94569 images=102 par-image=927
+[  12.00s] coeurs: sonde 4e coeur — activeCpuMask=0x000f0000 (rc=0x00000000) | temoin 0x40000 rc=0x00000000 relu=0x40000 | 0x80000 rc=0x00040000 relu=0x80000 | 0xF0000 rc=0x00080000 relu=0xf0000
+[  12.00s] coeurs: 4e coeur (0x80000) ACCEPTE par le noyau — reste a prouver qu'un fil y COURT (chiffre 3 de D2_COEURS / D2_CELLPARCPU, puis lire le champ d= de la ligne coeurs:)
+[  12.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[  12.00s] coeurs: invite-main=v0/rc0/m0x10000/c-1/d0 flushfil=v1/rc0/m0x20000/c-1/d1 d2_audio=v1/rc0/m0x20000/c-1/d1
+[  12.00s] csintrin: enter=12622 (replis=0) leave=12622 esp-hisse=25244
+[  12.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[  12.00s] emis: blocs=2686 x86=496847o arm=2992092o expansion=6.022x
+[  12.00s] mmu: fold=1 sites=8236 pliables=2985 plies=2985 | stack=3 tetes=16976 maillons=4546 (pop=2069 push=2477) | refus emis=0 saut=33 famille=57
+[  12.00s] fils: 1=189620B 2=0B 3=0B 4=0B 5=0B (blocs/s par fil)
+[  13.00s] io(10s): lectures=1126 octets=8595K hote=1220ms (1083us/lect) tailles: <=4K=408 <=64K=706 <=512K=11 >512K=1 seq=1013 saut=113 | ram=898/4607K carte=228 lect 228/10432K 1198ms direct=12 | tampons=8192K pic=8192K poignees=64 vols=124 refus=0
+[  13.00s] io/fichiers(10s): d2data.mpq n=510 2901K 459ms seq=458 ram=410 carte=99/3897K; d2exp.mpq n=315 2993K 329ms seq=293 ram=256 carte=58/3322K; d2sfx.mpq n=202 1141K 173ms seq=187 ram=168 carte=33/1540K; d2char.mpq n=18 418K 60ms seq=14 ram=14 carte=3/420K; Patch_D2.mpq n=17 312K 59ms seq=12 ram=8 carte=8/347K;
+[  15.00s] rendu: img=159 (15.8/s) attente=14624us/img spins=1/img sleep=1/img wfso=0/img tick=0/img pompe=Game+0xfa5c8(294) sim=0 (0.0/s)
+[  15.00s] fogsleep: Sleep(0) de Fog dormis=287 (credit borne 20 ms)
+[  15.00s] jeu: dessinees=0/fen sautees=0/fen periode-rendu=40ms periode-sim=40ms | pompe:Game+0xfa5c8(294) Game+0x31837(1) | sleep:Game+0xfa67a(293) Game+0xf61fe(1)
+[  15.00s] phase: img=158 (15.7/s) ticks=0 | par image: sim=0 dessin=0 flush=1202 autre=62260 (image=63462 us, tour=0) | dessins=0 flushs=159 tours=0
+[  15.00s] phase/cout: crochets=0/img refus=0 perdus=0 flush-hors-dessin=159 horloge=735ns onedraw=0
+[  15.00s] frames: n=159 fps=15.8 pire=3448ms@f2 (blocs=507 jit=331ms sync=45ms reads=962 scomp=2171 sw=0) | fen: blocs=874 jit=451ms reads=1049
+[  15.00s] ring: 178 enr/img (etat=98 redondants=0 evites-dll=80 dessins=78 lots=75) | 315 sommets/img | 12 Ko/img | texup=4 (138 Ko/img) | attentes=0 perdus=0 | h=0xb40935f65aecc121
+[  15.00s] gxm: lots=11 sommets=315 | atlas: pages=21/128 cellules=2344 reussites=84% (579/682) evictions=0 (vivantes=0 en-vol=0) copies=103 (27 Ko/img) | liaisons manquees=0% ordre=11934 repli=0 perimees=0 | perdus=0 melange-inconnu=0 fmt-autre=0 | surdessin=0 Kpx/img (0% de l'ecran) lots-par-palette=melanges | non-couverts=0 px/img (0% de l'ecran, pire 0)
+[  15.00s] gxm: images=159 lots/img=11 sommets/img=315 appels/img=12 pages=21 rendu=960x544 soumission-us=198 attente-gpu-us=1577 presentation-us=453 mode=1 en-vol=0,00 attentes-tampon=10 vidages=0 rappels=159 vsync=1 | recopie-us=20 debut-scene-us=28 lots-us=53 fin-scene-us=95 finish-us=1577 setframebuf-us=453 somme-us=2228 total-submit-us=2698 | pal=shader effacement=plat melange=mesure sonde=0 f=d2_ring_f palette-debordee=0 filtre-refuse/img=0
+[  15.00s] gxm-flush: total-us=1195 (parcours-ring-us=0 televersements-us=3103 soumission-us=2702 hors-replay-us=0) | televersement: n/img=4 octets-moy=33164 us/tele=723 hachage-us/tele=0 (GRPROF=0)
+[  15.00s] flushfil: lots=1/img fil-occupe=4362 us/img | attentes du jeu=6 (1122 us/img, max 48209 us) | recopie textures=166 us/img (138 Ko/img) attentes-tampon=0 replis=0 | ring: occupation-max=16 Ko/2048 Ko attentes-dll=0 perdus=0
+[  17.00s] pathcache: resolutions=47 (ecriture=2 donnees=25 introuvables=17 auto=3) | balayages=8 (constructions=8 parcours=0) | consultations-dossier=86 dont-absent-sans-balayage=59 | invalidations=6 re-verifications=0 replis=0 dont-INDEX-PERIME=0 | courses=0 aveugles=0 | entrees 1.14d=28,save2=99
+[  17.00s] gxm: palette -> emplacement 3 | [0]=ff000000 [1]=ff240000 [2]=ff1c1808 [255]=ffffffff
+[  22.00s] input: autopilote coupe (prise en main)
+[  22.00s] alive: pump=665 frames=348 reads=1314 eip=01b88e08 sw=1503 io=1332ms jit=1143ms n=2939 sync=176ms fail=0 va=17MB spr=0/8MB cel=0/500KB big=0 jm=301MB fam=4/7 gil=- run=1:R:3185644,2:B:7,3:B:13364,4:B:156751,5:B:29993
+[  22.00s] hot: grille=0 coll=0 rle=1146 lum=0 blend=0 expl=2745 blit=0 lent=0
+[  22.00s] audio(10s): voix=1/10 creees=9 grains=438 famine=438 us/grain=78 sortie=23140 rest=0 verrou=1568Kio play=3 stop=1 s=10.2 sansvue=0 uncoup=0/0 resamp=0 puits=vita-bgm codec=h1320/a1322/repli0
+[  22.00s] scompplat: appels=32 fils-distincts=1 sortie-max=4096 o
+[  22.00s] traps: total=116173 fenetre=21604 images=246 par-image=87
+[  22.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c32767/d2
+[  23.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0 flushfil=v1/rc0/m0x20000/c1/d1 d2_audio=v1/rc0/m0x20000/c-1/d1
+[  23.00s] csintrin: enter=17276 (replis=0) leave=17274 esp-hisse=34550
+[  23.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[  23.00s] emis: blocs=2940 x86=531834o arm=3208848o expansion=6.033x
+[  23.00s] mmu: fold=1 sites=8794 pliables=3219 plies=3219 | stack=3 tetes=18106 maillons=4890 (pop=2288 push=2602) | refus emis=0 saut=38 famille=62
+[  23.00s] fils: 1=127784R 2=0B 3=390B 4=2822B 5=1943B (blocs/s par fil)
+[  23.00s] pathcache: resolutions=51 (ecriture=3 donnees=25 introuvables=17 auto=6) | balayages=9 (constructions=9 parcours=0) | consultations-dossier=87 dont-absent-sans-balayage=59 | invalidations=7 re-verifications=0 replis=0 dont-INDEX-PERIME=0 | courses=0 aveugles=0 | entrees 1.14d=28,save2=99
+[  23.00s] io: SHORT read h=81000015 want=8192 got=1030 eof=0 err=0 file=ux0:data/d2vita/save2/ABCDE.d2s
+[  23.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=3, +2 depuis le dernier resume) detenteur-au-releve=thr 1 acq=117745 dans=KERNEL32.dll!ReadFile — le filet ne desaffame pas pendant ce temps run=1:R:3185747,2:B:7,3:B:13364,4:B:156751,5:B:29993
+[  23.00s] io: SHORT read h=81000015 want=4096 got=0 eof=0 err=0 file=ux0:data/d2vita/save2/ABCDE.d2s
+[  23.00s] io: SHORT read h=81000016 want=8192 got=1096 eof=0 err=0 file=ux0:data/d2vita/save2/VITA.d2s
+[  23.00s] io: SHORT read h=81000016 want=4096 got=0 eof=0 err=0 file=ux0:data/d2vita/save2/VITA.d2s
+[  23.00s] io: SHORT read h=81000017 want=8192 got=1285 eof=0 err=0 file=ux0:data/d2vita/save2/ABC.d2s
+[  23.00s] io: SHORT read h=81000017 want=4096 got=0 eof=0 err=0 file=ux0:data/d2vita/save2/ABC.d2s
+[  23.00s] io: SHORT read h=81000018 want=8192 got=335 eof=0 err=0 file=ux0:data/d2vita/save2/AAAA.d2s
+[  23.00s] io: SHORT read h=81000018 want=4096 got=0 eof=0 err=0 file=ux0:data/d2vita/save2/AAAA.d2s
+[  23.00s] dcc: decodeur natif actif (1er sprite servi)
+[  23.00s] io(10s): lectures=258 octets=1443K hote=177ms (686us/lect) tailles: <=4K=110 <=64K=148 <=512K=0 >512K=0 seq=226 saut=32 | ram=217/1341K carte=41 lect 45/1075K 169ms direct=0 | tampons=8192K pic=8192K poignees=64 vols=157 refus=0
+[  23.00s] io/fichiers(10s): d2data.mpq n=150 1059K 72ms seq=136 ram=135 carte=14/536K; d2xmusic.mpq n=55 324K 34ms seq=55 ram=52 carte=3/384K; d2char.mpq n=10 12K 17ms seq=4 ram=5 carte=4/40K; Patch_D2.mpq n=27 44K 17ms seq=23 ram=21 carte=5/56K; ABCDE.d2s n=2 1K 15ms seq=1 ram=0 carte=1/0K;
+[  25.00s] rendu: img=217 (21.6/s) attente=14427us/img spins=1/img sleep=1/img wfso=0/img tick=0/img pompe=Game+0xfa5c8(412) sim=0 (0.0/s)
+[  25.00s] fogsleep: Sleep(0) de Fog dormis=686 (credit borne 20 ms)
+[  25.00s] jeu: dessinees=0/fen sautees=0/fen periode-rendu=40ms periode-sim=40ms | pompe:Game+0xfa5c8(412) | sleep:Game+0xfa67a(412) Game+0xf61fe(4)
+[  25.00s] phase: img=217 (21.5/s) ticks=0 | par image: sim=0 dessin=0 flush=296 autre=46001 (image=46297 us, tour=0) | dessins=0 flushs=217 tours=0
+[  25.00s] phase/cout: crochets=0/img refus=0 perdus=0 flush-hors-dessin=217 horloge=735ns onedraw=0
+[  25.00s] frames: n=217 fps=21.5 pire=1471ms@f349 (blocs=321 jit=139ms sync=17ms reads=254 scomp=367 sw=0) | fen: blocs=525 jit=199ms reads=377
+[  25.00s] ring: 414 enr/img (etat=283 redondants=0 evites-dll=131 dessins=130 lots=128) | 520 sommets/img | 21 Ko/img | texup=4 (136 Ko/img) | attentes=0 perdus=0 | h=0x5c3ac07db7fba689
+[  25.00s] gxm: lots=28 sommets=520 | atlas: pages=39/128 cellules=12492 reussites=59% (621/1043) evictions=0 (vivantes=0 en-vol=0) copies=422 (6 Ko/img) | liaisons manquees=0% ordre=39792 repli=0 perimees=0 | perdus=0 melange-inconnu=0 fmt-autre=0 | surdessin=0 Kpx/img (0% de l'ecran) lots-par-palette=melanges | non-couverts=0 px/img (0% de l'ecran, pire 0)
+[  25.00s] gxm: images=217 lots/img=28 sommets/img=520 appels/img=29 pages=39 rendu=960x544 soumission-us=242 attente-gpu-us=341 presentation-us=449 mode=1 en-vol=0,06 attentes-tampon=15 vidages=0 rappels=376 vsync=1 | recopie-us=27 debut-scene-us=28 lots-us=91 fin-scene-us=93 finish-us=341 setframebuf-us=449 somme-us=1032 total-submit-us=1073 | pal=shader effacement=plat melange=mesure sonde=0 f=d2_ring_f palette-debordee=0 filtre-refuse/img=0
+[  25.00s] gxm-flush: total-us=296 (parcours-ring-us=611 televersements-us=926 soumission-us=1076 hors-replay-us=0) | televersement: n/img=4 octets-moy=29166 us/tele=192 hachage-us/tele=0 (GRPROF=0)
+[  25.00s] flushfil: lots=1/img fil-occupe=2616 us/img | attentes du jeu=12 (293 us/img, max 48209 us) | recopie textures=164 us/img (136 Ko/img) attentes-tampon=0 replis=0 | ring: occupation-max=48 Ko/2048 Ko attentes-dll=0 perdus=0
+[  29.00s] famine: sieste thr 1 eip=01a24c60
+[  30.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=4, +1 depuis le dernier resume) detenteur-au-releve=thr 4 acq=161398 dans=KERNEL32.dll!ReadFile — le filet ne desaffame pas pendant ce temps run=1:R:6033062,2:B:7,3:B:15506,4:R:197468,5:B:39878
+[  31.00s] gxm: CHIEN DE GARDE — 3 s sans image soumise | derniere etape=sommets/indices/palettes | phase=jeu (hors gxm) depuis 3351 ms | soumises=458 presentees=458 en-file=0 carrousel=2 mode=1
+[  33.00s] alive: pump=912 frames=458 reads=2043 eip=0191996c sw=2272 io=2629ms jit=1562ms n=3846 sync=228ms fail=0 va=13MB spr=0/8MB cel=6/500KB big=0 jm=303MB fam=7/10 gil=- run=1:R:7007129,2:B:7,3:B:15716,4:B:216490,5:B:40274
+[  33.00s] hot: grille=0 coll=0 rle=2178 lum=0 blend=0 expl=3363 blit=0 lent=0
+[  33.00s] audio(10s): voix=1/10 creees=9 grains=440 famine=440 us/grain=76 sortie=23141 rest=0 verrou=2592Kio play=4 stop=18 s=10.2 sansvue=0 uncoup=0/0 resamp=0 puits=vita-bgm codec=h1544/a1546/repli0
+[  33.00s] scompplat: appels=839 fils-distincts=1 sortie-max=4096 o
+[  33.00s] traps: total=192959 fenetre=76786 images=110 par-image=698
+[  33.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c32767/d2
+[  33.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0 flushfil=v1/rc0/m0x20000/c-1/d1 d2_audio=v1/rc0/m0x20000/c-1/d1
+[  33.00s] csintrin: enter=40110 (replis=0) leave=40110 esp-hisse=80220
+[  33.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[  33.00s] emis: blocs=3851 x86=809965o arm=4385012o expansion=5.413x
+[  33.00s] mmu: fold=1 sites=10952 pliables=4044 plies=4044 | stack=3 tetes=23206 maillons=6642 (pop=3200 push=3442) | refus emis=0 saut=82 famille=75
+[  33.00s] fils: 1=382148R 2=0B 3=235B 4=5973B 5=1028B (blocs/s par fil)
+[  33.00s] lazyseek(10s): evites=1744 (paresseux=2048 vrais-fseek=304) fin-de-fichier=4 taille=10
+[  33.00s] famine: detection #8 (fenetre=200ms frames=458 wakes=2296 running=1 expirees=2 sautees-gil=6) run=1:R:7053513,2:B:7,3:B:15800,4:B:222415,5:B:40406
+[  34.00s] io(10s): lectures=740 octets=1918K hote=1362ms (1841us/lect) tailles: <=4K=618 <=64K=122 <=512K=0 >512K=0 seq=571 saut=169 | ram=576/1547K carte=164 lect 164/3032K 1350ms direct=0 | tampons=8192K pic=8192K poignees=64 vols=273 refus=0
+[  34.00s] io/fichiers(10s): d2xmusic.mpq n=53 321K 837ms seq=53 ram=50 carte=3/384K; Patch_D2.mpq n=353 425K 226ms seq=295 ram=282 carte=70/944K; d2data.mpq n=125 738K 121ms seq=111 ram=97 carte=27/976K; d2char.mpq n=100 197K 91ms seq=35 ram=64 carte=36/368K; d2exp.mpq n=109 234K 85ms seq=77 ram=83 carte=25/336K;
+[  34.00s] entree: resolution du jeu -> 640x480 (Glide)
+[  35.00s] pathcache: resolutions=59 (ecriture=6 donnees=26 introuvables=17 auto=10) | balayages=12 (constructions=12 parcours=0) | consultations-dossier=92 dont-absent-sans-balayage=60 | invalidations=10 re-verifications=0 replis=0 dont-INDEX-PERIME=0 | courses=0 aveugles=0 | entrees 1.14d=28,save2=99
+[  36.00s] io: SHORT read h=8100001a want=8192 got=1030 eof=0 err=0 file=ux0:data/d2vita/save2/ABCDE.d2s
+[  36.00s] io: SHORT read h=8100001a want=4096 got=0 eof=0 err=0 file=ux0:data/d2vita/save2/ABCDE.d2s

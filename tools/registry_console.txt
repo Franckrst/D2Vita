@@ -1,0 +1,22 @@
+software\battle.net\configuration|diablo ii battle.net gateways|Diablo II Battle.net gateways|7|31303039003034007573776573742e626174746c652e6e6574003800552e532e2057657374007573656173742e626174746c652e6e6574003600552e532e204561737400617369612e626174746c652e6e6574002d390041736961006575726f70652e626174746c652e6e6574002d31004575726f70650000
+software\battle.net\patch|dstdata|DstData|1|433a5c446961626c6f2049495c70617463685f64322e6d707100
+software\battle.net\patch|launcher|Launcher|1|433a5c446961626c6f2049495c47616d652e65786500
+software\battle.net\patch|patches|Patches|7|00
+software\battle.net\patch|srcdata|SrcData|1|433a5c446961626c6f2049495c64326578702e6d70713b433a5c446961626c6f2049495c6432646174612e6d70713b433a5c446961626c6f2049495c64327366782e6d707100
+software\blizzard entertainment\diablo ii|always run|Always Run|4|01000000
+software\blizzard entertainment\diablo ii|automapfade|AutoMapFade|4|00000000
+software\blizzard entertainment\diablo ii|aux battle.net|Aux Battle.net|1|3231362e3134382e3234362e333400
+software\blizzard entertainment\diablo ii|blended shadows|Blended Shadows|4|00000000
+software\blizzard entertainment\diablo ii|cmdline|CmdLine|1|2d77202d736b6970746f626e657400
+software\blizzard entertainment\diablo ii|contrast|Contrast|4|64000000
+software\blizzard entertainment\diablo ii|diff_level|DIFF_LEVEL|4|00000000
+software\blizzard entertainment\diablo ii|gameover|GAMEOVER|4|00000000
+software\blizzard entertainment\diablo ii|help menu|Help Menu|4|01000000
+software\blizzard entertainment\diablo ii|last bnet|Last BNet|1|5649544100
+software\blizzard entertainment\diablo ii|light quality|Light Quality|4|00000000
+software\blizzard entertainment\diablo ii|lvl_rest|LVL_REST|4|04000000
+software\blizzard entertainment\diablo ii|max_player|MAX_PLAYER|4|04000000
+software\blizzard entertainment\diablo ii|mini panel|Mini Panel|4|01000000
+software\blizzard entertainment\diablo ii|music volume|Music Volume|4|00000000
+software\blizzard entertainment\diablo ii|preferred realm|Preferred Realm|1|547970654775727500
+software\blizzard entertainment\diablo ii|usecmdline|UseCmdLine|4|00000000

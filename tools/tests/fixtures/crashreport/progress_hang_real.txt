@@ -1,0 +1,392 @@
+[   0.00s] env.txt: D2SCRIPT=
+[   0.00s] env.txt: D2CMDFILE=ux0:data/d2vita/d2cmd.txt
+[   0.00s] env.txt: QUANTUM=20000000
+[   0.00s] env.txt: D2SCHED=native
+[   0.00s] env.txt: D2WRITE=ux0:data/d2vita/save2
+[   0.00s] env.txt: D2_SELECTBLOCK=1
+[   0.00s] env.txt: NATIVECELLLOOP=1
+[   0.00s] env.txt: D2_CALLRET=1
+[   0.00s] env.txt: D2_NOPUMPWAIT=1
+[   0.00s] env.txt: D2_LAZYSEEK=1
+[   0.00s] env.txt: D2_FRAMEPROF=1
+[   0.00s] env.txt: D2_FRAMEUS=1
+[   0.00s] env.txt: D2_CELLOPT=63
+[   0.00s] env.txt: D2_MMUSTACK=3
+[   0.00s] env.txt: D2_MMUFOLD=1
+[   0.00s] env.txt: D2_BUDGETTAIL=1
+[   0.00s] env.txt: D2_CSINTRIN=1
+[   0.00s] env.txt: D2_B5=1
+[   0.00s] env.txt: D2ARGS=game.exe -3dfx
+[   0.00s] env.txt: D2_GLIDERING=1
+[   0.00s] env.txt: D2_GLIDEGXM=1
+[   0.00s] env.txt: D2_GXMASYNC=2
+[   0.00s] env.txt: D2_GXMCLEAR=plat
+[   0.00s] env.txt: D2_YIELD=2
+[   0.00s] env.txt: D2_ONEDRAW=2
+[   0.00s] env.txt: D2_REPLAY60=1
+[   0.00s] env.txt: D2_FRAMEPROF=1
+[   0.00s] env.txt: D2_LAGWATCH=80
+[   0.00s] env.txt: D2_LAGWATCH_NOSAMP=1
+[   0.00s] mem-budget(pre-arena) rc=0 user=324608 KB cdram=114688 KB phycont=26624 KB
+[   0.00s] clocks: arm444=0 bus222=0 gpu222=0 xbar166=0 (0=ok) relu arm=500 bus=222 gpu=222 xbar=166
+[   0.00s] flavour: PORTAGES — lumiere/blend/RLE/collision/grille/SCompExplode actifs
+[   0.00s] rtc: rc=0x00000000 tick=63924450751596623 unix=1788853951
+[   0.00s] platform_init: config baked, present ready
+[   0.00s] present: async thread on core 2 (rc=0x00000000) (D2_PRESENTZC=0)
+[   0.00s] present: auto-epinglage masque=0x40000 rc=0x00000000 relu=0x40000
+[   0.00s] pathcache: index de repertoire ACTIF (D2_PATHCACHE=(non pose, defaut=actif)) — re-verification par balayage toutes les 16 reponses « absent » d'un meme nom
+[   0.00s] memblock RW 297 MB ok (uid=0x40010161)
+[   1.00s] arena probe ok: 0x01000000
+[   1.00s] arena probe ok: 0x0f000000
+[   1.00s] arena probe ok: 0x10000000
+[   1.00s] arena probe ok: 0x10800000
+[   1.00s] arena probe ok: 0x10bf0000
+[   1.00s] arena probe ok: 0x11000000
+[   1.00s] arena probe ok: 0x11400000
+[   1.00s] arena probe ok: 0x118ff000
+[   1.00s] dynarec: pliage fastmmu des absolus ACTIF (D2_MMUFOLD=1)
+[   1.00s] dynarec: chaine fastmmu POP=ACTIF PUSH=ACTIF (D2_MMUSTACK=3)
+[   1.00s] mode: 1.14 monolith
+[   2.00s] lagwatch: ARME seuil=80 ms | echantillonnage=COUPE (D2_LAGWATCH_NOSAMP) | lire les lignes « lente#NN ... | invite ech=... »
+[   2.00s] [b5] horloge groupee=OUI | index direct=OUI (fenetre=154 creneaux @0x11800700)
+[   2.00s] csintrin: Enter@0x118005e0 Leave@0x118005d0 TryEnter@0x00000000 ARME
+[   2.00s] [inlinehot] natif: guest-inline coupe (page de ticks non rafraichie sous natif)
+[   2.00s] phaseprof: dessin crochete (alternate sur Game+0x4c990, +0x5fde0, +0x60190 ; sortie par trap de retour) onedraw=2 sieste=1000us
+[   2.00s] ringtag: crochets poses — unite Game+0xdc7b0 (ECX=UnitAny*), camera Game+0x5b440, pas Game+0x12fd90 ; rejeu=ACTIF ui=Game+0x56ee0
+[   2.00s] ringtag: phase Game+0x56ee0 crochetee (forme 55) = borne UI
+[   2.00s] native scomp (1.14d): hook alternate pose sur Game+0x15240
+[   2.00s] portage: boucle de cellules Game+0xf8b80 ARMEE
+[   2.00s] cellopt: masque=0x3f [sansvecteur cachevue mots32 bandes echelle identite ] recensement=0
+[   2.00s] cellpar: ouvriers=0/0 mode=bandes coeurs=12 part=egale min=8 spin=20000 cessions=2000 sieste=200us vol=100000
+[   2.00s] portages natifs points chauds: lumiere/blend/RLE/collision/grille poses
+[   2.00s] roomguard v3: validation coords au marshaller
+[   2.00s] sched: backend=NATIVE (GIL sur les shims, code traduit sans GIL ; mono-coeur epingle sur Vita)
+[   2.00s] famine: filet arme (fenetre=200ms sieste=1000us)
+[   2.00s] clock: real-time mode on
+[   2.00s] natif: MAXSW/QUANTUM ignores (mecanique coop)
+[   2.00s] scheduler.run() entered
+[   2.00s] watchdog: auto-epinglage masque=0x40000 rc=0x00000000 relu=0x40000
+[   2.00s] watchdog: arme (USER_2 createur [D2_COEURS], prio relue=160)
+[   2.00s] famine: battement auto-epinglage masque=0x40000 rc=0x00000000 relu=0x40000
+[   2.00s] famine: battement arme (Sce brut, USER_2 createur [D2_COEURS], prio relue=160)
+[   2.00s] vm-domain: BRACKET close+open arme (premier rc=0x00000000)
+[   2.00s] time: GSTAFT wall=1788853953
+[   2.00s] fils: 1=0R 2=0R (blocs/s par fil)
+[   2.00s] famine: detection #1 (fenetre=200ms frames=0 wakes=0 running=2 expirees=0 sautees-gil=0) run=1:R:11710,2:R:0
+[   2.00s] famine: sieste thr 1 eip=01909ebe
+[   2.00s] famine: sieste thr 2 eip=019027c0
+[   2.00s] time: GetLocalTime y=2026 m=9 d=8
+[   2.00s] pathcache: resolutions=1 (ecriture=0 donnees=0 introuvables=1 auto=0) | balayages=2 (constructions=2 parcours=0) | consultations-dossier=2 dont-absent-sans-balayage=2 | invalidations=0 re-verifications=0 replis=0 dont-INDEX-PERIME=0 | courses=0 aveugles=0 | entrees 1.14d=28,save2=99
+[   3.00s] ini: D2.ini ABSENT (ux0:data/d2vita/1.14d/D2.ini) -> defauts de l'appelant
+[   3.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=1, +1 depuis le dernier resume) detenteur-au-releve=thr 1 acq=2982 dans=KERNEL32.dll!ReadFile — le filet ne desaffame pas pendant ce temps run=1:R:65799,2:B:7,3:B:47,4:B:8824
+[   4.00s] file W D2260908.txt disp=4 -> h=8100000b
+[   4.00s] file W locale disp=2 -> h=8100000d
+[   4.00s] file W locale disp=2 -> h=8100000e
+[   4.00s] sched-native: set_no_preempt no-op (dynarec cache is lock-protected; spec D7)
+[   4.00s] ring: ARME — en-tete 0x020d6740 donnees 0x01ed6740 taille 2048 Ko, TMU annoncee 4 Mio (v1) dedup-DLL=oui
+[   4.00s] fenetre: activee (WM_ACTIVATEAPP/ACTIVATE/SETFOCUS)
+[   4.00s] gxm[init] entree d2gxm_init | libre user=16384 Ko cdram=110592 Ko
+[   4.00s] gxm: chien de garde uid=0x40020195 start=0x00000000
+[   4.00s] gxm: sceGxmInitialize rc=0x00000000 | file: max en attente=1 (carrousel=2, doit valoir carrousel-1) taille donnees=8
+[   4.00s] gxm[init] contexte | libre user=14336 Ko cdram=91136 Ko
+[   4.00s] gxm[init] tampons d'affichage | libre user=14336 Ko cdram=87040 Ko
+[   4.00s] gxm[init] cible de rendu | libre user=14336 Ko cdram=87040 Ko
+[   4.00s] gxm[init] patcher de shaders | libre user=14336 Ko cdram=87040 Ko
+[   4.00s] gxm: shaders v=ux0 (380 o) f=ux0 (628 o) [d2_ring_f]
+[   4.00s] gxm: effacement PLAT ARME (ux0 (228 o))
+[   4.00s] gxm[init] sommets/indices/palettes | libre user=14336 Ko cdram=81920 Ko
+[   4.00s] gxm: PRET — fenetre 800x600 -> 960x544, libre user=14336 Ko cdram=81920 Ko
+[   4.00s] gxm: memoire — RAM user 16384 -> 14336 Ko (cout 2048 Ko), cdram libre 81920 Ko, placement GPU=CDRAM | USSE en RAM user par obligation (144 Ko)
+[   4.00s] gxm: mode=ASYNCHRONE-DIFFERE carrousel=2 vsync=1 rendement-us=50 effacement=plat melange=mesure sonde=0 incrust=oui | pal=shader f=d2_ring_f filtre=point
+[   4.00s] gxm: atlas 32 Mio, pages 512x512 (max 128), fenetre 800x600, lots coupes par palette=non
+[   4.00s] replay60: fil parti, epinglage masque=0x40000 rc=0x00000000 relu=0x40000, vsync, mode=interp
+[   4.00s] gxm[differe 0]: EndScene rc=0x00000000 slot=0 en-file=1 | presentees=0 derniere=0 pixels-non-noirs=0
+[   5.00s] scomp: explode natif actif (1er secteur servi)
+[   7.00s] gxm: palette -> emplacement 1 | [0]=ff000000 [1]=ff240000 [2]=ff1c1808 [255]=ffffffff
+[   7.00s] gxm[differe 1]: EndScene rc=0x00000000 slot=1 en-file=1 | presentees=1 derniere=0 pixels-non-noirs=86
+[   7.00s] input: mapping par defaut
+[   7.00s] input: cadence 30 Hz (tap<7, L<6 ticks)
+[   7.00s] input: controles physiques actifs
+[   7.00s] entree: resolution du jeu -> 640x480 (Glide)
+[   7.00s] gxm[differe 2]: EndScene rc=0x00000000 slot=0 en-file=1 | presentees=2 derniere=1 pixels-non-noirs=86
+[   7.00s] entree: resolution du jeu -> 800x600 (Glide)
+[   8.00s] gxm: palette -> emplacement 2 | [0]=ff000000 [1]=ff240000 [2]=ff1c1808 [255]=ffffffff
+[   8.00s] gxm[lot 0]: page=1 melange=0 drapeaux=0x5 cst=0x000000ff indices=18 | s0=(0.0,0.0) uv0=(0.5000,0.5000) argb0=ffffffff pal0=0.1562
+[   8.00s] gxm[page 1]: cellule (256,256) octets 22 22 22 22 22 22 22 22
+[   8.00s] gxm[lot 0]: page=1 melange=0 drapeaux=0x5 cst=0x000000ff indices=18 | s0=(0.0,0.0) uv0=(0.5000,0.5000) argb0=ffffffff pal0=0.1562
+[   8.00s] gxm[page 1]: cellule (256,256) octets 22 22 22 22 22 22 22 22
+[   8.00s] gxm[lot 0]: page=1 melange=0 drapeaux=0x5 cst=0x000000ff indices=18 | s0=(0.0,0.0) uv0=(0.5000,0.5000) argb0=ffffffff pal0=0.1562
+[   8.00s] gxm[page 1]: cellule (256,256) octets 22 22 22 22 22 22 22 22
+[   8.00s] gxm[lot 0]: page=1 melange=0 drapeaux=0x5 cst=0x000000ff indices=18 | s0=(0.0,0.0) uv0=(0.5000,0.5000) argb0=ffffffff pal0=0.1562
+[   8.00s] gxm[page 1]: cellule (256,256) octets 22 22 22 22 22 22 22 22
+[   8.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=2, +1 depuis le dernier resume) detenteur-au-releve=libre-au-releve acq=187890 — le filet ne desaffame pas pendant ce temps run=1:R:1636024,2:B:7,3:B:7856,4:B:80487
+[   9.00s] famine: sieste thr 1 eip=019fa67a
+[  10.00s] famine: detection #8 (fenetre=200ms frames=10 wakes=217 running=1 expirees=2 sautees-gil=5) run=1:R:3140407,2:B:7,3:B:7919,4:B:80529
+[  10.00s] gxm[lot 0]: page=1 melange=0 drapeaux=0x5 cst=0x000000ff indices=18 | s0=(0.0,0.0) uv0=(0.5000,0.5000) argb0=ffffffff pal0=0.1562
+[  10.00s] gxm[page 1]: cellule (256,256) octets 22 22 22 22 22 22 22 22
+[  10.00s] gxm[lot 0]: page=1 melange=0 drapeaux=0x5 cst=0x000000ff indices=18 | s0=(0.0,0.0) uv0=(0.5000,0.5000) argb0=ffffffff pal0=0.1562
+[  10.00s] gxm[page 1]: cellule (256,256) octets 22 22 22 22 22 22 22 22
+[  12.00s] alive: pump=348926 frames=12 reads=806 eip=118006e0 sw=221 io=458ms jit=944ms n=2497 sync=139ms fail=0 va=13MB spr=0/8MB cel=0/500KB big=0 jm=301MB fam=9/11 gil=thr1/>=0ms/acq=1819389 dans=USER32.dll!PeekMessageA run=1:R:4581698,2:B:7,3:B:8067,4:B:80557
+[  12.00s] hot: grille=0 coll=0 rle=58 lum=0 blend=0 expl=2271 blit=0 lent=0
+[  12.00s] scompplat: appels=32 fils-distincts=1 sortie-max=4096 o
+[  12.00s] traps: total=1481943 fenetre=1481943 images=12 par-image=123495
+[  12.00s] coeurs: sonde 4e coeur — activeCpuMask=0x000f0000 (rc=0x00000000) | temoin 0x40000 rc=0x00000000 relu=0x40000 | 0x80000 rc=0x00040000 relu=0x80000 | 0xF0000 rc=0x00080000 relu=0xf0000
+[  12.00s] coeurs: 4e coeur (0x80000) ACCEPTE par le noyau — reste a prouver qu'un fil y COURT (chiffre 3 de D2_COEURS / D2_CELLPARCPU, puis lire le champ d= de la ligne coeurs:)
+[  12.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[  12.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0 replay60=v2/rc0/m0x40000/c-1/d2
+[  12.00s] csintrin: enter=6897 (replis=0) leave=6897 esp-hisse=13794
+[  12.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[  12.00s] emis: blocs=2497 x86=459661o arm=2743468o expansion=5.968x
+[  12.00s] mmu: fold=1 sites=7562 pliables=2684 plies=2684 | stack=3 tetes=15800 maillons=4139 (pop=1899 push=2240) | refus emis=0 saut=33 famille=57
+[  12.00s] fils: 1=473367R 2=0B 3=0B 4=0B (blocs/s par fil)
+[  13.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=15, +13 depuis le dernier resume) detenteur-au-releve=libre-au-releve acq=2246840 — le filet ne desaffame pas pendant ce temps run=1:R:5351089,2:B:7,3:B:8088,4:B:80571
+[  14.00s] gxm: CHIEN DE GARDE — 3 s sans image soumise | derniere etape=sommets/indices/palettes | phase=jeu (hors gxm) depuis 3970 ms | soumises=12 presentees=11 en-file=1 carrousel=2 mode=2
+[  16.00s] famine: sieste thr 1 eip=019fa60c
+[  18.00s] famine: detection #16 (fenetre=200ms frames=12 wakes=233 running=1 expirees=2 sautees-gil=27) run=1:R:8820966,2:B:7,3:B:8193,4:B:80641
+[  18.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=28, +13 depuis le dernier resume) detenteur-au-releve=libre-au-releve acq=4342503 — le filet ne desaffame pas pendant ce temps run=1:R:9123130,2:B:7,3:B:8214,4:B:80655
+[  22.00s] alive: pump=1199452 frames=12 reads=806 eip=019fa67a sw=243 io=458ms jit=944ms n=2497 sync=139ms fail=0 va=13MB spr=0/8MB cel=0/500KB big=0 jm=301MB fam=20/22 gil=- run=1:R:12236419,2:B:7,3:B:8298,4:B:80711
+[  22.00s] hot: grille=0 coll=0 rle=58 lum=0 blend=0 expl=2271 blit=0 lent=0
+[  22.00s] scompplat: appels=32 fils-distincts=1 sortie-max=4096 o
+[  22.00s] traps: total=4885189 fenetre=3403246 images=0 par-image=0
+[  22.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[  22.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0 replay60=v2/rc0/m0x40000/c-1/d2
+[  22.00s] csintrin: enter=6930 (replis=0) leave=6930 esp-hisse=13860
+[  22.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[  22.00s] emis: blocs=2497 x86=459661o arm=2743468o expansion=5.968x
+[  22.00s] mmu: fold=1 sites=7562 pliables=2684 plies=2684 | stack=3 tetes=15800 maillons=4139 (pop=1899 push=2240) | refus emis=0 saut=33 famille=57
+[  22.00s] sched-native: GIL busy — racy snapshot follows
+[  22.00s] thr 1 st=2 wait=- eip=019fa67a sl=0
+[  22.00s] thr 2 st=3 wait=event eip=11800640 sl=0
+[  22.00s] thr 3 st=3 wait=event eip=118006e0 sl=0
+[  22.00s] thr 4 st=3 wait=event eip=11800640 sl=0
+[  22.00s] fils: 1=755182R 2=0B 3=23B 4=15B (blocs/s par fil)
+[  23.00s] famine: sieste thr 1 eip=019fa5c8
+[  24.00s] famine: detection #24 (fenetre=200ms frames=12 wakes=249 running=1 expirees=2 sautees-gil=41) run=1:R:13336664,2:B:7,3:B:8361,4:B:80753
+[  24.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=42, +14 depuis le dernier resume) detenteur-au-releve=libre-au-releve acq=6850922 — le filet ne desaffame pas pendant ce temps run=1:R:13638083,2:B:7,3:B:8382,4:B:80767
+[  26.00s] gxm: CHIEN DE GARDE — 15 s sans image soumise | derniere etape=sommets/indices/palettes | phase=jeu (hors gxm) depuis 15986 ms | soumises=12 presentees=11 en-file=1 carrousel=2 mode=2
+[  28.00s] famine: sieste thr 1 eip=019fa616
+[  29.00s] famine: detection #32 (fenetre=200ms frames=12 wakes=265 running=1 expirees=2 sautees-gil=53) run=1:R:17554598,2:B:7,3:B:8529,4:B:80865
+[  30.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=54, +12 depuis le dernier resume) detenteur-au-releve=libre-au-releve acq=9194141 — le filet ne desaffame pas pendant ce temps run=1:R:17855675,2:B:7,3:B:8550,4:B:80879
+[  32.00s] fils: 1=752248R 2=0B 3=33B 4=22B (blocs/s par fil)
+[  32.00s] alive: pump=2051353 frames=12 reads=806 eip=118014a0 sw=277 io=458ms jit=944ms n=2497 sync=139ms fail=0 va=13MB spr=0/8MB cel=0/500KB big=0 jm=301MB fam=37/39 gil=- run=1:R:19903532,2:B:7,3:B:8655,4:B:80949
+[  32.00s] hot: grille=0 coll=0 rle=58 lum=0 blend=0 expl=2271 blit=0 lent=0
+[  33.00s] scompplat: appels=32 fils-distincts=1 sortie-max=4096 o
+[  33.00s] traps: total=8294845 fenetre=3409656 images=0 par-image=0
+[  33.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[  33.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0 replay60=v2/rc0/m0x40000/c-1/d2
+[  33.00s] csintrin: enter=6981 (replis=0) leave=6981 esp-hisse=13962
+[  33.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[  33.00s] emis: blocs=2497 x86=459661o arm=2743468o expansion=5.968x
+[  33.00s] mmu: fold=1 sites=7562 pliables=2684 plies=2684 | stack=3 tetes=15800 maillons=4139 (pop=1899 push=2240) | refus emis=0 saut=33 famille=57
+[  33.00s] sched-native: GIL busy — racy snapshot follows
+[  33.00s] thr 1 st=2 wait=- eip=019fa67a sl=0
+[  33.00s] thr 2 st=3 wait=event eip=11800640 sl=0
+[  33.00s] thr 3 st=3 wait=event eip=118006e0 sl=0
+[  33.00s] thr 4 st=3 wait=event eip=11800640 sl=0
+[  33.00s] famine: sieste thr 1 eip=019fa67a
+[  35.00s] famine: detection #40 (fenetre=200ms frames=12 wakes=281 running=1 expirees=2 sautees-gil=63) run=1:R:21460976,2:B:7,3:B:8697,4:B:80977
+[  35.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=64, +10 depuis le dernier resume) detenteur-au-releve=libre-au-releve acq=11364406 — le filet ne desaffame pas pendant ce temps run=1:R:21761951,2:B:7,3:B:8718,4:B:80991
+[  39.00s] famine: sieste thr 1 eip=019fa5c8
+[  40.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=77, +13 depuis le dernier resume) detenteur-au-releve=libre-au-releve acq=13457579 — le filet ne desaffame pas pendant ce temps run=1:R:25529511,2:B:7,3:B:8844,4:B:81075
+[  41.00s] famine: detection #48 (fenetre=200ms frames=12 wakes=297 running=1 expirees=2 sautees-gil=78) run=1:R:26132484,2:B:7,3:B:8865,4:B:81089
+[  41.00s] gxm: CHIEN DE GARDE — 30 s sans image soumise | derniere etape=sommets/indices/palettes | phase=jeu (hors gxm) depuis 31003 ms | soumises=12 presentees=11 en-file=1 carrousel=2 mode=2
+[  42.00s] fils: 1=751831R 2=0B 3=29B 4=19B (blocs/s par fil)
+[  43.00s] alive: pump=2905747 frames=12 reads=806 eip=118006e0 sw=303 io=458ms jit=944ms n=2497 sync=139ms fail=0 va=13MB spr=0/8MB cel=0/500KB big=0 jm=301MB fam=50/52 gil=thr1/>=0ms/acq=14604063 run=1:R:27593078,2:B:7,3:B:8928,4:B:81131
+[  43.00s] hot: grille=0 coll=0 rle=58 lum=0 blend=0 expl=2271 blit=0 lent=0
+[  43.00s] scompplat: appels=32 fils-distincts=1 sortie-max=4096 o
+[  43.00s] traps: total=11713374 fenetre=3418529 images=0 par-image=0
+[  43.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[  43.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0 replay60=v2/rc0/m0x40000/c-1/d2
+[  43.00s] csintrin: enter=7023 (replis=0) leave=7023 esp-hisse=14046
+[  43.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[  43.00s] emis: blocs=2497 x86=459661o arm=2743468o expansion=5.968x
+[  43.00s] mmu: fold=1 sites=7562 pliables=2684 plies=2684 | stack=3 tetes=15800 maillons=4139 (pop=1899 push=2240) | refus emis=0 saut=33 famille=57
+[  43.00s] sched-native: GIL busy — racy snapshot follows
+[  43.00s] thr 1 st=2 wait=- eip=11800700 sl=0
+[  43.00s] thr 2 st=3 wait=event eip=11800640 sl=0
+[  43.00s] thr 3 st=3 wait=event eip=118006e0 sl=0
+[  43.00s] thr 4 st=3 wait=event eip=11800640 sl=0
+[  44.00s] famine: sieste thr 1 eip=019fa60c
+[  45.00s] famine: detection #56 (fenetre=200ms frames=12 wakes=313 running=1 expirees=2 sautees-gil=84) run=1:R:29426579,2:B:7,3:B:9033,4:B:81201
+[  46.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=85, +8 depuis le dernier resume) detenteur-au-releve=thr 1 acq=15789892 — le filet ne desaffame pas pendant ce temps run=1:R:29727422,2:B:7,3:B:9054,4:B:81215
+[  48.00s] famine: sieste thr 1 eip=019fa5c8
+[  50.00s] famine: detection #64 (fenetre=200ms frames=12 wakes=329 running=1 expirees=2 sautees-gil=94) run=1:R:33337119,2:B:7,3:B:9201,4:B:81313
+[  51.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=95, +10 depuis le dernier resume) detenteur-au-releve=thr 1 acq=18130373 dans=USER32.dll!PeekMessageA — le filet ne desaffame pas pendant ce temps run=1:R:33940061,2:B:7,3:B:9243,4:B:81341
+[  52.00s] fils: 1=750994R 2=0B 3=35B 4=23B (blocs/s par fil)
+[  53.00s] alive: pump=3761205 frames=12 reads=806 eip=019fa67a sw=339 io=458ms jit=944ms n=2497 sync=139ms fail=0 va=13MB spr=0/8MB cel=0/500KB big=0 jm=301MB fam=68/70 gil=- run=1:R:35292200,2:B:7,3:B:9306,4:B:81383
+[  53.00s] hot: grille=0 coll=0 rle=58 lum=0 blend=0 expl=2271 blit=0 lent=0
+[  53.00s] scompplat: appels=32 fils-distincts=1 sortie-max=4096 o
+[  53.00s] traps: total=15137571 fenetre=3424197 images=0 par-image=0
+[  53.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[  53.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0 replay60=v2/rc0/m0x40000/c-1/d2
+[  53.00s] csintrin: enter=7074 (replis=0) leave=7074 esp-hisse=14148
+[  53.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[  53.00s] emis: blocs=2497 x86=459661o arm=2743468o expansion=5.968x
+[  53.00s] mmu: fold=1 sites=7562 pliables=2684 plies=2684 | stack=3 tetes=15800 maillons=4139 (pop=1899 push=2240) | refus emis=0 saut=33 famille=57
+[  53.00s] sched-native: GIL busy — racy snapshot follows
+[  53.00s] thr 1 st=2 wait=- eip=019fa60c sl=0
+[  53.00s] thr 2 st=3 wait=event eip=11800640 sl=0
+[  53.00s] thr 3 st=3 wait=event eip=118006e0 sl=0
+[  53.00s] thr 4 st=3 wait=event eip=11800640 sl=0
+[  54.00s] famine: sieste thr 1 eip=019fa616
+[  55.00s] famine: detection #72 (fenetre=200ms frames=12 wakes=345 running=1 expirees=2 sautees-gil=99) run=1:R:36482018,2:B:7,3:B:9369,4:B:81425
+[  56.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=106, +11 depuis le dernier resume) detenteur-au-releve=libre-au-releve acq=20213547 — le filet ne desaffame pas pendant ce temps run=1:R:37689598,2:B:7,3:B:9390,4:B:81439
+[  56.00s] gxm: CHIEN DE GARDE — 45 s sans image soumise | derniere etape=sommets/indices/palettes | phase=jeu (hors gxm) depuis 46021 ms | soumises=12 presentees=11 en-file=1 carrousel=2 mode=2
+[  60.00s] famine: sieste thr 1 eip=019fa5c8
+[  61.00s] famine: detection #80 (fenetre=200ms frames=12 wakes=361 running=1 expirees=2 sautees-gil=114) run=1:R:41149301,2:B:7,3:B:9537,4:B:81537
+[  61.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=115, +9 depuis le dernier resume) detenteur-au-releve=libre-au-releve acq=22302900 — le filet ne desaffame pas pendant ce temps run=1:R:41450232,2:B:7,3:B:9558,4:B:81551
+[  62.00s] fils: 1=750889R 2=0B 3=29B 4=19B (blocs/s par fil)
+[  63.00s] alive: pump=4618259 frames=12 reads=806 eip=019fa616 sw=369 io=458ms jit=944ms n=2497 sync=139ms fail=0 va=13MB spr=0/8MB cel=0/500KB big=0 jm=301MB fam=83/85 gil=thr1/>=0ms/acq=23167084 run=1:R:43005684,2:B:7,3:B:9621,4:B:81593
+[  63.00s] hot: grille=0 coll=0 rle=58 lum=0 blend=0 expl=2271 blit=0 lent=0
+[  63.00s] scompplat: appels=32 fils-distincts=1 sortie-max=4096 o
+[  63.00s] traps: total=18567246 fenetre=3429675 images=0 par-image=0
+[  63.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[  63.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0 replay60=v2/rc0/m0x40000/c-1/d2
+[  63.00s] csintrin: enter=7119 (replis=0) leave=7119 esp-hisse=14238
+[  63.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[  63.00s] emis: blocs=2497 x86=459661o arm=2743468o expansion=5.968x
+[  63.00s] mmu: fold=1 sites=7562 pliables=2684 plies=2684 | stack=3 tetes=15800 maillons=4139 (pop=1899 push=2240) | refus emis=0 saut=33 famille=57
+[  63.00s] sched-native: GIL busy — racy snapshot follows
+[  63.00s] thr 1 st=2 wait=- eip=118006e0 sl=0
+[  63.00s] thr 2 st=3 wait=event eip=11800640 sl=0
+[  64.00s] thr 3 st=3 wait=event eip=118006e0 sl=0
+[  64.00s] thr 4 st=3 wait=event eip=11800640 sl=0
+[  64.00s] pathcache: resolutions=46 (ecriture=1 donnees=25 introuvables=17 auto=3) | balayages=7 (constructions=7 parcours=0) | consultations-dossier=85 dont-absent-sans-balayage=59 | invalidations=5 re-verifications=0 replis=0 dont-INDEX-PERIME=0 | courses=0 aveugles=0 | entrees 1.14d=28,save2=99
+[  65.00s] gxm: palette -> emplacement 3 | [0]=ff000000 [1]=ff240000 [2]=ff1c1808 [255]=ffffffff
+[  65.00s] frames: n=13 fps=0.2 pire=54415ms@f13 (blocs=131 jit=40ms sync=7ms reads=77 scomp=240 sw=0) | fen: blocs=821 jit=385ms reads=799
+[  65.00s] ring: 148 enr/img (etat=100 redondants=0 evites-dll=48 dessins=47 lots=45) | 188 sommets/img | 8 Ko/img | texup=24 (163 Ko/img) | attentes=0 perdus=0 | h=0xabe1805f2a4b41f1
+[  65.00s] gxm: lots=8 sommets=188 | atlas: pages=16/128 cellules=4396 reussites=63% (202/318) evictions=0 (vivantes=0 en-vol=0) copies=116 (131 Ko/img) | liaisons manquees=0% ordre=590 repli=0 perimees=0 | perdus=0 melange-inconnu=0 fmt-autre=0 | surdessin=0 Kpx/img (0% de l'ecran) lots-par-palette=melanges | non-couverts=0 px/img (0% de l'ecran, pire 0)
+[  65.00s] gxm: images=13 lots/img=8 sommets/img=188 appels/img=9 pages=16 rendu=960x544 soumission-us=232 attente-gpu-us=2 presentation-us=3224 mode=2 en-vol=0,84 attentes-tampon=0 vidages=0 rappels=12 vsync=1 | recopie-us=43 debut-scene-us=32 lots-us=49 fin-scene-us=104 finish-us=2 setframebuf-us=3224 somme-us=3456 total-submit-us=17235 | pal=shader effacement=plat melange=mesure sonde=0 f=d2_ring_f palette-debordee=0 filtre-refuse/img=0
+[  65.00s] gxm-flush: total-us=22461 (parcours-ring-us=0 televersements-us=18840 soumission-us=17284 hors-replay-us=9) | televersement: n/img=24 octets-moy=6831 us/tele=770 hachage-us/tele=0 (GRPROF=0)
+[  65.00s] ringtag: emis=24/img refuses=0 unites=->rejeu | Game+0x56ee0: entrees=0 dessins=0 sommets=0
+[  65.00s] replay60: images-jeu=0 rejeux=0 (0.00/img) mode=interp fil=actif | unites=0/img dont dessinees=0 (dessins/unite=0.00, appariees=0% des dessinees) | sommets: unites=0% monde=0% ui=0% | dpos/pas: moy=0.000 max=0.000 sous-tuiles | conv-err: moy=0.00 max=0.00 px (<1px=0%, n=0) | cout rejeu: transf=0 us (max 0) soumission=0 us (max 0) | exact=0/0 ko=0 | alpha-moy=0.000 sans-prec=0 sans-cam=0 perdus=0 | mouvement (n=0): reel=(0.0,0.0) predit=(0.0,0.0) px cumules | etat=veille images-hors-jeu=13 rejeux-hors-jeu=0 refus-transition=0 bascules=0/0 | borne3: refus=0 max-rejeux/img=0
+[  65.00s] --- images les plus lentes (fenetre, 13 images vues) ---
+[  65.00s] lente#01 f13 54415ms | blocs=131 jit=40ms sync=7ms run=0ms reads=77 scomp=240 sw=0 look=18028079 | invite ech=0 000000=0 000000=0 000000=0
+[  65.00s] lente#02 f2 2826ms | blocs=401 jit=258ms sync=26ms run=0ms reads=684 scomp=2156 sw=0 look=33101 | invite ech=0 000000=0 000000=0 000000=0
+[  65.00s] lente#03 f11 2328ms | blocs=4 jit=3ms sync=0ms run=0ms reads=0 scomp=0 sw=0 look=759271 | invite ech=0 000000=0 000000=0 000000=0
+[  65.00s] lente#04 f7 286ms | blocs=192 jit=60ms sync=10ms run=0ms reads=38 scomp=123 sw=0 look=1496 | invite ech=0 000000=0 000000=0 000000=0
+[  65.00s] lente#05 f3 134ms | blocs=46 jit=8ms sync=2ms run=0ms reads=0 scomp=0 sw=0 look=12642 | invite ech=0 000000=0 000000=0 000000=0
+[  65.00s] lente#06 f6 57ms | blocs=19 jit=5ms sync=1ms run=0ms reads=0 scomp=0 sw=0 look=12501 | invite ech=0 000000=0 000000=0 000000=0
+[  65.00s] lente#07 f5 47ms | blocs=15 jit=5ms sync=0ms run=0ms reads=0 scomp=0 sw=0 look=18 | invite ech=0 000000=0 000000=0 000000=0
+[  65.00s] lente#08 f8 28ms | blocs=7 jit=1ms sync=0ms run=0ms reads=0 scomp=0 sw=0 look=30 | invite ech=0 000000=0 000000=0 000000=0
+[  65.00s] famine: sieste thr 1 eip=019fa60c
+[  66.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=125, +10 depuis le dernier resume) detenteur-au-releve=libre-au-releve acq=23985560 — le filet ne desaffame pas pendant ce temps run=1:R:44626888,2:B:7,3:B:9810,4:B:88469
+[  67.00s] famine: detection #88 (fenetre=200ms frames=36 wakes=406 running=1 expirees=2 sautees-gil=126) run=1:R:45228745,2:B:7,3:B:9831,4:B:88483
+[  68.00s] gxm: CHIEN DE GARDE — 3 s sans image soumise | derniere etape=sommets/indices/palettes | phase=jeu (hors gxm) depuis 3125 ms | soumises=36 presentees=35 en-file=1 carrousel=2 mode=2
+[  71.00s] famine: sieste thr 1 eip=019fa67a
+[  71.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=135, +10 depuis le dernier resume) detenteur-au-releve=thr 1 acq=26154754 dans=KERNEL32.dll!Sleep — le filet ne desaffame pas pendant ce temps run=1:R:48531232,2:B:7,3:B:9978,4:B:88581
+[  72.00s] fils: 1=693153R 2=0B 3=42B 4=703B (blocs/s par fil)
+[  72.00s] famine: detection #96 (fenetre=200ms frames=36 wakes=422 running=1 expirees=2 sautees-gil=137) run=1:R:49305637,2:B:7,3:B:9999,4:B:88595
+[  74.00s] alive: pump=5395531 frames=36 reads=883 eip=118014a0 sw=426 io=459ms jit=986ms n=2631 sync=146ms fail=0 va=13MB spr=0/8MB cel=0/500KB big=0 jm=301MB fam=97/99 gil=thr1/>=0ms/acq=27056534 run=1:R:50154358,2:B:7,3:B:10041,4:B:88623
+[  74.00s] hot: grille=0 coll=0 rle=150 lum=0 blend=0 expl=2511 blit=0 lent=0
+[  74.00s] scompplat: appels=32 fils-distincts=1 sortie-max=4096 o
+[  74.00s] traps: total=21683053 fenetre=3115807 images=24 par-image=129825
+[  74.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[  74.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0 replay60=v2/rc0/m0x40000/c-1/d2
+[  74.00s] csintrin: enter=7870 (replis=0) leave=7870 esp-hisse=15740
+[  74.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[  74.00s] emis: blocs=2631 x86=476543o arm=2850584o expansion=5.981x
+[  74.00s] mmu: fold=1 sites=7811 pliables=2735 plies=2735 | stack=3 tetes=16389 maillons=4329 (pop=2014 push=2315) | refus emis=0 saut=35 famille=57
+[  76.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=146, +11 depuis le dernier resume) detenteur-au-releve=thr 1 acq=28238521 dans=KERNEL32.dll!Sleep — le filet ne desaffame pas pendant ce temps run=1:R:52293020,2:B:7,3:B:10125,4:B:88679
+[  77.00s] famine: sieste thr 1 eip=019fa616
+[  77.00s] gxm: CHIEN DE GARDE — 3 s sans image soumise | derniere etape=sommets/indices/palettes | phase=jeu (hors gxm) depuis 3454 ms | soumises=38 presentees=37 en-file=1 carrousel=2 mode=2
+[  79.00s] famine: detection #104 (fenetre=200ms frames=38 wakes=438 running=1 expirees=2 sautees-gil=153) run=1:R:54087908,2:B:7,3:B:10167,4:B:88707
+[  81.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=161, +15 depuis le dernier resume) detenteur-au-releve=thr 1 acq=30326338 dans=USER32.dll!PeekMessageA — le filet ne desaffame pas pendant ce temps run=1:R:56050961,2:B:7,3:B:10230,4:B:88749
+[  82.00s] fils: 1=751750R 2=0B 3=25B 4=16B (blocs/s par fil)
+[  84.00s] alive: pump=6247748 frames=38 reads=883 eip=019fa60c sw=448 io=459ms jit=986ms n=2631 sync=146ms fail=0 va=13MB spr=0/8MB cel=0/500KB big=0 jm=301MB fam=108/110 gil=- run=1:R:57835559,2:B:7,3:B:10272,4:B:88777
+[  84.00s] hot: grille=0 coll=0 rle=154 lum=0 blend=0 expl=2511 blit=0 lent=0
+[  84.00s] scompplat: appels=32 fils-distincts=1 sortie-max=4096 o
+[  84.00s] traps: total=25093266 fenetre=3410213 images=2 par-image=1705106
+[  84.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[  84.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0 replay60=v2/rc0/m0x40000/c-1/d2
+[  84.00s] csintrin: enter=7905 (replis=0) leave=7905 esp-hisse=15810
+[  84.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[  84.00s] emis: blocs=2631 x86=476543o arm=2850584o expansion=5.981x
+[  84.00s] mmu: fold=1 sites=7811 pliables=2735 plies=2735 | stack=3 tetes=16389 maillons=4329 (pop=2014 push=2315) | refus emis=0 saut=35 famille=57
+[  85.00s] famine: sieste thr 1 eip=019fa67a
+[  86.00s] famine: detection #112 (fenetre=200ms frames=38 wakes=454 running=1 expirees=2 sautees-gil=174) run=1:R:59621810,2:B:7,3:B:10335,4:B:88819
+[  87.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=175, +14 depuis le dernier resume) detenteur-au-releve=thr 1 acq=32644377 — le filet ne desaffame pas pendant ce temps run=1:R:60223250,2:B:7,3:B:10377,4:B:88847
+[  89.00s] gxm: CHIEN DE GARDE — 15 s sans image soumise | derniere etape=sommets/indices/palettes | phase=jeu (hors gxm) depuis 15481 ms | soumises=38 presentees=37 en-file=1 carrousel=2 mode=2
+[  89.00s] famine: sieste thr 1 eip=019fa5c8
+[  91.00s] famine: detection #120 (fenetre=200ms frames=38 wakes=470 running=1 expirees=2 sautees-gil=181) run=1:R:63056453,2:B:7,3:B:10503,4:B:88931
+[  92.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=184, +9 depuis le dernier resume) detenteur-au-releve=libre-au-releve acq=34721561 — le filet ne desaffame pas pendant ce temps run=1:R:63961985,2:B:7,3:B:10545,4:B:88959
+[  92.00s] fils: 1=745801R 2=0B 3=29B 4=19B (blocs/s par fil)
+[  94.00s] alive: pump=7098588 frames=38 reads=883 eip=11800700 sw=480 io=459ms jit=986ms n=2631 sync=146ms fail=0 va=13MB spr=0/8MB cel=0/500KB big=0 jm=301MB fam=124/126 gil=thr1/>=0ms/acq=35572236 run=1:R:65493122,2:B:7,3:B:10608,4:B:89001
+[  94.00s] hot: grille=0 coll=0 rle=154 lum=0 blend=0 expl=2511 blit=0 lent=0
+[  94.00s] scompplat: appels=32 fils-distincts=1 sortie-max=4096 o
+[  94.00s] traps: total=28498246 fenetre=3404980 images=0 par-image=0
+[  94.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[  94.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0 replay60=v2/rc0/m0x40000/c-1/d2
+[  94.00s] csintrin: enter=7953 (replis=0) leave=7953 esp-hisse=15906
+[  94.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[  94.00s] emis: blocs=2631 x86=476543o arm=2850584o expansion=5.981x
+[  94.00s] mmu: fold=1 sites=7811 pliables=2735 plies=2735 | stack=3 tetes=16389 maillons=4329 (pop=2014 push=2315) | refus emis=0 saut=35 famille=57
+[  94.00s] sched-native: GIL busy — racy snapshot follows
+[  94.00s] thr 1 st=2 wait=- eip=118006e0 sl=0
+[  94.00s] thr 2 st=3 wait=event eip=11800640 sl=0
+[  94.00s] thr 3 st=3 wait=event eip=118006e0 sl=0
+[  94.00s] thr 4 st=3 wait=event eip=11800640 sl=0
+[  97.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=201, +17 depuis le dernier resume) detenteur-au-releve=thr 1 acq=36805294 — le filet ne desaffame pas pendant ce temps run=1:R:67712603,2:B:7,3:B:10629,4:B:89015
+[  97.00s] famine: sieste thr 1 eip=019fa5c8
+[  99.00s] famine: detection #128 (fenetre=200ms frames=38 wakes=486 running=1 expirees=2 sautees-gil=206) run=1:R:69200838,2:B:7,3:B:10671,4:B:89043
+[ 102.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=214, +13 depuis le dernier resume) detenteur-au-releve=thr 1 acq=38890351 dans=KERNEL32.dll!Sleep — le filet ne desaffame pas pendant ce temps run=1:R:71465555,2:B:7,3:B:10755,4:B:89099
+[ 102.00s] fils: 1=750306R 2=0B 3=23B 4=15B (blocs/s par fil)
+[ 104.00s] famine: sieste thr 1 eip=019fa5c8
+[ 104.00s] gxm: CHIEN DE GARDE — 30 s sans image soumise | derniere etape=sommets/indices/palettes | phase=jeu (hors gxm) depuis 30511 ms | soumises=38 presentees=37 en-file=1 carrousel=2 mode=2
+[ 104.00s] alive: pump=7965533 frames=38 reads=883 eip=118006e0 sw=502 io=459ms jit=986ms n=2631 sync=146ms fail=0 va=13MB spr=0/8MB cel=0/500KB big=0 jm=301MB fam=135/137 gil=- run=1:R:73295620,2:B:7,3:B:10839,4:B:89155
+[ 104.00s] hot: grille=0 coll=0 rle=154 lum=0 blend=0 expl=2511 blit=0 lent=0
+[ 104.00s] scompplat: appels=32 fils-distincts=1 sortie-max=4096 o
+[ 104.00s] traps: total=31945456 fenetre=3447210 images=0 par-image=0
+[ 104.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 104.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0 replay60=v2/rc0/m0x40000/c-1/d2
+[ 104.00s] csintrin: enter=7986 (replis=0) leave=7986 esp-hisse=15972
+[ 104.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[ 104.00s] emis: blocs=2631 x86=476543o arm=2850584o expansion=5.981x
+[ 104.00s] mmu: fold=1 sites=7811 pliables=2735 plies=2735 | stack=3 tetes=16389 maillons=4329 (pop=2014 push=2315) | refus emis=0 saut=35 famille=57
+[ 104.00s] sched-native: GIL busy — racy snapshot follows
+[ 104.00s] thr 1 st=2 wait=- eip=118006e0 sl=0
+[ 105.00s] thr 2 st=3 wait=event eip=11800640 sl=0
+[ 105.00s] thr 3 st=3 wait=event eip=118006e0 sl=0
+[ 105.00s] thr 4 st=3 wait=event eip=11800640 sl=0
+[ 105.00s] famine: detection #136 (fenetre=200ms frames=38 wakes=502 running=1 expirees=2 sautees-gil=220) run=1:R:73729582,2:B:7,3:B:10839,4:B:89155
+[ 108.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=227, +13 depuis le dernier resume) detenteur-au-releve=libre-au-releve acq=41323650 — le filet ne desaffame pas pendant ce temps run=1:R:75845291,2:B:7,3:B:10923,4:B:89211
+[ 110.00s] famine: sieste thr 1 eip=019fa67a
+[ 111.00s] famine: detection #144 (fenetre=200ms frames=38 wakes=518 running=1 expirees=2 sautees-gil=234) run=1:R:78256071,2:B:7,3:B:11007,4:B:89267
+[ 112.00s] fils: 1=754758R 2=0B 3=27B 4=18B (blocs/s par fil)
+[ 114.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=240, +13 depuis le dernier resume) detenteur-au-releve=thr 1 acq=43922474 dans=KERNEL32.dll!Sleep — le filet ne desaffame pas pendant ce temps run=1:R:80522948,2:B:7,3:B:11112,4:B:89337
+[ 115.00s] alive: pump=8810277 frames=38 reads=883 eip=118014a0 sw=530 io=459ms jit=986ms n=2631 sync=146ms fail=0 va=13MB spr=0/8MB cel=0/500KB big=0 jm=301MB fam=149/151 gil=- run=1:R:80898311,2:B:7,3:B:11133,4:B:89351
+[ 115.00s] hot: grille=0 coll=0 rle=154 lum=0 blend=0 expl=2511 blit=0 lent=0
+[ 115.00s] scompplat: appels=32 fils-distincts=1 sortie-max=4096 o
+[ 115.00s] traps: total=35326559 fenetre=3381103 images=0 par-image=0
+[ 115.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 115.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0 replay60=v2/rc0/m0x40000/c-1/d2
+[ 115.00s] csintrin: enter=8028 (replis=0) leave=8028 esp-hisse=16056
+[ 115.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[ 115.00s] emis: blocs=2631 x86=476543o arm=2850584o expansion=5.981x
+[ 115.00s] mmu: fold=1 sites=7811 pliables=2735 plies=2735 | stack=3 tetes=16389 maillons=4329 (pop=2014 push=2315) | refus emis=0 saut=35 famille=57
+[ 115.00s] thr 1 st=2 wait=- eip=11800700 sl=0
+[ 115.00s] thr 2 st=3 wait=event eip=11800640 sl=0
+[ 115.00s] thr 3 st=3 wait=event eip=118006e0 sl=0
+[ 115.00s] thr 4 st=3 wait=event eip=11800640 sl=0
+[ 116.00s] famine: sieste thr 1 eip=019fa60c
+[ 118.00s] famine: detection #152 (fenetre=200ms frames=38 wakes=534 running=1 expirees=2 sautees-gil=251) run=1:R:83203781,2:B:7,3:B:11175,4:B:89379
+[ 119.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=254, +14 depuis le dernier resume) detenteur-au-releve=libre-au-releve acq=46082404 — le filet ne desaffame pas pendant ce temps run=1:R:84410669,2:B:7,3:B:11238,4:B:89421
+[ 119.00s] gxm: CHIEN DE GARDE — 45 s sans image soumise | derniere etape=sommets/indices/palettes | phase=jeu (hors gxm) depuis 45518 ms | soumises=38 presentees=37 en-file=1 carrousel=2 mode=2
+[ 122.00s] famine: sieste thr 1 eip=019fa5c8
+[ 122.00s] fils: 1=750704R 2=0B 3=27B 4=18B (blocs/s par fil)
+[ 124.00s] famine: fenetre SAUTEE (trylock GIL echoue) (sautees=269, +15 depuis le dernier resume) detenteur-au-releve=thr 1 acq=48179070 dans=USER32.dll!PeekMessageA — le filet ne desaffame pas pendant ce temps run=1:R:88184543,2:B:7,3:B:11343,4:B:89491
+[ 125.00s] famine: detection #160 (fenetre=200ms frames=38 wakes=550 running=1 expirees=2 sautees-gil=270) run=1:R:88486765,2:B:7,3:B:11343,4:B:89491
+[ 125.00s] alive: pump=9653442 frames=38 reads=883 eip=019fa60c sw=552 io=459ms jit=986ms n=2631 sync=146ms fail=0 va=13MB spr=0/8MB cel=0/500KB big=0 jm=301MB fam=160/162 gil=- run=1:R:88486765,2:B:7,3:B:11364,4:B:89505
+[ 125.00s] hot: grille=0 coll=0 rle=154 lum=0 blend=0 expl=2511 blit=0 lent=0
+[ 125.00s] scompplat: appels=32 fils-distincts=1 sortie-max=4096 o
+[ 125.00s] traps: total=38703859 fenetre=3377300 images=0 par-image=0
+[ 125.00s] coeurs: present=v2/rc0/m0x40000/c-1/d2 chien=v2/rc0/m0x40000/c2/d2 battement=v2/rc0/m0x40000/c-1/d2
+[ 125.00s] coeurs: invite-main=v0/rc0/m0x10000/c0/d0 replay60=v2/rc0/m0x40000/c-1/d2
+[ 125.00s] csintrin: enter=8061 (replis=0) leave=8061 esp-hisse=16122
+[ 125.00s] clk: arm=500 bus=222 gpu=222 xbar=166
+[ 125.00s] emis: blocs=2631 x86=476543o arm=2850584o expansion=5.981x
+[ 125.00s] mmu: fold=1 sites=7811 pliables=2735 plies=2735 | stack=3 tetes=16389 maillons=4329 (pop=2014 push=2315) | refus emis=0 saut=35 famille=57
+[ 125.00s] thr 1 st=2 wait=- eip=118006e0 sl=0
+[ 125.00s] thr 2 st=3 wait=event eip=11800640 sl=0
+[ 125.00s] thr 3 st=3 wait=event eip=118006e0 sl=0
+[ 125.00s] thr 4 st=3 wait=event eip=11800640 sl=0

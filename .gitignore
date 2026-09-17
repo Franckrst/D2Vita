@@ -1,0 +1,76 @@
+# Build
+build/
+build-*/
+cmake-build-*/
+out/
+*.o
+*.a
+*.so
+*.dylib
+
+# Vita
+*.velf
+*.self
+*.vpk
+eboot.bin
+param.sfo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Diablo II proprietary data + reference binaries — NEVER commit
+data/
+mpq/
+*.mpq
+*.MPQ
+d2data/
+d2-refs/
+d2-vita-refs/
+D2/
+*.exe
+# D2GS wire captures / replays (reference binaries — NEVER commit)
+*.bin
+tools/d2gs_capture_*.bin
+tools/d2gs_replay_*.bin
+*.dll
+*.dc6
+*.dcc
+*.dt1
+*.ds1
+*.pl2
+
+# Raw decompilation output — never in the repo
+*.gpr
+*.rep/
+ghidra_projects/
+
+# Local
+.env
+.env.local
+tools/bncs_local.log
+tools/__pycache__/
+
+# global (prod hygiene)
+__pycache__/
+*.log
+
+# Clés CD en clair — ne JAMAIS commiter
+keys.txt
+build-glide/
+
+# Magasin de secrets (cle CD). Ces chemins ne doivent JAMAIS entrer dans git,
+# ni etre rapatries par tools/vita_drive.sh / push_console.sh.
+keystore.bin
+d2vita_secret/
+*/d2vita_secret/
+
+# Journal de bord interne — utile au mainteneur, pas a une V1 publique
+# (voir docs/release/publication-checklist.md §6). Reste en local, jamais
+# publie ; STATUS.md gardait 1800+ lignes de journal chronologique.
+STATUS.md
+
+# Harnais de reference CheckRevision : objet de ressource genere par windres
+tools/crref/*.res
