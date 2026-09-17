@@ -47,25 +47,20 @@ Les clés CD (optionnelles) vont un niveau au-dessus, à plat dans
 `ux0:data/d2vita/keys.txt` — voir
 [Jeu en ligne](en-ligne.fr.md#le-mecanisme-des-cles-cd).
 
-## Construire le VPK
+## Obtenir le VPK
 
-```bash
-export VITASDK=/usr/local/vitasdk
-export PATH="$VITASDK/bin:$PATH"
+Télécharge `d2vita.vpk` depuis la [page des
+Releases](https://github.com/Franckrst/D2Vita/releases) — chaque release
+est construite et publiée automatiquement par la CI.
 
-TARGET=vita bash third_party/winx86/build.sh   # construit le moteur (winx86 + dynarec) pour la cible Vita
-bash tools/build_rt_boot_vpk.sh                # produit le VPK final (d2vita.vpk)
-```
-
-Le `CMakeLists.txt` à la racine ne construit **pas** le binaire de
-livraison — seulement des utilitaires de développement côté hôte
-(`pe_analyze`, etc.). Le vrai pipeline de build passe par les scripts
-`tools/build_*.sh` ci-dessus.
+Construire depuis les sources (pour le développement, ou pour suivre `main`
+entre deux releases) est documenté dans le [README du
+dépôt](https://github.com/Franckrst/D2Vita#building) ; le résultat se trouve
+alors dans `build-vita/d2vita.vpk`.
 
 ## Installer sur la console
 
-Installer le VPK produit (`build-vita/d2vita.vpk` ou équivalent selon
-le script utilisé) avec VitaShell, comme n'importe quel homebrew.
+Installer le VPK avec VitaShell, comme n'importe quel homebrew.
 
 ## Configuration (`env.txt`)
 

@@ -102,6 +102,26 @@ ux0:data/d2vita/
 
 On Vita, the boot diagnostic screen tells you what is missing from `ux0:data/d2vita/`.
 
+## Controls
+
+| Vita input | Diablo II action |
+|---|---|
+| Left stick | Direct movement (cursor orbits the character + held left click) |
+| Right stick | Free mouse, no click |
+| Touch screen | Absolute cursor; short tap = left click |
+| L (held) | Left click |
+| R (held) | Right click (also a combo layer: R+Triangle = virtual keyboard, R+D-pad = F1-F4, R+Select = Space) |
+| Cross | R — toggle walk/run |
+| Circle | Shift (held) — attack in place |
+| Square (held) | Alt — show items on the ground |
+| Triangle | W — weapon swap |
+| D-pad | Belt potions 1-4 |
+| Start | Esc |
+| Select | Radial menu — skills (T), quests (Q), map (Tab), inventory (I), chat (Enter), party (P), character (C) |
+
+Remappable without a rebuild via `ux0:data/d2vita/controls.txt`. Full detail:
+[Controller and keyboard](https://franckrst.github.io/D2Vita/controles/).
+
 ## Reference D2 binaries
 
 The genuine Blizzard binary the runtime executes (`Game.exe` 1.14d and its data) is kept
