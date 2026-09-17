@@ -1,6 +1,6 @@
 site_name: d2vita
 site_description: Port of Diablo II — Lord of Destruction to PS Vita
-site_url: https://d2-vita-bb378b.gitlab.io/
+site_url: https://franckrst.github.io/D2Vita/
 repo_url: https://github.com/Franckrst/D2Vita
 docs_dir: docs-site
 theme:

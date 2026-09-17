@@ -42,7 +42,7 @@ the source of truth for the public repository.
 - [ ] **Warden / anti-cheat fidelity**: no structured exception handling at
       all (a guest fault kills the thread), no PEB/LDR, no per-region
       `VirtualProtect` tracking, self `OpenProcess` still denied — detailed
-      backlog in [Fidelity Warden / anti-cheat](https://d2-vita-bb378b.gitlab.io/fidelite-warden/). None of it
+      backlog in [Fidelity Warden / anti-cheat](https://franckrst.github.io/D2Vita/fidelite-warden/). None of it
       blocks play; it only matters if Warden ever activates.
 - [ ] **RAM budget**: the multi-segment JIT pool (path 5.2) is partially
       refuted — a `ForVM` block larger than 16 MiB is refused by the kernel

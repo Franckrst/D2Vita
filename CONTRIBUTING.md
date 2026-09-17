@@ -41,7 +41,7 @@ since this is not a team project.
 4. Update [ROADMAP.md](ROADMAP.md) when a subsystem's state changes or
    shifts. Don't invent a fake/synthetic
    response to make something look done — see
-   [Fidelity Warden / anti-cheat](https://d2-vita-bb378b.gitlab.io/fidelite-warden/) for why this matters
+   [Fidelity Warden / anti-cheat](https://franckrst.github.io/D2Vita/fidelite-warden/) for why this matters
    beyond ordinary correctness (Warden/anti-cheat fidelity).
 5. Commit with a message that explains *why*, not just what changed.
 

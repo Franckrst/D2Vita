@@ -34,7 +34,7 @@ workflow.
   for how keys are actually handled.
 - **Never fabricate a response to make a check pass.** This applies to
   ordinary tests as much as to anti-cheat/CheckRevision fidelity work —
-  see [Fidelity Warden / anti-cheat](https://d2-vita-bb378b.gitlab.io/fidelite-warden/). Represent the real guest
+  see [Fidelity Warden / anti-cheat](https://franckrst.github.io/D2Vita/fidelite-warden/). Represent the real guest
   state honestly, or document the gap; don't synthesize a convenient answer
   to make an observer believe otherwise.
 - **Never claim a test or build succeeded unless it was actually run**, and

@@ -158,7 +158,7 @@ Nothing here is a game engine — these are development scripts.
    MPQs) lives outside the repo, under `~/d2-vita-refs/1.14d/`.
 2. **Never fabricate a response to make a check pass.** The guiding
    principle — run the real code rather than work around it — also applies
-   to anti-cheat checks: see [Fidelity Warden / anti-cheat](https://d2-vita-bb378b.gitlab.io/fidelite-warden/).
+   to anti-cheat checks: see [Fidelity Warden / anti-cheat](https://franckrst.github.io/D2Vita/fidelite-warden/).
 3. **No per-frame allocation in the hot path.** Performance discipline and
    pools/LRUs: see the generic engine's skills,
    [`third_party/winx86/.claude/skills/`](third_party/winx86/.claude/skills/).
