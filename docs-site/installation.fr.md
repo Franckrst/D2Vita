@@ -27,6 +27,30 @@ ux0:data/d2vita/
 L'écran de diagnostic au démarrage indique précisément quel fichier manque
 s'il en manque un.
 
+Les exécutables authentiques 1.13c→1.14d vont dans leur propre sous-dossier,
+car le chargeur les cherche là spécifiquement (pas à côté des MPQ ci-dessus) :
+
+```
+ux0:data/d2vita/1.14d/
+├── Game.exe
+├── Fog.dll
+├── Storm.dll
+├── D2Win.dll
+├── D2Client.dll
+├── D2Common.dll
+└── D2gfx.dll
+```
+
+Rien d'autre à fournir : `ddraw.dll`, `glide3x.dll`, `checkrevision.dll` et
+`d2vhost.dll` sont tous fabriqués ou simulés par d2vita lui-même, jamais lus
+depuis le disque. Pareil pour `ux0:data/d2vita/shaders/` — les shaders GPU
+précompilés voyagent déjà dans le VPK (`build_rt_boot_vpk.sh`), ce dossier
+n'est qu'une surcharge optionnelle sur console, pas quelque chose qu'une
+installation normale doit remplir.
+
+Les clés CD (optionnelles) vont dans un emplacement séparé, hors `.mpq` —
+voir [Jeu en ligne](en-ligne.fr.md#le-mecanisme-des-cles-cd).
+
 ## Construire le VPK
 
 ```bash
