@@ -389,7 +389,15 @@ ConsentAnswer run_native(const ConsentPrompt& prompt, uint32_t budget_ms) {
     int back = 0;   // base[back] is always the buffer safe to draw into next
 
     const uint64_t t0 = sceKernelGetProcessTimeWide();
+    // Seed with whatever is ALREADY held -- typically Cross, still physically
+    // down from launching the app in VitaShell a moment earlier -- so the
+    // first real poll_buttons() call doesn't edge-detect that residual press
+    // as a fresh one and silently auto-answer Send before the dialog is even
+    // visible. Best-effort: if this read fails, 0 keeps the prior behavior
+    // (poll_buttons() itself handles a failing read the same way).
     uint32_t prevButtons = 0;
+    {   SceCtrlData seed; std::memset(&seed, 0, sizeof seed);
+        if (sceCtrlPeekBufferPositive(0, &seed, 1) >= 1) prevButtons = seed.buttons; }
     uint32_t lastDrawnRemaining = 0xFFFFFFFFu;
     ConsentAnswer answer = ConsentAnswer::Later;
     for (;;) {
