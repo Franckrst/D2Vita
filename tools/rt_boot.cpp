@@ -2052,7 +2052,7 @@ int main(int argc,char**argv){
     // completely unrelated function, or a PROCESS_INFO field as if it were a PC.
     //
     // So the RUNTIME address of a known symbol is published. The offset is
-    // computed offline: bias = value_below - nm(d2vita_boot.elf|main), and
+    // computed offline: bias = value_below - nm(d2vita.elf|main), and
     // any dump becomes readable, including one from a future crash.
     { char mb[160];
       std::snprintf(mb,sizeof mb,"module: main a l'execution=%p (biais = cette valeur - nm(main))",

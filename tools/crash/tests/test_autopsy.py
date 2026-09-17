@@ -40,12 +40,12 @@ class SymbolsTest(unittest.TestCase):
             build = os.path.join(root, "0.1.0+ab12cd34ef56")
             os.makedirs(build)
             self.assertEqual(autopsy.symbols_for("0.1.0+ab12cd34ef56", root), {})
-            for name in ("nm.txt", "d2vita_boot.elf"):
+            for name in ("nm.txt", "d2vita.elf"):
                 with open(os.path.join(build, name), "w", encoding="utf-8") as handle:
                     handle.write("81000730 T main\n")
             found = autopsy.symbols_for("0.1.0+ab12cd34ef56", root)
             self.assertEqual(found["nm"], os.path.join(build, "nm.txt"))
-            self.assertEqual(found["elf"], os.path.join(build, "d2vita_boot.elf"))
+            self.assertEqual(found["elf"], os.path.join(build, "d2vita.elf"))
             self.assertEqual(autopsy.symbols_for("0.9.9+000000000000", root), {})
 
     def test_a_build_id_that_is_not_one_looks_nowhere(self):

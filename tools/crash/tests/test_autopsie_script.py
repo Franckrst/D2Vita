@@ -150,14 +150,14 @@ class AutopsieScriptTest(unittest.TestCase):
 
     def test_the_elf_link_address_gives_the_bias(self):
         import struct
-        elf = os.path.join(self.tmp.name, "d2vita_boot.elf")
+        elf = os.path.join(self.tmp.name, "d2vita.elf")
         header = b"\x7fELF" + bytes([1, 1, 1, 0]) + b"\0" * 8 + struct.pack(
             "<HHIIIIIHHHHHH", 2, 40, 1, 0x81000730, 52, 0, 0x05000000, 52, 32, 1, 0, 0, 0)
         phdr = struct.pack("<8I", 1, 0, 0x81000000, 0, 0x1000, 0x1000, 5, 4)
         with open(elf, "wb") as handle:
             handle.write(header + phdr)
         output = self.ok(self.dump("eboot_nostamp"), "--nm", self.nm_file(), "--elf", elf)
-        self.assertIn("MODULE_INFO(d2vita_boot.elf)", output)      # module base 0x81000000, link 0x81000000
+        self.assertIn("MODULE_INFO(d2vita.elf)", output)      # module base 0x81000000, link 0x81000000
         self.assertIn("d2vita_present_flip+0x6e", output)
 
     def test_names_the_module_of_the_faulting_address(self):

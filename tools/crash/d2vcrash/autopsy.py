@@ -4,7 +4,7 @@
 # can read it), then handed to the reference postmortem script with everything
 # that makes its output true for that build:
 #   * the symbols archived after the build, ~/d2vita-symbols/<build_id>/
-#     (nm.txt, d2vita_boot.elf), design section 4.10;
+#     (nm.txt, d2vita.elf), design section 4.10;
 #   * the arena host base and the runtime address of main, both printed in the
 #     boot_progress of the same report when it was uploaded.
 import os
@@ -45,7 +45,7 @@ def symbols_for(build_id, root=None):
         return {}
     directory = os.path.join(symbols_root(root), build_id)
     found = {}
-    for key, name in (("nm", "nm.txt"), ("elf", "d2vita_boot.elf")):
+    for key, name in (("nm", "nm.txt"), ("elf", "d2vita.elf")):
         path = os.path.join(directory, name)
         if os.path.exists(path):
             found[key] = path

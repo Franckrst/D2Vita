@@ -113,7 +113,7 @@ def common_modules():
     return [
         {'uid': 0x4001000b, 'name': 'SceLibKernel', 'segs': [(5, 0xe0000390, 0xe8d8), (6, 0xe0011d60, 0x48)]},
         {'uid': 0x40010013, 'name': 'SceGxm', 'segs': [(5, 0xe006c100, 0x23d04), (6, 0xe001ac20, 0x72c)]},
-        {'uid': 0x40010001, 'name': 'd2vita_boot.elf', 'segs': [(5, EBOOT_TEXT, 0x349000), (6, 0x81400000, 0x387430)]},
+        {'uid': 0x40010001, 'name': 'd2vita.elf', 'segs': [(5, EBOOT_TEXT, 0x349000), (6, 0x81400000, 0x387430)]},
     ]
 
 
@@ -213,7 +213,7 @@ def dump_first_jit(elf_only=False):
                thr(0x4002017b, 'SceGxmDisplayQueue', 8, 0, 0xe0006aa4, lr=0xe000ac75, sp=0x813e3fa8)]
     notes = [note('COREFILE_INFO', b'\0' * 40, NT_COREFILE), note('THREAD_INFO', thread_info(threads), NT_THREAD),
              note('THREAD_REG_INFO', thread_reg_info(threads), NT_THREAD_REG), note('PROCESS_INFO', process_info('DTWO00001'), NT_PROCESS),
-             note('SYSTEM_INFO', system_info(), NT_SYSTEM), note('APP_INFO', app_info('DTWO00001', 'D2Vita Boot'), NT_APP),
+             note('SYSTEM_INFO', system_info(), NT_SYSTEM), note('APP_INFO', app_info('DTWO00001', 'D2Vita'), NT_APP),
              note('MODULE_INFO', module_info(common_modules()), NT_MODULE), stamp_note()]
     loads = [filler(0x81801000, 0x8000, 7), stack_segment(0x0f2e0000, 0x20000, frames), jit_segment(JIT + 0x24000, 0x1000)]
     return build(notes, loads, elf_only=elf_only, trailing=trailing_notes())
@@ -234,7 +234,7 @@ def dump_worker_withheld():
     key_utf16 = 'fakelodkey0123456789abcdef'.encode('utf-16-le')
     notes = [note('COREFILE_INFO', b'\0' * 40, NT_COREFILE), note('THREAD_INFO', thread_info(threads), NT_THREAD),
              note('THREAD_REG_INFO', thread_reg_info(threads), NT_THREAD_REG), note('SYSTEM_INFO', system_info(), NT_SYSTEM),
-             note('APP_INFO', app_info('DTWO00001', 'D2Vita Boot'), NT_APP), note('MODULE_INFO', module_info(common_modules()), NT_MODULE)]
+             note('APP_INFO', app_info('DTWO00001', 'D2Vita'), NT_APP), note('MODULE_INFO', module_info(common_modules()), NT_MODULE)]
     stack = stack_segment(0x0f4e0000, 0x10000, frames, extra=[(0x3000, key_ascii)])
     heap = bytearray(filler(0x85123000, 0x30000, 11)[1])
     heap[0x100:0x100 + len(key_utf16)] = key_utf16
@@ -252,7 +252,7 @@ def dump_eboot_nostamp():
     threads = [thr(0x40010003, 'DTWO00001', 1, 0x30004, EBOOT_TEXT + 0x2f6e6e, lr=EBOOT_TEXT + 0x2fa1f1, r=[0x9f, 0x98, 1, 0x53, 7, 0x9f, 0, 0, 1, 0xffffffff, 0, 0, 0xffffffff], cpsr=0x200f0030),
                thr(0x4001011b, 'd2_present', 8, 0, 0xe0006694, lr=0xe000ace7, sp=0x813e0f58)]
     notes = [note('THREAD_INFO', thread_info(threads), NT_THREAD), note('THREAD_REG_INFO', thread_reg_info(threads), NT_THREAD_REG),
-             note('SYSTEM_INFO', system_info(), NT_SYSTEM), note('APP_INFO', app_info('DTWO00001', 'D2Vita Boot'), NT_APP),
+             note('SYSTEM_INFO', system_info(), NT_SYSTEM), note('APP_INFO', app_info('DTWO00001', 'D2Vita'), NT_APP),
              note('MODULE_INFO', module_info(common_modules()), NT_MODULE)]
     loads = [filler(0x81c00000, 0x1000, 3), (EBOOT_TEXT + 0x2f6e4e - 0x4e, b'\0' * 0x100)]
     return build(notes, loads)
@@ -277,7 +277,7 @@ def dump_d2_sysmodule():
     threads = [thr(0x40010003, 'DTWO00001', 1, 0x30004, 0xe0006694, lr=0xe1004321, r=guest_regs(esp, ebp))]
     mods = common_modules() + [{'uid': 0x40010045, 'name': 'Sce Odd-Module', 'segs': [(5, 0xe1000000, 0x10000)]}]
     notes = [note('THREAD_INFO', thread_info(threads), NT_THREAD), note('THREAD_REG_INFO', thread_reg_info(threads), NT_THREAD_REG),
-             note('SYSTEM_INFO', system_info(), NT_SYSTEM), note('APP_INFO', app_info('DTWO00001', 'D2Vita Boot'), NT_APP),
+             note('SYSTEM_INFO', system_info(), NT_SYSTEM), note('APP_INFO', app_info('DTWO00001', 'D2Vita'), NT_APP),
              note('MODULE_INFO', module_info(mods), NT_MODULE)]
     return build(notes, [stack_segment(0x0f2e0000, 0x10000, frames)])
 
@@ -289,7 +289,7 @@ def eboot_thread():
 
 def first_group(threads, extra=()):
     return [note('THREAD_INFO', thread_info(threads), NT_THREAD), note('THREAD_REG_INFO', thread_reg_info(threads), NT_THREAD_REG),
-            note('SYSTEM_INFO', system_info(), NT_SYSTEM), note('APP_INFO', app_info('DTWO00001', 'D2Vita Boot'), NT_APP),
+            note('SYSTEM_INFO', system_info(), NT_SYSTEM), note('APP_INFO', app_info('DTWO00001', 'D2Vita'), NT_APP),
             note('MODULE_INFO', module_info(common_modules()), NT_MODULE)] + list(extra)
 
 
@@ -331,7 +331,7 @@ def dump_truncated():
     frames = [(0x0f2e1028, 0x0f2e1100, GAME + 0x100), (0x0f2e1100, 0x0f2e1100, GAME + 0x200)]
     threads = [thr(0x40010003, 'DTWO00001', 1, 0x30004, JIT + 0x24184, lr=JIT + 0x24101, r=guest_regs(esp, ebp))]
     notes = [note('THREAD_INFO', thread_info(threads), NT_THREAD), note('THREAD_REG_INFO', thread_reg_info(threads), NT_THREAD_REG),
-             note('APP_INFO', app_info('DTWO00001', 'D2Vita Boot'), NT_APP)]
+             note('APP_INFO', app_info('DTWO00001', 'D2Vita'), NT_APP)]
     loads = [stack_segment(0x0f2e0000, 0x10000, frames), jit_segment(JIT + 0x24000, 0x1000),
              (0x81801000, b'\0' * 0x1000, 0x400000)]
     # The trailing notes are announced but the file ends inside the last
@@ -352,7 +352,7 @@ def dump_long_chain():
         e = nxt
     threads = [thr(0x40010003, 'DTWO00001', 1, 0x30004, JIT + 0x24184, lr=JIT + 0x24101, r=guest_regs(esp, ebp))]
     notes = [note('THREAD_INFO', thread_info(threads), NT_THREAD), note('THREAD_REG_INFO', thread_reg_info(threads), NT_THREAD_REG),
-             note('APP_INFO', app_info('DTWO00001', 'D2Vita Boot'), NT_APP)]
+             note('APP_INFO', app_info('DTWO00001', 'D2Vita'), NT_APP)]
     return build(notes, [stack_segment(0x0f2e0000, 0x10000, frames)])
 
 
@@ -364,7 +364,7 @@ def dump_big():
               (0x0f2f0f00, 0x0f2f1000, GAME + 0x12345)]
     threads = [thr(0x40010003, 'DTWO00001', 1, 0x30004, JIT + 0x24184, lr=JIT + 0x24101, r=guest_regs(esp, ebp))]
     notes = [note('THREAD_INFO', thread_info(threads), NT_THREAD), note('THREAD_REG_INFO', thread_reg_info(threads), NT_THREAD_REG),
-             note('SYSTEM_INFO', system_info(), NT_SYSTEM), note('APP_INFO', app_info('DTWO00001', 'D2Vita Boot'), NT_APP),
+             note('SYSTEM_INFO', system_info(), NT_SYSTEM), note('APP_INFO', app_info('DTWO00001', 'D2Vita'), NT_APP),
              note('MODULE_INFO', module_info(common_modules()), NT_MODULE), stamp_note()]
     main_stack = filler(0x81801000, 0x400000, 99)
     loads = [main_stack, main_stack, stack_segment(0x0f2e0000, 0x20000, frames), jit_segment(JIT + 0x24000, 0x1000),
@@ -378,7 +378,7 @@ def dump_late_threads():
     esp, ebp = 0x0f2e1000, 0x0f2e1028
     frames = [(0x0f2e1028, 0x0f2e1100, GAME + 0x51c23)]
     threads = [thr(0x40010003, 'DTWO00001', 1, 0x30004, JIT + 0x24184, lr=JIT + 0x24101, r=guest_regs(esp, ebp))]
-    notes = [note('APP_INFO', app_info('DTWO00001', 'D2Vita Boot'), NT_APP)]
+    notes = [note('APP_INFO', app_info('DTWO00001', 'D2Vita'), NT_APP)]
     late = [note('THREAD_INFO', thread_info(threads), NT_THREAD), note('THREAD_REG_INFO', thread_reg_info(threads), NT_THREAD_REG)]
     return build(notes, [stack_segment(0x0f2e0000, 0x10000, frames)], trailing=late)
 

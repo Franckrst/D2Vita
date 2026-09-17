@@ -7,7 +7,7 @@
 #   python3 tools/autopsie_psp2dmp.py core.psp2dmp
 #       [--game-base 0x01900000] [--arena-host-base 0x84000000]
 #       [--nm ~/d2vita-symbols/<build_id>/nm.txt] [--main-runtime 0x81024730]
-#       [--elf ~/d2vita-symbols/<build_id>/d2vita_boot.elf] [--first-thread]
+#       [--elf ~/d2vita-symbols/<build_id>/d2vita.elf] [--first-thread]
 #
 # Output:
 #   - the thread list (THREAD_INFO), the faulting one marked;
@@ -232,7 +232,7 @@ def choose_thread(regs, infos, first_only=False):
 
 
 def load_nm(path):
-    """Sorted (address, name) of an `arm-vita-eabi-nm d2vita_boot.elf` file."""
+    """Sorted (address, name) of an `arm-vita-eabi-nm d2vita.elf` file."""
     symbols = []
     with open(path, encoding='utf-8', errors='replace') as handle:
         for line in handle:
@@ -316,7 +316,7 @@ def parse_args(argv=None):
     ap.add_argument('--arena-host-base', type=lambda v: int(v, 0), default=ARENA_HOST_BASE,
                     help='vue hote de l arene invitee, "membase" du journal (defaut 0x%x)' % ARENA_HOST_BASE)
     ap.add_argument('--nm', help='table des symboles de l eboot (arm-vita-eabi-nm)')
-    ap.add_argument('--elf', help='d2vita_boot.elf du meme build (pour le biais)')
+    ap.add_argument('--elf', help='d2vita.elf du meme build (pour le biais)')
     ap.add_argument('--main-runtime', type=lambda v: int(v, 0),
                     help='adresse de main a l execution (ligne "module: main a l execution" du journal)')
     ap.add_argument('--eboot-bias', type=lambda v: int(v, 0), help='biais deja connu')

@@ -18,7 +18,7 @@
 # the shared tree; it holds nothing, and `purge` removes it.
 #
 #   V3K2ROOT=/path TITLE=DTWO00077 bash tools/vita3k_isole.sh init
-#   VPK=build-vita/d2vita_boot.vpk  ... install
+#   VPK=build-vita/d2vita.vpk  ... install
 #   DUR=90 ... launch      # then `cap file.png`, `stop`
 #   ... purge              # removes the placeholder folder from the shared tree
 set -uo pipefail

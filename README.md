@@ -69,7 +69,7 @@ TARGET=vita bash third_party/winx86/build.sh   # generic engine (ARM static lib)
 bash tools/build_rt_boot_vpk.sh                # D2-specific runtime (tools/rt_boot.cpp +
                                                 # src/runtime, src/platform, src/glide_ring),
                                                 # linked against libwinx86*.a
-                                                # -> build-vita/d2vita_boot.vpk
+                                                # -> build-vita/d2vita.vpk
 ```
 
 See [`.claude/skills/vitasdk-build/SKILL.md`](.claude/skills/vitasdk-build/SKILL.md) for

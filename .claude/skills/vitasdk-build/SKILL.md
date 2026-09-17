@@ -21,15 +21,15 @@ them against the engine's static library. Two steps, in order:
 
 ```bash
 TARGET=vita bash third_party/winx86/build.sh      # -> third_party/winx86/build-vita/libwinx86_vita.a
-bash tools/build_rt_boot_vpk.sh                   # -> build-vita/d2vita_boot.vpk
+bash tools/build_rt_boot_vpk.sh                   # -> build-vita/d2vita.vpk
 ```
 
 The first step is the engine; it used to be a script in this repo
 (`tools/build_dynarec86.sh`) and no longer is. If a build fails on a missing
 symbol from the runtime, rebuild the engine before looking anywhere else.
 
-Defaults of the second step: `TITLE=DTWO00001`, `APPNAME="D2Vita Boot"`,
-`VPKOUT=d2vita_boot.vpk`, output directory `build-vita/`.
+Defaults of the second step: `TITLE=DTWO00001`, `APPNAME="D2Vita"`,
+`VPKOUT=d2vita.vpk`, output directory `build-vita/`.
 
 ## Its knobs
 
@@ -52,7 +52,7 @@ cannot disturb the shared one:
 
 ```bash
 V3K2ROOT=/tmp/vita3k_isole TITLE=DTWO00077 bash tools/vita3k_isole.sh init
-VPK=build-vita/d2vita_boot.vpk ... install
+VPK=build-vita/d2vita.vpk ... install
 DUR=90 ... launch      # then `cap file.png`, `stop`
 ... purge              # removes the witness folder from the shared tree
 ```

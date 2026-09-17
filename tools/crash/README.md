@@ -92,12 +92,12 @@ tools/crash/crash.py status SZYGIRBIXGHOM3AH fixed --version 0.2.0
 ### Symbols
 
 `autopsy` looks for `~/d2vita-symbols/<build_id>/nm.txt` and
-`d2vita_boot.elf`, archived after each build (design 4.10);
+`d2vita.elf`, archived after each build (design 4.10);
 `D2VCRASH_SYMBOLS_DIR` or `--symbols` move that root. The eboot is **not**
 loaded at a fixed address, so a symbol is only printed once the bias is known:
 it comes from the `module: main a l'execution=0x…` line of the report's own
 `boot_progress`, or from the module list of the dump against the link address
-of `d2vita_boot.elf`. Without either, the postmortem prints module offsets and
+of `d2vita.elf`. Without either, the postmortem prints module offsets and
 says the bias is unknown rather than a wrong name. The arena host base comes
 from the `membase=0x…` line of the same log (0x84000000 by default; a real
 console log has shown 0x85000000).

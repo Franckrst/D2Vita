@@ -231,7 +231,7 @@ def cmd_autopsy(args, cfg):
     if not symbols:
         notes.append(f"no symbols for build {report.build_id} in "
                      f"{os.path.join(autopsy.symbols_root(args.symbols), report.build_id or '')} "
-                     f"(archive nm.txt and d2vita_boot.elf there after each build)")
+                     f"(archive nm.txt and d2vita.elf there after each build)")
     if "main_runtime" not in facts and symbols.get("nm") and not symbols.get("elf"):
         notes.append("the boot log of this report does not publish the runtime address of main: "
                      "symbols stay unresolved")

@@ -39,8 +39,8 @@ done
 # TITLE_ID MUST be exactly 9 chars (XXXX#####) — a 10-char id installs fine
 # on Vita3K (lax) but real hardware rejects the VPK with error 0xF0030000.
 TITLE="${TITLE:-DTWO00001}"
-APPNAME="${APPNAME:-D2Vita Boot}"
-VPKOUT="${VPKOUT:-d2vita_boot.vpk}"
+APPNAME="${APPNAME:-D2Vita}"
+VPKOUT="${VPKOUT:-d2vita.vpk}"
 EXTRA_DEFS=""
 # D2VPK_SHACC=1: shader-BUILDING flavor. Links the console's Cg compiler
 # (SceShaccCg / libshacccg.suprx) to produce the .gxp files once, into
@@ -404,17 +404,17 @@ COMPILED="${#TODO_OBJ[@]}"
 # Replayed whenever an object moved, a product is missing, or the .elf is
 # older than an object / the dynarec archive / this script.
 # ---------------------------------------------------------------------------
-ELF="$OUT/d2vita_boot.elf"
+ELF="$OUT/d2vita.elf"
 tail_needed=0
 if [ "$COMPILED" -gt 0 ]; then tail_needed=1; fi
-for f in "$ELF" "$OUT/d2vita_boot.velf" "$OUT/eboot.bin" "$OUT/param.sfo" "$OUT/$VPKOUT" "$OUT/nm.txt"; do
+for f in "$ELF" "$OUT/d2vita.velf" "$OUT/eboot.bin" "$OUT/param.sfo" "$OUT/$VPKOUT" "$OUT/nm.txt"; do
   [ -f "$f" ] || tail_needed=1
 done
 if [ "$tail_needed" = "0" ]; then
   for f in "${OBJS[@]}" "$DYNLIB" "$0"; do
     [ "$f" -nt "$ELF" ] && tail_needed=1 || true
   done
-  for f in "$OUT/d2vita_boot.velf" "$OUT/eboot.bin" "$OUT/$VPKOUT"; do
+  for f in "$OUT/d2vita.velf" "$OUT/eboot.bin" "$OUT/$VPKOUT"; do
     [ "$ELF" -nt "$f" ] && tail_needed=1 || true
   done
 fi
@@ -446,7 +446,7 @@ $CXX $CXXFLAGS -Wl,-q "${OBJS[@]}" "$DYNLIB" \
   -lSceCommonDialog_stub \
   -ltaihen_stub_weak \
   -Wl,-u,pthread_cancel -Wl,-u,pthread_once $WRAP_LD -lpthread -lm -lz \
-  -o "$OUT/d2vita_boot.elf"
+  -o "$OUT/d2vita.elf"
 
 # Anti-family guard: a bl to an undefined WEAK pthread symbol is silently
 # NOPed by the linker (see -u pthread_once above). Any new gthread reference
@@ -454,7 +454,7 @@ $CXX $CXXFLAGS -Wl,-q "${OBJS[@]}" "$DYNLIB" \
 # piped into an if condition: under set -e, a failing nm there would pass
 # silently and the guard would validate anything); its failure stops the
 # build, then grep inspects the file.
-arm-vita-eabi-nm "$OUT/d2vita_boot.elf" > "$OUT/nm.txt"
+arm-vita-eabi-nm "$OUT/d2vita.elf" > "$OUT/nm.txt"
 if grep -E "^ +w +(pthread_|sem_|sched_yield)" "$OUT/nm.txt" ; then
   echo "FATAL: reference pthread faible non resolue (bl NOPe par le linker) — ajouter -Wl,-u,<symbole>"
   exit 1
@@ -485,12 +485,12 @@ if ! grep -qE "^[0-9a-f]+ T wx86_vita_progress_c$" "$OUT/nm.txt" ; then
   exit 1
 fi
 
-vita-elf-create "$OUT/d2vita_boot.elf" "$OUT/d2vita_boot.velf" >/dev/null
+vita-elf-create "$OUT/d2vita.elf" "$OUT/d2vita.velf" >/dev/null
 # UNSAFE self (no -s): the runtime needs extended privileges on real hardware
 # (sceKernelAllocMemBlockForVM + OpenVMDomain + extended memory). Requires
 # "Enable unsafe homebrew" in the HENkaku settings. A -s (safe) self boots on
 # Vita3K but can black-screen on a real Vita at the VM allocation.
-vita-make-fself "$OUT/d2vita_boot.velf" "$OUT/eboot.bin" >/dev/null
+vita-make-fself "$OUT/d2vita.velf" "$OUT/eboot.bin" >/dev/null
 
 # sfo + vpk
 # ATTRIBUTE2=12 requests the extended-memory app mode (+109 MiB) on real
@@ -537,7 +537,7 @@ echo "== built $OUT/$VPKOUT =="
 # symbols yet.
 # ---------------------------------------------------------------------------
 SYMROOT="${D2VCRASH_SYMBOLS_DIR:-$HOME/d2vita-symbols}/$BUILD_ID"
-if mkdir -p "$SYMROOT" 2>/dev/null && cp "$OUT/d2vita_boot.elf" "$OUT/nm.txt" "$SYMROOT/" 2>/dev/null; then
+if mkdir -p "$SYMROOT" 2>/dev/null && cp "$OUT/d2vita.elf" "$OUT/nm.txt" "$SYMROOT/" 2>/dev/null; then
   echo "== symboles archives -> $SYMROOT =="
 else
   echo "== ATTENTION: echec de l'archivage des symboles dans $SYMROOT (autopsy futur sans symboles pour ce build) =="

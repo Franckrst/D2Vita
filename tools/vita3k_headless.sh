@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# vita3k_run.sh — install the fresh d2vita_boot.vpk and launch it headless on
+# vita3k_run.sh — install the fresh d2vita.vpk and launch it headless on
 # Vita3K under Xvfb :77 (target config: no dev knobs). Backgrounded; the vision
 # loop captures the display every 35s from the driver side.
 #   vita3k_run.sh install   # extract VPK into ux0/app/DTWO00001 + fresh logs
@@ -23,7 +23,7 @@ case "${1:-}" in
   install)
     APP="$V/ux0/app/$TITLE"
     rm -rf "$APP"; mkdir -p "$APP"
-    7z x -y -o"$APP" "$ROOT/build-vita/d2vita_boot.vpk" >/dev/null && echo "installed VPK -> $APP"
+    7z x -y -o"$APP" "$ROOT/build-vita/d2vita.vpk" >/dev/null && echo "installed VPK -> $APP"
     # fresh diagnostic logs
     D="$V/ux0/data/d2vita"
     rm -f "$D/save/crash.log" "$D/save/boot_progress.txt" "$D/boot_progress.txt" 2>/dev/null

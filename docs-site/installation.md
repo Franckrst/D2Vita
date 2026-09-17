@@ -33,7 +33,7 @@ export VITASDK=/usr/local/vitasdk
 export PATH="$VITASDK/bin:$PATH"
 
 TARGET=vita bash third_party/winx86/build.sh   # builds the engine (winx86 + dynarec) for the Vita target
-bash tools/build_rt_boot_vpk.sh                # produces the final VPK (d2vita_boot.vpk)
+bash tools/build_rt_boot_vpk.sh                # produces the final VPK (d2vita.vpk)
 ```
 
 The root `CMakeLists.txt` does **not** build the shipping binary — only
@@ -42,7 +42,7 @@ pipeline goes through the `tools/build_*.sh` scripts above.
 
 ## Installing on the console
 
-Install the produced VPK (`build-vita/d2vita_boot.vpk` or equivalent
+Install the produced VPK (`build-vita/d2vita.vpk` or equivalent
 depending on the script used) with VitaShell, like any homebrew.
 
 ## Configuration (`env.txt`)
