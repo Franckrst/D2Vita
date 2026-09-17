@@ -2095,8 +2095,9 @@ int main(int argc,char**argv){
     // clock; under the virtual clock they expire and D2 stalls on SID_NULL without
     // ever sending the selector/SID_AUTH_INFO. (Vita already defaults g_rtwant on
     // above unless D2_VIRTCLOCK.) D2_VIRTCLOCK forces it off for diagnostics.
-    // D2NET checked BY VALUE (same normalization as d2_boot_config.cpp, for
-    // host/qemu launches that don't go through env.txt): D2NET=0 turns it off.
+    // D2NET defaults to ON here too (same default as d2_boot_config.cpp, for
+    // host/qemu launches that don't go through env.txt): D2NET=0 opts out.
+    if(!getenv("D2NET")) setenv("D2NET","1",1);
     if(const char* n=getenv("D2NET")){ if(!*n || !strcmp(n,"0") || !strcasecmp(n,"non") || !strcasecmp(n,"off") || !strcasecmp(n,"false")) unsetenv("D2NET"); }
     if((getenv("D2_REALCLOCK") || getenv("D2NET")) && !getenv("D2_VIRTCLOCK")) g_rtwant=true;
     // EARLY parse of D2SCHED: the guest-inline gate and the TICKCAP knob run

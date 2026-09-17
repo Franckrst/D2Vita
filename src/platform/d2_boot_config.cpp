@@ -238,14 +238,20 @@ const char* d2vita_platform_init() {
         }
         fclose(ef);
     }
-    // D2NET activates by VALUE: every call site tests only for the
-    // variable's PRESENCE, so `D2NET=0` — the natural way to turn it off —
-    // used to turn networking ON. Normalized here, right after env.txt and
-    // before any reader.
+    // D2NET defaults to ON, matching the original PC game: the network
+    // stack is simply available, the player still has to pick Battle.net
+    // from the in-game menu to use it. D2NET=0 in env.txt opts back out to
+    // solo-only. Every call site tests only for the variable's PRESENCE, so
+    // the falsy values below are normalized to a real absence, right after
+    // env.txt and before any reader.
+    if (!getenv("D2NET")) {
+        setenv("D2NET", "1", 1);
+        d2vita_progress("reseau: D2NET actif par defaut (D2NET=0 dans env.txt pour repasser en solo uniquement)");
+    }
     if (const char* n = getenv("D2NET")) {
         if (!*n || !strcmp(n, "0") || !strcasecmp(n, "non") || !strcasecmp(n, "off") || !strcasecmp(n, "false")) {
             unsetenv("D2NET");
-            d2vita_progress("reseau: D2NET=0 -> reseau COUPE (active uniquement par une valeur non nulle)");
+            d2vita_progress("reseau: D2NET=0 -> reseau COUPE (desactive explicitement)");
         }
     }
     // D2_SCHEDPROBE=1: does the Vita kernel round-robin same-priority threads
