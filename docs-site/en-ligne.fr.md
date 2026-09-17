@@ -49,9 +49,9 @@ chacun) ; le jeu les déchiffre lui-même, par son propre code, avec un
 chiffrement qui ne dépend d'aucune donnée machine.
 
 Ce portage fournit un mécanisme alternatif honnête pour renseigner ses
-propres clés : un fichier texte (`ux0:data/d2vita_secret/keys.txt`, hors de
-la racine d'écriture normale du jeu) que le joueur remplit lui-même. Son
-contenu est ré-encodé exactement dans le format que produirait
+propres clés : un fichier texte (`ux0:data/d2vita/keys.txt`, aux côtés des
+MPQ) que le joueur remplit lui-même. Son contenu est ré-encodé exactement
+dans le format que produirait
 l'installateur Blizzard, puis **le jeu le déchiffre lui-même par son propre
 chemin** — rien n'est injecté après coup dans sa mémoire. Validé de bout en
 bout avec de vraies clés sur console : le serveur reçoit exactement les

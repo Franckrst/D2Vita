@@ -161,9 +161,20 @@ bool g_have[K_N] = {false, false, false};
 void wipe(std::string& s) { if (!s.empty()) std::memset(&s[0], 0, s.size()); s.clear(); }
 
 bool load_keys_txt() {
+    // On Vita, keys.txt lives flat in the game folder (ux0:data/d2vita/),
+    // right next to env.txt and the MPQs -- unlike keystore.bin, it's a
+    // plaintext file the player creates and edits themselves, so it needs to
+    // be somewhere they'll actually find it, not in the quarantined
+    // d2vita_secret/ directory (that one exists to keep the auto-persisted,
+    // encoded key OUT of routine save/log pulls -- see d2_keystore_file()).
+    // Off Vita, kept next to the keystore for dev/test convenience.
+#ifdef __vita__
+    const std::string path = "ux0:data/d2vita/keys.txt";
+#else
     const std::string ks = d2_keystore_file();
     size_t sl = ks.find_last_of("/\\");
     const std::string path = (sl == std::string::npos ? std::string(".") : ks.substr(0, sl)) + "/keys.txt";
+#endif
     FILE* f = std::fopen(path.c_str(), "r");
     if (!f) { jpline("keys.txt: absent (cles du MPQ inchangees)"); return false; }
     char line[256]; int ln = 0, bad = 0;

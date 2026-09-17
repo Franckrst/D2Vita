@@ -48,8 +48,8 @@ file chain, 72 bytes each); the game decrypts them itself, through its own
 code, with encryption that depends on no machine-specific data.
 
 This port provides an honest alternative mechanism for entering your own
-keys: a text file (`ux0:data/d2vita_secret/keys.txt`, outside the game's
-normal write root) that the player fills in themselves. Its content is
+keys: a text file (`ux0:data/d2vita/keys.txt`, alongside the MPQs) that the
+player fills in themselves. Its content is
 re-encoded exactly in the format the Blizzard installer would have
 produced, then **the game decrypts it itself, through its own path** —
 nothing is injected into its memory after the fact. Validated end-to-end

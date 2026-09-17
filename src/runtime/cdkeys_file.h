@@ -1,4 +1,4 @@
-// src/runtime/cdkeys_file.h — CD keys from ux0:data/d2vita_secret/keys.txt
+// src/runtime/cdkeys_file.h — CD keys from ux0:data/d2vita/keys.txt
 // (see cdkeys_file.cpp and docs-site/en-ligne.md). Without keys.txt: nothing is installed.
 #pragma once
 namespace d2rt { struct Cpu; class Bridge; }

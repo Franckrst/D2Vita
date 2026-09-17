@@ -62,7 +62,7 @@ constexpr const char* kOutboxDir    = "ux0:data/d2vita/reports/outbox";
 constexpr const char* kSessionPath  = "ux0:data/d2vita/reports/session.txt";
 constexpr const char* kInstallPath  = "ux0:data/d2vita/reports/install_id.txt";
 constexpr const char* kConsentPath  = "ux0:data/d2vita/reports/consent.txt";
-constexpr const char* kKeysPath     = "ux0:data/d2vita_secret/keys.txt";
+constexpr const char* kKeysPath     = "ux0:data/d2vita/keys.txt";
 constexpr const char* kDumpsDir     = "ux0:data";   // psp2core-*.psp2dmp (spec §2)
 
 constexpr int kUploadStackBytes = 64 * 1024;      // spec §4.9

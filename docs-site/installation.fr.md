@@ -7,12 +7,21 @@
 
 ## Fichiers du jeu
 
-d2vita ne contient **aucun fichier Blizzard**. Il faut fournir ses propres
-MPQ depuis une installation légitime de D2 + LoD, déposés sur la carte
-mémoire de la console :
+d2vita ne contient **aucun fichier Blizzard**. La 1.13c est retirée — seuls
+les exécutables et MPQ 1.14d authentiques sont supportés. Les deux vont
+ensemble, exactement comme une vraie installation PC, dans un sous-dossier
+`1.14d` (le chargeur lit là spécifiquement, pas directement dans
+`ux0:data/d2vita/`) :
 
 ```
-ux0:data/d2vita/
+ux0:data/d2vita/1.14d/
+├── Game.exe
+├── Fog.dll
+├── Storm.dll
+├── D2Win.dll
+├── D2Client.dll
+├── D2Common.dll
+├── D2gfx.dll
 ├── d2data.mpq      (requis)
 ├── d2exp.mpq       (requis, extension LoD)
 ├── patch_d2.mpq    (recommandé — patch 1.14d)
@@ -27,20 +36,6 @@ ux0:data/d2vita/
 L'écran de diagnostic au démarrage indique précisément quel fichier manque
 s'il en manque un.
 
-Les exécutables authentiques 1.13c→1.14d vont dans leur propre sous-dossier,
-car le chargeur les cherche là spécifiquement (pas à côté des MPQ ci-dessus) :
-
-```
-ux0:data/d2vita/1.14d/
-├── Game.exe
-├── Fog.dll
-├── Storm.dll
-├── D2Win.dll
-├── D2Client.dll
-├── D2Common.dll
-└── D2gfx.dll
-```
-
 Rien d'autre à fournir : `ddraw.dll`, `glide3x.dll`, `checkrevision.dll` et
 `d2vhost.dll` sont tous fabriqués ou simulés par d2vita lui-même, jamais lus
 depuis le disque. Pareil pour `ux0:data/d2vita/shaders/` — les shaders GPU
@@ -48,8 +43,9 @@ précompilés voyagent déjà dans le VPK (`build_rt_boot_vpk.sh`), ce dossier
 n'est qu'une surcharge optionnelle sur console, pas quelque chose qu'une
 installation normale doit remplir.
 
-Les clés CD (optionnelles) vont dans un emplacement séparé, hors `.mpq` —
-voir [Jeu en ligne](en-ligne.fr.md#le-mecanisme-des-cles-cd).
+Les clés CD (optionnelles) vont un niveau au-dessus, à plat dans
+`ux0:data/d2vita/keys.txt` — voir
+[Jeu en ligne](en-ligne.fr.md#le-mecanisme-des-cles-cd).
 
 ## Construire le VPK
 
