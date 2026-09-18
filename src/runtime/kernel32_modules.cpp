@@ -106,6 +106,17 @@ void kernel32_modules_install(Bridge& br){
         if(g_bridge){
             std::string hp=host_path(n);
             std::vector<uint8_t> b=slurp(hp);
+#ifdef __vita__
+            // glide3x.dll is the port's OWN Glide-renderer DLL, shipped inside
+            // the VPK (app0:), NOT part of a Diablo II install. A fresh install
+            // has none in the game directory, and since D2 is launched with
+            // -3dfx it LoadLibrary's glide3x.dll for the renderer -- without it
+            // the renderer init fails and D2 halts at frame 0 with "Error 1:
+            // ... Unsupported graphics mode." Fall back to the bundled copy so
+            // every install renders; a copy in the game dir still wins first
+            // (dev override).
+            if(b.empty() && base=="glide3x.dll") b=slurp("app0:glide3x.dll");
+#endif
             if(b.size()>0x40 && b[0]=='M' && b[1]=='Z'){
                 std::string lerr; PeImage* pi=g_bridge->load_library_runtime(base,b,lerr);
                 if(pi){ g_modByBase[pi->load_base()]=pi; g_modByName[base]=pi;

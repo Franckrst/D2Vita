@@ -517,6 +517,17 @@ SHADER_ARGS=()
 for sh in d2_ring_v d2_ring_f d2_ring_f_flat d2_ring_f_pal d2_ring_f_clear; do
   [ -f "$ROOT/shaders/$sh.gxp" ] && SHADER_ARGS+=(-a "$ROOT/shaders/$sh.gxp=shaders/$sh.gxp")
 done
+# glide3x.dll: the port's OWN Glide renderer DLL (build-glide/, x86 MinGW). D2
+# is launched with -3dfx (d2_boot_config.cpp), so it LoadLibrary's this DLL and
+# calls it ~970x/frame. It is NOT a Diablo II file and is absent from a player's
+# install, so it MUST travel inside the VPK (app0:glide3x.dll) -- otherwise a
+# fresh install halts at frame 0 with "Unsupported graphics mode" (the renderer
+# fails to load). Required, not optional: fail the build rather than ship a VPK
+# that cannot render. kernel32_modules.cpp loads it from app0: when the game dir
+# has none.
+GLIDE_DLL="$ROOT/build-glide/glide3x.dll"
+[ -f "$GLIDE_DLL" ] || { echo "FATAL: $GLIDE_DLL introuvable — glide3x.dll doit etre embarque dans le VPK, sinon le jeu halte a l'image 0 (mode graphique non supporte)" >&2; exit 1; }
+GLIDE_ARGS=(-a "$GLIDE_DLL=glide3x.dll")
 # LiveArea (icon, background, splash image). These files live in sce_sys/.
 # ⚠️ LiveArea files are NOT tracked by the dependency cache: changing only an
 # image will skip the tail and the VPK will keep the old one. Force it with
@@ -526,7 +537,7 @@ for a in "sce_sys/icon0.png" "sce_sys/livearea/contents/bg.png" \
          "sce_sys/livearea/contents/startup.png" "sce_sys/livearea/contents/template.xml"; do
   [ -f "$ROOT/$a" ] && LIVEAREA_ARGS+=(-a "$ROOT/$a=$a")
 done
-vita-pack-vpk -s "$OUT/param.sfo" -b "$OUT/eboot.bin" "${SHADER_ARGS[@]}" "${LIVEAREA_ARGS[@]}" "$OUT/$VPKOUT" >/dev/null
+vita-pack-vpk -s "$OUT/param.sfo" -b "$OUT/eboot.bin" "${SHADER_ARGS[@]}" "${GLIDE_ARGS[@]}" "${LIVEAREA_ARGS[@]}" "$OUT/$VPKOUT" >/dev/null
 echo "== built $OUT/$VPKOUT =="
 
 # ---------------------------------------------------------------------------
