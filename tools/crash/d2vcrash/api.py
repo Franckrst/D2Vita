@@ -233,6 +233,9 @@ class SignatureSummary:
         self.merged_into = _shaped(body, "merged_into", SIGNATURE_ID, what, null_ok=True)
         # Rendered as a link by the UI: only https, never another scheme.
         self.issue_url = _shaped(body, "issue_url", HTTPS_URL, what, null_ok=True)
+        # VERSION part of the most recently seen build_id; null if no build is
+        # registered against this signature yet.
+        self.last_version = _str(body, "last_version", what, null_ok=True)
         self.raw = body
 
 

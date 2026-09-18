@@ -151,6 +151,22 @@ class PagesTest(unittest.TestCase):
         self.assertNotIn(XSS, page)
         self.assertIn("&lt;script&gt;", page)
 
+    def test_the_list_shows_the_version_and_offers_dropdown_filters(self):
+        _, page = self.get("/")
+        self.assertIn("<th>version</th>", page)
+        self.assertIn("<td>0.1.0</td>", page)
+        # status/kind/sort are closed sets: a dropdown, not free text. Nothing
+        # asked for yet -> "(any)" is the one selected.
+        self.assertIn("<option value=\"\" selected>(any)</option>", page)
+        # Asking for a kind selects it back, instead of losing the filter on reload.
+        _, filtered = self.get("/?kind=hang")
+        self.assertIn("<option value=\"hang\" selected>hang</option>", filtered)
+
+    def test_a_signature_with_no_build_shows_a_dash_not_a_crash(self):
+        self.upstream.data.signatures["SZYGIRBIXGHOM3AH"]["last_version"] = None
+        _, page = self.get("/")
+        self.assertIn("<td>-</td>", page)
+
     def test_the_signature_page_escapes_the_note_and_the_canon(self):
         _, page = self.get("/signature/SZYGIRBIXGHOM3AH")
         self.assertNotIn(XSS, page)

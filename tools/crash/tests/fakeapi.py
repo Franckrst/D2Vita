@@ -54,6 +54,7 @@ def signature_summary(id="SZYGIRBIXGHOM3AH", kind="halt", **over):
         "fixed_in_version": None,
         "merged_into": None,
         "issue_url": None,
+        "last_version": "0.1.0",
     }
     summary.update(over)
     return summary

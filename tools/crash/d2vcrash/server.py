@@ -104,6 +104,16 @@ def pre(text):
     return f"<pre>{esc(text)}</pre>"
 
 
+def select_filter(name, current, options):
+    """A GET-form <select> with a blank "(any)" choice; no CSRF token needed,
+    unlike form() above, since a filter only ever reads."""
+    opts = [f"<option value=\"\"{' selected' if not current else ''}>(any)</option>"]
+    for value in options:
+        selected = " selected" if value == current else ""
+        opts.append(f"<option value=\"{esc(value)}\"{selected}>{esc(value)}</option>")
+    return f"<select name=\"{esc(name)}\">{''.join(opts)}</select>"
+
+
 class Context:
     """What the handler needs: configuration, client, form token."""
 
@@ -239,19 +249,21 @@ class Handler(BaseHTTPRequestHandler):
         page_of = client.list_signatures(**filters)
         rows = []
         for item in page_of.items:
-            rows.append((link(f"/signature/{item.id}", item.id), esc(item.kind), esc(item.status), esc(item.count),
+            rows.append((link(f"/signature/{item.id}", item.id), esc(item.kind), esc(item.status),
+                         esc(item.last_version or "-"), esc(item.count),
                          esc(item.installs), esc(render.utc(item.last_seen_unix, False)), esc(item.sample_state),
                          link(item.issue_url, "issue") if item.issue_url else "-",
                          f"<span class=\"small\">{esc(render.ellipsis(item.canon, 70))}</span>"))
-        blocks = [table(("signature", "kind", "status", "count", "consoles", "last seen", "sample", "issue", "canon"),
-                        rows)]
+        blocks = [table(("signature", "kind", "status", "version", "count", "consoles", "last seen", "sample",
+                         "issue", "canon"), rows)]
         if page_of.next_cursor:
             blocks.append(f"<p class=\"small\">more: {len(page_of.items)} shown; narrow with the filters below.</p>")
-        blocks.append("<form method=\"get\" action=\"/\">"
-                      "<input type=\"text\" name=\"status\" placeholder=\"status\">"
-                      "<input type=\"text\" name=\"kind\" placeholder=\"kind\">"
-                      "<input type=\"text\" name=\"build\" placeholder=\"build id\">"
-                      "<input type=\"text\" name=\"sort\" placeholder=\"count|last_seen\">"
+        blocks.append("<form method=\"get\" action=\"/\">" + select_filter("status", filters["status"],
+                          ("open", "fixed", "ignored", "regressed")) +
+                      select_filter("kind", filters["kind"],
+                          ("halt", "guest_fault", "host_fault", "abnormal_exit", "hang")) +
+                      f"<input type=\"text\" name=\"build\" placeholder=\"build id\" value=\"{esc(filters['build'] or '')}\">" +
+                      select_filter("sort", filters["sort"], ("count", "last_seen")) +
                       "<button type=\"submit\">filter</button></form>")
         return page("Signatures", blocks)
 
@@ -327,11 +339,16 @@ class Handler(BaseHTTPRequestHandler):
         return page(f"Report {report.report_id}", blocks)
 
     def bugs_page(self, query):
-        bugs = self.context.client.list_bugs(status=query.get("status") or None)
+        status = query.get("status") or None
+        bugs = self.context.client.list_bugs(status=status)
         rows = [(link(f"/bug/{bug.id}", bug.id), esc(bug.status), esc(render.utc(bug.created_unix, False)),
                  esc(bug.version), esc(bug.lang), link(bug.issue_url, "issue") if bug.issue_url else "-",
                  f"<span class=\"wrap\">{esc(render.ellipsis(bug.title, 80))}</span>") for bug in bugs.items]
-        return page("Bug reports", [table(("bug", "status", "created", "version", "lang", "issue", "title"), rows)])
+        blocks = [table(("bug", "status", "created", "version", "lang", "issue", "title"), rows),
+                  "<form method=\"get\" action=\"/bugs\">" +
+                  select_filter("status", status, ("open", "fixed", "ignored")) +
+                  "<button type=\"submit\">filter</button></form>"]
+        return page("Bug reports", blocks)
 
     def bug_page(self, bug_id, banner=None):
         bug = self.context.client.get_bug(bug_id)
