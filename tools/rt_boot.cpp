@@ -45,6 +45,7 @@
 #include "crashreport/cr_crashtest.h"  // D2_CRASHTEST=native|halt (no-op unless -DD2V_CRASHTEST)
 #include "runtime/path_cache.h"      // host_path() + directory index (D2_PATHCACHE)
 #include "runtime/d2ini.h"           // D2.ini reader (GetPrivateProfileStringA/IntA)
+#include "runtime/exe_identity.h"    // which Game.exe is this? (size + PE timestamp -> 1.14d or not)
 #include "runtime/pristine_audit.h"  // Warden-fidelity integrity checkers (tests #7/#8)
 #include "runtime/cell_frame_diag.h" // D2_LOOPSHAPE / D2_CAMVEC / D2_FRAMEUS diagnostics
 #include "runtime/jit_profile.h"     // D2_JITPROFILE / D2_SIGNTAG / fastmmu dynarec profiling
@@ -2575,31 +2576,27 @@ int main(int argc,char**argv){
         for(auto m:mods){ auto b=slurp(dir+"/"+m); if(b.empty()){
             char em[192]; std::snprintf(em,sizeof em,"install: %s introuvable ou vide (attendu: %s/%s)",m,dir.c_str(),m);
             d2vita_progress(em); std::printf("[%s]\n",em); return 1;}
+            // Version guard, BEFORE the file is loaded. The install preflight
+            // above only checks that Game.exe and the MPQs EXIST. Every hook,
+            // alternate and intrinsic placed below is laid out for the official
+            // 1.14d monolith; any other build fails later in some unrelated,
+            // unexplained way -- a 1.13c launcher trapped on an unshimmed
+            // Storm.dll ordinal 7 s into boot, a 1.14b (a monolith too, so it
+            // imports no split DLL and would pass an import-based check) reached
+            // D2's own "Error 1: Unsupported graphics mode" dialog at frame 0 --
+            // with nothing in the log naming the real cause. The fingerprint
+            // (size + PE link timestamp, src/runtime/exe_identity.h) is logged
+            // on EVERY boot so a player's boot_progress.txt always says which
+            // Game.exe it ran; a mismatch stops here, on screen, with the
+            // detected build named.
+            if(!std::strcmp(m,"Game.exe")){
+                const d2exe::Identity id=d2exe::identify(b.data(),b.size());
+                const std::string line=d2exe::progress_line(id);
+                d2vita_progress(line.c_str()); std::printf("[%s]\n",line.c_str()); std::fflush(stdout);
+                if(!id.supported){ d2vita_show_version_error_screen(dir, d2exe::screen_line(id)); return 1; } }
             if(!br.add_module(m,b,err)){ std::printf("add %s: %s\n",m,err.c_str()); return 1; } }
     }
     if(!br.commit(err)){ std::printf("commit: %s\n",err.c_str()); d2vita_progress("commit FAILED"); return 1; }
-    // Version guard (monolith path only). The install preflight above only
-    // checks that Game.exe and the MPQs EXIST, not their VERSION -- so a 1.13c
-    // install (which has a Game.exe + the MPQs) sails through it, then a few
-    // seconds later calls an unshimmed Storm.dll ordinal and stops with a
-    // cryptic "unshimmed import" the player can't act on. Close that gap here:
-    // a genuine 1.14d Game.exe is a monolith and imports NONE of the D2 split
-    // DLLs; a Game.exe that imports Storm/Fog/D2Win/... is 1.13c (or otherwise
-    // split), which this build does not support. Name it on screen and in the
-    // log, and stop cleanly.
-    if(!g_runexe){ if(PeImage* gpi=br.module("Game.exe")){
-        static const char* kSplit[]={"storm.dll","fog.dll","d2win.dll","d2client.dll","d2common.dll","d2gfx.dll",nullptr};
-        std::string badDll;
-        for(const auto& ir : gpi->imports()){
-            std::string dl=ir.dll; for(auto&ch:dl) ch=(char)std::tolower((unsigned char)ch);
-            for(const char** s=kSplit; *s; ++s) if(dl==*s){ badDll=ir.dll; break; }
-            if(!badDll.empty()) break; }
-        if(!badDll.empty()){
-            char m[192]; std::snprintf(m,sizeof m,
-                "install: Game.exe importe %s -> version 1.13c/splittee, D2Vita exige la 1.14d monolithe",badDll.c_str());
-            d2vita_progress(m); std::printf("[%s]\n",m); std::fflush(stdout);
-            d2vita_show_version_error_screen(dir);
-            return 1; } } }
     // Purely informational: note (do NOT stop, do NOT alarm) any leftover 1.13c
     // split DLLs / extra launchers sitting next to the 1.14d monolith.
     // kernel32_modules IGNORES those DLLs at load time (see its kD2Split list),

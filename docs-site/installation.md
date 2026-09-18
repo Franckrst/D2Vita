@@ -47,6 +47,17 @@ actually exist, and writes down exactly which one is missing if any is —
 see [Verifying the install](#verifying-the-install) below for where that
 check is recorded.
 
+It also checks that `Game.exe` is the **official 1.14d build** (3 618 792
+bytes, linked 2016-05-31 — both are written to the log on every boot). Any
+other build is refused on screen before anything is loaded: a 1.14a/b/c
+monolith, a 1.13c launcher, a repacked or relinked file. d2vita patches
+`Game.exe` at 1.14d-specific offsets, so another build does not "mostly
+work", it fails later in some unrelated way (a 1.14b `Game.exe` used to stop
+on Diablo's own *"Error 1: Unsupported graphics mode"* dialog with nothing
+on screen). If you see the "invalid game files" screen, replace `Game.exe`
+with the one from Blizzard's official 1.14d installer or patch; the MPQs can
+stay.
+
 Nothing else needs to be supplied: `ddraw.dll`, `checkrevision.dll` and
 `d2vhost.dll` are all faked or shimmed by d2vita itself, never read from disk.
 `glide3x.dll` — d2vita's own Glide renderer, which the game genuinely *does*

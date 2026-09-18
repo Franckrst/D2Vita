@@ -22,6 +22,7 @@ RT_BOOT_SRCS_HEAD=(
   "$ROOT/src/runtime/scripted_input.cpp"
   "$ROOT/src/runtime/path_cache.cpp"
   "$ROOT/src/runtime/d2ini.cpp"
+  "$ROOT/src/runtime/exe_identity.cpp"
   "$ROOT/src/runtime/pristine_audit.cpp"
   "$ROOT/src/runtime/cell_frame_diag.cpp"
   "$ROOT/src/runtime/jit_profile.cpp"
@@ -52,6 +53,12 @@ RT_BOOT_SRCS_HEAD=(
 )
 
 RT_BOOT_SRCS_TAIL=(
+  # The boot-time "missing files" / "invalid game files" screens. Vita-only
+  # drawing behind #ifdef __vita__, no-op stubs elsewhere -- so it belongs in
+  # the shared list: rt_boot.cpp calls the version screen from the plain
+  # (non-#ifdef) monolith path, and a build that leaves this unit out fails
+  # to link (the qemu-arm oracle did, from the moment the guard existed).
+  "$ROOT/src/platform/install_screen_vita.cpp"
   "$ROOT/src/platform/vita_net.cpp"
   "$ROOT/src/runtime/scomp_pkware.cpp"
   "$ROOT/src/runtime/dcc_native.cpp"

@@ -104,7 +104,7 @@ void d2vita_show_missing_files_screen(const std::string& dir, const std::vector<
     }
 }
 
-void d2vita_show_version_error_screen(const std::string& dir) {
+void d2vita_show_version_error_screen(const std::string& dir, const std::string& found) {
     using namespace d2kb::draw_detail;
     SceUID uid;
     void* base = alloc_fb(&uid);
@@ -116,14 +116,17 @@ void d2vita_show_version_error_screen(const std::string& dir) {
     rect(fb, kScrW, kScrH, panelX, panelY, panelW, panelH, rgb(0x20, 0x20, 0x20));
     frame(fb, kScrW, kScrH, panelX, panelY, panelW, panelH, rgb(0xC0, 0x40, 0x40));
 
+    // 8 px per glyph at scale 1: ~100 characters fit on a panel line.
     int y = panelY + 20, x = panelX + 24;
-    text(fb, kScrW, kScrH, "MAUVAISE VERSION / WRONG DIABLO II VERSION", x, y, 1, rgb(0xFF, 0xC0, 0x40)); y += 34;
-    text(fb, kScrW, kScrH, "D2Vita needs Diablo II 1.14d (one monolithic Game.exe).", x, y, 1, rgb(0xE0, 0xE0, 0xE0)); y += 24;
-    text(fb, kScrW, kScrH, "Your Game.exe imports the 1.13c DLLs (Storm/Fog/...):", x, y, 1, rgb(0xE0, 0xE0, 0xE0)); y += 22;
-    text(fb, kScrW, kScrH, "that split install is not supported.", x, y, 1, rgb(0xE0, 0xE0, 0xE0)); y += 30;
-    text(fb, kScrW, kScrH, "-> Use your 1.14d Game.exe + MPQs instead.", x, y, 1, rgb(0xA0, 0xD0, 0xFF)); y += 28;
-    char hdr[160]; std::snprintf(hdr, sizeof hdr, "in / dans: %s", dir.c_str());
-    text(fb, kScrW, kScrH, hdr, x, y, 1, rgb(0x90, 0xB0, 0xE0));
+    text(fb, kScrW, kScrH, "FICHIERS DU JEU INVALIDES / INVALID GAME FILES", x, y, 1, rgb(0xFF, 0xC0, 0x40)); y += 34;
+    text(fb, kScrW, kScrH, "D2Vita only runs the OFFICIAL Diablo II: Lord of Destruction 1.14d files:", x, y, 1, rgb(0xE0, 0xE0, 0xE0)); y += 22;
+    text(fb, kScrW, kScrH, "one monolithic Game.exe (3618792 bytes, built 2016-05-31) + the MPQs.", x, y, 1, rgb(0xE0, 0xE0, 0xE0)); y += 30;
+    char fnd[200]; std::snprintf(fnd, sizeof fnd, "Found: %s", found.c_str());
+    text(fb, kScrW, kScrH, fnd, x, y, 1, rgb(0xFF, 0x90, 0x90)); y += 30;
+    text(fb, kScrW, kScrH, "-> Install Blizzard's official 1.14d Game.exe + MPQs and copy them to:", x, y, 1, rgb(0xA0, 0xD0, 0xFF)); y += 22;
+    char hdr[160]; std::snprintf(hdr, sizeof hdr, "   %s", dir.c_str());
+    text(fb, kScrW, kScrH, hdr, x, y, 1, rgb(0x90, 0xB0, 0xE0)); y += 30;
+    text(fb, kScrW, kScrH, "Le port ne fonctionne qu'avec les fichiers officiels Diablo II LoD 1.14d.", x, y, 1, rgb(0xC0, 0xC0, 0xC0));
 
     y = panelY + panelH - 36;
     text(fb, kScrW, kScrH, "detail: ux0:data/d2vita/boot_progress.txt", x, y, 1, rgb(0x80, 0x80, 0x80));
@@ -149,5 +152,5 @@ void d2vita_show_version_error_screen(const std::string& dir) {
 }
 #else
 void d2vita_show_missing_files_screen(const std::string&, const std::vector<std::string>&) {}
-void d2vita_show_version_error_screen(const std::string&) {}
+void d2vita_show_version_error_screen(const std::string&, const std::string&) {}
 #endif

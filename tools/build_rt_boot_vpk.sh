@@ -199,8 +199,8 @@ SRCS=(
   "$ROOT/src/platform/vita_present.cpp"
   "$ROOT/src/platform/d2_boot_config.cpp"
   "$ROOT/src/platform/vita_gxm.cpp"
-  "$ROOT/src/platform/install_screen_vita.cpp"
-  "${RT_BOOT_SRCS_TAIL[@]}"
+  "${RT_BOOT_SRCS_TAIL[@]}"   # opens with install_screen_vita.cpp: same object order as before
+
   "${CRASHREPORT_SRCS[@]}"
   "${CRASHREPORT_VITA_SRCS[@]}"
 )
