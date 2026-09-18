@@ -438,7 +438,8 @@ echo "== linking eboot =="
 #   pthread_mutex_lock(NULL) kills the boot BEFORE the memblock. qemu doesn't
 #   show this (glibc links pthread strongly). The nm guard below locks down
 #   the entire family.
-$CXX $CXXFLAGS -Wl,-q "${OBJS[@]}" "$DYNLIB" \
+link_elf() {   # $@ = extra objects, appended after the regular ones (segment-gap relink below)
+$CXX $CXXFLAGS -Wl,-q "${OBJS[@]}" "$@" "$DYNLIB" \
   -lSceDisplay_stub -lSceCtrl_stub -lSceTouch_stub -lSceSysmem_stub -lSceLibKernel_stub \
   -lSceIofilemgr_stub -lSceProcessmgr_stub -lSceKernelThreadMgr_stub -lSceRtc_stub \
   -lSceAppUtil_stub -lSceSysmodule_stub -lScePower_stub -lSceAudio_stub \
@@ -448,6 +449,49 @@ $CXX $CXXFLAGS -Wl,-q "${OBJS[@]}" "$DYNLIB" \
   -ltaihen_stub_weak \
   -Wl,-u,pthread_cancel -Wl,-u,pthread_once $WRAP_LD -lpthread -lm -lz \
   -o "$OUT/d2vita.elf"
+}
+link_elf
+
+# Segment gap: vita-elf-create appends the SCE module data (module info,
+# import/export stubs) to the END of LOAD segment 0 (code + rodata) and needs
+# that many FREE virtual bytes before LOAD segment 1 (data) begins. The
+# VitaSDK linker script places the data segment at ALIGN(0x10000) past the
+# end of the code segment, so that room is "64 KiB minus (code end modulo
+# 64 KiB)": anywhere from a few bytes to 64 KiB, decided by the exact byte
+# size of the code. A build whose code happens to end within a few KiB of a
+# 64 KiB boundary dies in vita-elf-create -- "Cannot allocate N bytes for SCE
+# data at end of segment 0; segment 1 overlaps", then a segfault (exit 139).
+# The v0.1.4 tag build on GitHub did exactly that (N=3048) while the very
+# same commit linked here with 36 KiB of room: the container's toolchain
+# produces slightly different code sizes, and a few hundred bytes decide it.
+# So: measure the room, and when it is under D2VPK_MINGAP (default 8 KiB,
+# N was 3048) relink ONCE with a read-only padding of that size in segment 0.
+# The code end then moves past the boundary that was in the way and the next
+# one is at least MINGAP away (exact for MINGAP <= 32 KiB) -- CHECKED below
+# on the relinked ELF rather than assumed. Nothing changes for a build that
+# already has the room: same link, same bytes.
+seg_gap() {   # free virtual bytes between the end of LOAD segment 0 and the start of LOAD segment 1
+  local v0 m0 v1
+  read -r v0 m0 v1 < <(arm-vita-eabi-readelf -l "$1" | awk 'BEGIN{n=0} $1=="LOAD"{v[n]=$3; m[n]=$6; n++} END{print v[0], m[0], v[1]}')
+  [ -n "${v1:-}" ] || { echo "FATAL: seg_gap: moins de deux segments LOAD lisibles dans $1" >&2; exit 1; }
+  echo $(( 16#${v1#0x} - (16#${v0#0x} + 16#${m0#0x}) ))
+}
+MINGAP="${D2VPK_MINGAP:-8192}"
+GAP="$(seg_gap "$OUT/d2vita.elf")"
+echo "== segments 0 -> 1 : $GAP octets libres pour les donnees SCE de vita-elf-create (minimum $MINGAP) =="
+if [ "$GAP" -lt "$MINGAP" ]; then
+  echo "   marge insuffisante : re-lien avec un bourrage lecture seule de $MINGAP octets dans le segment 0"
+  PAD_C="$OUT/d2vita_segpad.cpp"; PAD_O="$OUT/obj-d2vita_segpad.o"
+  printf 'extern "C" const char d2vita_segpad[%d] __attribute__((used)) = {1};\n' "$MINGAP" > "$PAD_C"
+  $CXX $CXXFLAGS_BASE -c "$PAD_C" -o "$PAD_O"
+  link_elf "$PAD_O"
+  GAP="$(seg_gap "$OUT/d2vita.elf")"
+  echo "   apres bourrage : $GAP octets libres"
+  if [ "$GAP" -lt "$MINGAP" ]; then
+    echo "FATAL: toujours $GAP octets libres entre les segments 0 et 1 (< $MINGAP) — vita-elf-create planterait ; voir le commentaire 'Segment gap' de tools/build_rt_boot_vpk.sh" >&2
+    exit 1
+  fi
+fi
 
 # Anti-family guard: a bl to an undefined WEAK pthread symbol is silently
 # NOPed by the linker (see -u pthread_once above). Any new gthread reference
