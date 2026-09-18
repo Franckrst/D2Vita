@@ -1,13 +1,19 @@
 name: Release VPK
 
-# Triggered by pushing a version tag (e.g. v0.1.0). Builds the same two-step
-# pipeline documented in docs-site/installation.md (engine, then the VPK),
-# forced to channel=release, and attaches the resulting VPK to a GitHub
-# Release named after the tag.
+# Triggered by pushing a version tag (e.g. v0.1.0). Builds the same pipeline
+# documented in docs-site/installation.md (engine, then glide3x.dll, then
+# the VPK), forced to channel=release, and attaches the resulting VPK to a
+# GitHub Release named after the tag.
 #
-# First run on this workflow will need watching: the VitaSDK Docker image
-# and the build scripts have never been exercised inside GitHub Actions
-# before, only on the maintainer's own machine.
+# glide3x.dll (tools/build_glide_ring.sh) is a SEPARATE cross-compile
+# (i686-w64-mingw32-gcc, a Windows PE DLL) from the Vita ARM build — easy to
+# forget because it's a one-off on the maintainer's own machine, never
+# rebuilt in a normal dev loop. v0.1.3's tag (the first real run of this
+# workflow) failed exactly this way: build_rt_boot_vpk.sh hard-FATALs if
+# build-glide/glide3x.dll is missing (it must travel inside the VPK, or the
+# game halts at frame 0 — "unsupported graphics mode"), and a fresh checkout
+# has no such file. The MinGW toolchain isn't in vitasdk/vitasdk:latest
+# either, hence the explicit install step below.
 
 on:
   push:
@@ -35,6 +41,12 @@ jobs:
 
       - name: Build engine (winx86, target Vita)
         run: TARGET=vita bash third_party/winx86/build.sh
+
+      - name: Install MinGW (glide3x.dll cross-compiler)
+        run: apt-get update -qq && apt-get install -y -qq gcc-mingw-w64-i686
+
+      - name: Build glide3x.dll
+        run: bash tools/build_glide_ring.sh
 
       - name: Build release VPK
         run: D2VPK_CHANNEL=release D2VPK_REBUILD=1 bash tools/build_rt_boot_vpk.sh
