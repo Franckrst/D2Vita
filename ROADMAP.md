@@ -25,9 +25,8 @@ the source of truth for the public repository.
 - [x] GPU rendering (sceGxm) via a guest-side reconstructed Glide3x ring,
       asynchronous submission
 - [x] DirectSound audio (host mixer, natively-ported Storm codecs) —
-      implemented, **disabled by default** (`D2_SON` to enable it; the
-      default stays `DSERR_NODRIVER`, faithful to a machine with no sound
-      card)
+      implemented, **enabled by default**; `D2_SON=0` opts back out to
+      `DSERR_NODRIVER`, faithful to a machine with no sound card
 - [x] Networking on real hardware: primitive bench 10/10 on hardware
 - [x] Online on console, a full game played end-to-end (connect → realm →
       character → game created, act loaded) against both the private

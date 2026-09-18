@@ -3484,9 +3484,10 @@ int main(int argc,char**argv){
     // methods plus the two exports and FORCES their slot allocation —
     // alloc_trap advances by 16 bytes per slot, so a registration conditioned
     // on the knob would make an A/B differ by more than just the knob
-    // (bridge.h:60-66). Allocating a slot touches NO guest byte; without
-    // D2_SON, DirectSoundCreate returns DSERR_NODRIVER (0x88780078) exactly
-    // as before: no thread, no library, no vtable set up.
+    // (bridge.h:60-66). Allocating a slot touches NO guest byte regardless of
+    // the knob's value. D2_SON is armed by default; with D2_SON=0,
+    // DirectSoundCreate returns DSERR_NODRIVER (0x88780078): no thread, no
+    // library, no vtable set up.
     // The DirectSound scaffolding itself lives in the engine now — that's
     // Win32 emulation, not Diablo. What stays here is only what's genuinely
     // ours: the arena the PCM buffers live in, the GUEST clock, the write
