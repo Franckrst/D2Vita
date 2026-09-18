@@ -15,32 +15,47 @@ specifically, not from `ux0:data/d2vita/` directly):
 ```
 ux0:data/d2vita/1.14d/
 ├── Game.exe
-├── Fog.dll
-├── Storm.dll
-├── D2Win.dll
-├── D2Client.dll
-├── D2Common.dll
-├── D2gfx.dll
 ├── d2data.mpq      (required)
 ├── d2exp.mpq       (required, LoD expansion)
 ├── patch_d2.mpq    (recommended — 1.14d patch)
 ├── d2char.mpq
 ├── d2sfx.mpq
 ├── d2music.mpq
+├── d2speech.mpq    (voice — content is per-language, filename never changes)
+├── d2video.mpq
 ├── d2xmusic.mpq
 ├── d2xtalk.mpq
 └── d2xvideo.mpq
 ```
 
-The boot-time diagnostic screen tells you precisely which file is missing,
-if any is.
+That's the full list. 1.14d ships as a single monolithic `Game.exe` with
+everything statically linked in — d2vita never reads `Fog.dll`, `Storm.dll`,
+`D2Win.dll`, `D2Client.dll`, `D2Common.dll` or `D2gfx.dll` from disk, even
+though a PC install ships them alongside it.
 
-Nothing else needs to be supplied: `ddraw.dll`, `glide3x.dll`,
-`checkrevision.dll` and `d2vhost.dll` are all faked or shimmed by d2vita
-itself, never read from disk. Same for `ux0:data/d2vita/shaders/` — the
-precompiled GPU shaders already travel inside the VPK
-(`build_rt_boot_vpk.sh`), that folder is only an optional on-console
-override, not something a normal install needs to populate.
+Your copy of the folder may still contain those split DLLs and a few extra
+launchers (`Diablo II.exe`, `BNUpdate.exe`, `SystemSurvey.exe`,
+`BlizzardError.exe`) — a whole PC/Mac install usually does. **That's fine:
+d2vita ignores them.** It never loads a stray 1.13c DLL next to the 1.14d
+monolith (loading that old, incompatible code is what used to break rendering
+or crash the boot — d2vita now refuses to). You can delete them to tidy the
+folder if you like, but you don't have to; only `Game.exe`, the MPQs and your
+`.key` files actually do anything.
+
+On every boot, d2vita checks that `Game.exe` and each required MPQ above
+actually exist, and writes down exactly which one is missing if any is —
+see [Verifying the install](#verifying-the-install) below for where that
+check is recorded.
+
+Nothing else needs to be supplied: `ddraw.dll`, `checkrevision.dll` and
+`d2vhost.dll` are all faked or shimmed by d2vita itself, never read from disk.
+`glide3x.dll` — d2vita's own Glide renderer, which the game genuinely *does*
+`LoadLibrary` from disk (D2 is launched with `-3dfx`) — travels inside the VPK
+(`app0:glide3x.dll`, `build_rt_boot_vpk.sh`), so you do not supply it either.
+Same for `ux0:data/d2vita/shaders/` — the precompiled GPU shaders already
+travel inside the VPK. A copy of `glide3x.dll` or of a shader in the game
+folder is only an optional on-console override, not something a normal install
+needs to populate.
 
 CD keys (optional) go one level up, flat in `ux0:data/d2vita/keys.txt` — see
 [Online play](en-ligne.md#the-cd-key-mechanism).
@@ -75,8 +90,21 @@ latter for normal use, they have a cost.
 
 ## Verifying the install
 
-The first boot shows a diagnostic screen listing found/missing MPQs before
-launching the game. A boot that stops silently before this screen, with
-nothing written to the log, usually means the console is stuck in an
-inconsistent state — reboot before digging further (a documented project
-pitfall: an empty log doesn't mean the previous binary booted correctly).
+Every boot writes a plain-text log to:
+
+```
+ux0:data/d2vita/boot_progress.txt
+```
+
+Read it with VitaShell's built-in text viewer, or pull it over FTP — it is
+a file, not an on-screen message. If `Game.exe` or any required MPQ (see
+above) is missing, the very first lines name exactly which file and the
+full path it was expected at, before the game gives up. If the game closes
+right after launch and the MPQ list above looks right, this file is the
+first thing to check.
+
+A boot that stops silently with *nothing at all* written to this file —
+not even those first lines — usually means the console itself is stuck in
+an inconsistent state rather than a bad install: reboot before digging
+further (a documented project pitfall: an empty log doesn't mean the
+previous binary booted correctly).

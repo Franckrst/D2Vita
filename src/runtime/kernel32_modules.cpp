@@ -99,23 +99,41 @@ void kernel32_modules_install(Bridge& br){
             uint32_t h=g_sysLibNextH++; g_sysLib[h]=base;
             if(env_filelog()) std::fprintf(stderr,"    [LoadLibrary SYS] %s -> 0x%08x\n",base.c_str(),h);
             return h; } }
+        // Leftover 1.13c / split D2 DLLs: this build is the 1.14d MONOLITH, with
+        // Storm/Fog/D2Win/D2Client/D2Common/D2gfx/... statically linked in. A
+        // stray on-disk copy next to Game.exe (players who dumped a whole
+        // pre-1.14 PC/Mac install folder -- see the .DS_Store crowd) is OLD,
+        // conflicting code: loaded, the ancient D2gfx.dll breaks the ground
+        // rendering (black terrain) and the ancient Storm.dll traps on an
+        // unshimmed ordinal. Behave EXACTLY as a clean 1.14d install would --
+        // as if the file simply were not there (LoadLibrary returns 0). Renderer
+        // plug-ins (d2glide/d2direct3d/d2ddraw/d2gdi) are deliberately NOT in
+        // this list: the port's own Glide path must stay free to resolve.
+        { static const char* kD2Split[]={"storm.dll","fog.dll","d2win.dll","d2client.dll",
+              "d2common.dll","d2gfx.dll","d2game.dll","d2lang.dll","d2sound.dll","d2net.dll",
+              "d2mcpclient.dll",nullptr};
+          for(const char** s=kD2Split; *s; ++s) if(base==*s){
+              if(env_filelog()) std::fprintf(stderr,"    [LoadLibrary IGNORE 1.13c] %s\n",base.c_str());
+              return 0u; } }
         // Runtime PE load: a REAL DLL on disk that D2 extracted and wants to run
         // — the lockdown CheckRevision.dll (from CheckRevision.mpq at Battle.net
         // login). Map + link it into the guest so GetProcAddress("CheckRevision")
         // resolves and D2 can call the export in the dynarec.
         if(g_bridge){
-            std::string hp=host_path(n);
-            std::vector<uint8_t> b=slurp(hp);
 #ifdef __vita__
-            // glide3x.dll is the port's OWN Glide-renderer DLL, shipped inside
-            // the VPK (app0:), NOT part of a Diablo II install. A fresh install
-            // has none in the game directory, and since D2 is launched with
-            // -3dfx it LoadLibrary's glide3x.dll for the renderer -- without it
-            // the renderer init fails and D2 halts at frame 0 with "Error 1:
-            // ... Unsupported graphics mode." Fall back to the bundled copy so
-            // every install renders; a copy in the game dir still wins first
-            // (dev override).
-            if(b.empty() && base=="glide3x.dll") b=slurp("app0:glide3x.dll");
+            // glide3x.dll is the port's OWN Glide renderer, shipped in the VPK
+            // (app0). ALWAYS load THAT copy, never a client's game-dir
+            // glide3x.dll. A fresh install has none there -- that missing file
+            // was the frame-0 "Unsupported graphics mode" halt -- but a folder
+            // that DOES carry one (a real 3dfx glide3x.dll, or any other build)
+            // must not win: it cannot drive the port's GXM path (it expects
+            // actual 3dfx hardware) and would break rendering or crash. Ours
+            // wins outright. Every OTHER runtime DLL (checkrevision.dll,
+            // extracted at Bnet login) still comes from disk via host_path.
+            std::vector<uint8_t> b = (base=="glide3x.dll") ? slurp("app0:glide3x.dll")
+                                                           : slurp(host_path(n));
+#else
+            std::vector<uint8_t> b = slurp(host_path(n));
 #endif
             if(b.size()>0x40 && b[0]=='M' && b[1]=='Z'){
                 std::string lerr; PeImage* pi=g_bridge->load_library_runtime(base,b,lerr);

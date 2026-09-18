@@ -131,7 +131,17 @@ void kernel32_files_install(Bridge& br){
         flush_same_path(h);
         uint64_t io0=rt_now_us();
         FILE* fp=std::fopen(h.c_str(),"rb");
-        g_ioUs+=rt_now_us()-io0; if(!fp){ set_lasterr(c,2); if(env_filelog()) std::fprintf(stderr,"    [file MISS] %s\n",n.c_str()); return 0xFFFFFFFFu; }
+        g_ioUs+=rt_now_us()-io0;
+        // NOT logged unconditionally, even for .mpq: D2 itself routinely probes
+        // for optional patch archives that never ship in a normal install
+        // (confirmed on console: d2delta.mpq and d2kfixup.mpq, each tried
+        // against several candidate directories, on EVERY boot of a perfectly
+        // healthy install) -- logging every one of those would bury the one
+        // miss that actually matters. The required-file set is instead
+        // checked once, explicitly, up front (see the install preflight in
+        // tools/rt_boot.cpp's main()); this stays opt-in via FILELOG like
+        // every other routine probe.
+        if(!fp){ set_lasterr(c,2); if(env_filelog()) std::fprintf(stderr,"    [file MISS] %s\n",n.c_str()); return 0xFFFFFFFFu; }
         // Big stdio buffer: Storm reads MPQs in many small chunks — on a Vita
         // SD card the per-IO latency dominates without this.
         // D2_READAHEAD: UNBUFFERED stream, reads via lseek+read on the

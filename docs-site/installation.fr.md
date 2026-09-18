@@ -16,32 +16,48 @@ ensemble, exactement comme une vraie installation PC, dans un sous-dossier
 ```
 ux0:data/d2vita/1.14d/
 ├── Game.exe
-├── Fog.dll
-├── Storm.dll
-├── D2Win.dll
-├── D2Client.dll
-├── D2Common.dll
-├── D2gfx.dll
 ├── d2data.mpq      (requis)
 ├── d2exp.mpq       (requis, extension LoD)
 ├── patch_d2.mpq    (recommandé — patch 1.14d)
 ├── d2char.mpq
 ├── d2sfx.mpq
 ├── d2music.mpq
+├── d2speech.mpq    (voix — le contenu change de langue, le nom jamais)
+├── d2video.mpq
 ├── d2xmusic.mpq
 ├── d2xtalk.mpq
 └── d2xvideo.mpq
 ```
 
-L'écran de diagnostic au démarrage indique précisément quel fichier manque
-s'il en manque un.
+C'est la liste complète. La 1.14d est un `Game.exe` monolithique unique,
+tout est lié statiquement dedans — d2vita ne lit jamais `Fog.dll`,
+`Storm.dll`, `D2Win.dll`, `D2Client.dll`, `D2Common.dll` ni `D2gfx.dll`
+depuis le disque, même si une installation PC les fournit à côté.
 
-Rien d'autre à fournir : `ddraw.dll`, `glide3x.dll`, `checkrevision.dll` et
-`d2vhost.dll` sont tous fabriqués ou simulés par d2vita lui-même, jamais lus
-depuis le disque. Pareil pour `ux0:data/d2vita/shaders/` — les shaders GPU
-précompilés voyagent déjà dans le VPK (`build_rt_boot_vpk.sh`), ce dossier
-n'est qu'une surcharge optionnelle sur console, pas quelque chose qu'une
-installation normale doit remplir.
+Ta copie du dossier peut encore contenir ces DLLs séparées et quelques
+lanceurs en trop (`Diablo II.exe`, `BNUpdate.exe`, `SystemSurvey.exe`,
+`BlizzardError.exe`) — une installation PC/Mac complète en a presque toujours.
+**Pas de souci : d2vita les ignore.** Il ne charge jamais une vieille DLL
+1.13c à côté du monolithe 1.14d (charger ce code ancien et incompatible, c'est
+ce qui cassait le rendu ou plantait le boot — d2vita refuse désormais de le
+faire). Tu peux les supprimer pour faire le ménage si tu veux, mais ce n'est
+pas obligatoire ; seuls `Game.exe`, les MPQ et tes fichiers `.key` servent
+réellement.
+
+À chaque démarrage, d2vita vérifie que `Game.exe` et chaque MPQ requis
+ci-dessus existent bien, et note précisément lequel manque s'il en manque
+un — voir [Vérifier l'installation](#verifier-linstallation) plus bas pour
+savoir où cette vérification est consignée.
+
+Rien d'autre à fournir : `ddraw.dll`, `checkrevision.dll` et `d2vhost.dll` sont
+tous fabriqués ou simulés par d2vita lui-même, jamais lus depuis le disque.
+`glide3x.dll` — le renderer Glide propre à d2vita, que le jeu charge vraiment
+depuis le disque via `LoadLibrary` (D2 est lancé avec `-3dfx`) — voyage dans le
+VPK (`app0:glide3x.dll`, `build_rt_boot_vpk.sh`), donc tu ne le fournis pas non
+plus. Pareil pour `ux0:data/d2vita/shaders/` — les shaders GPU précompilés
+voyagent déjà dans le VPK. Une copie de `glide3x.dll` ou d'un shader dans le
+dossier du jeu n'est qu'une surcharge optionnelle sur console, pas quelque
+chose qu'une installation normale doit remplir.
 
 Les clés CD (optionnelles) vont un niveau au-dessus, à plat dans
 `ux0:data/d2vita/keys.txt` — voir
@@ -77,9 +93,22 @@ pas activer les seconds pour un usage normal, ils ont un coût.
 
 ## Vérifier l'installation
 
-Le premier boot affiche un écran de diagnostic listant les MPQ trouvés/
-manquants avant de lancer le jeu. Un boot qui s'arrête silencieusement avant
-cet écran, sans rien écrire dans le journal, signifie généralement que la
-console est bloquée dans un état incohérent — redémarrer avant de chercher
-plus loin (piège documenté du projet : un journal vide ne veut pas dire que
-le binaire précédent démarrait correctement).
+Chaque démarrage écrit un journal texte dans :
+
+```
+ux0:data/d2vita/boot_progress.txt
+```
+
+À lire avec le lecteur de texte intégré de VitaShell, ou à récupérer par
+FTP — c'est un fichier, pas un message à l'écran. Si `Game.exe` ou un MPQ
+requis (voir plus haut) manque, les toutes premières lignes nomment
+précisément le fichier et le chemin complet attendu, avant que le jeu
+n'abandonne. Si le jeu se ferme juste après le lancement et que la liste
+des MPQ ci-dessus semble correcte, c'est la première chose à vérifier.
+
+Un boot qui s'arrête silencieusement sans *rien* écrire dans ce fichier —
+même pas ces toutes premières lignes — signifie généralement que la
+console elle-même est bloquée dans un état incohérent plutôt qu'un
+problème d'installation : redémarrer avant de chercher plus loin (piège
+documenté du projet : un journal vide ne veut pas dire que le binaire
+précédent démarrait correctement).

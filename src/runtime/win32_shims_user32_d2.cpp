@@ -17,6 +17,7 @@
 #include "runtime/frame_profile.h"    // lw_peek_empty
 #include "runtime/win32_shims_window.h"  // wx86_get_cursor
 #include "runtime/guest_sync.h"       // WxEvent (manual-reset "never signaled" wait)
+#include "platform/vita_present.h"    // d2vita_progress
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
@@ -48,8 +49,14 @@ void win32_shims_user32_d2_install(Bridge& br){
     U("MessageBoxA",4,[](Cpu&c){ uint32_t txt=c.arg(1),cap=c.arg(2),ty=c.arg(3);
         uint32_t caller=c.read_u32(c.reg(R_ESP));   // return address at trap entry
         std::string t=txt?gread_mb(c,txt,-1):"(null)";
+        std::string capS=cap?gread_mb(c,cap,-1):"(null)";
         std::printf("  [MessageBoxA] type=0x%x caption=\"%s\" caller=%s\n  text: %s\n",
-            ty, cap?gread_mb(c,cap,-1).c_str():"(null)", g_locp?(*g_locp)(caller).c_str():"?", t.c_str());
+            ty, capS.c_str(), g_locp?(*g_locp)(caller).c_str():"?", t.c_str());
+        // The only place D2's OWN error dialogs surface (missing/corrupt data
+        // file, CD check, etc.) -- printf alone is invisible on console, so
+        // without this line these never reach boot_progress.txt either.
+        { char m[220]; std::snprintf(m,sizeof m,"dialogue: \"%s\" -- %s",capS.c_str(),t.c_str());
+          d2vita_progress(m); }
         static int mb=0; if(t.find("Expansion")!=std::string::npos && mb++==0){
             if(g_dump_fring) g_dump_fring(); }
         return 1u; });

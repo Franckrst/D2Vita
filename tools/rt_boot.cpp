@@ -14,6 +14,7 @@
 #include "runtime/pe_image.h"
 #include "runtime/prof.h"
 #include "platform/vita_present.h"
+#include "platform/install_screen_vita.h"
 #include "glide_ring/glide_atlas.h"
 #include "glide_ring/replay60.h"
 #include "platform/vita_gxm.h"
@@ -2043,7 +2044,7 @@ int main(int argc,char**argv){
 #ifdef __vita__
     // Vita has no shell/env/argv: bake config, mkdir via sceIo, drive the boot
     // with the Rogue Encampment input script. d2vita_platform_init returns the
-    // genuine 1.13c PE-set dir under ux0:.
+    // genuine 1.14d PE-set dir under ux0:.
     const char* vdir = d2vita_platform_init();
     // MODULE LOAD BASE. The module is NOT loaded at a fixed address: two
     // dumps of the same eboot showed all their PCs shifted by exactly
@@ -2058,6 +2059,44 @@ int main(int argc,char**argv){
       std::snprintf(mb,sizeof mb,"module: main a l'execution=%p (biais = cette valeur - nm(main))",
                     (void*)(uintptr_t)&main);
       d2vita_progress(mb); std::printf("[%s]\n",mb); std::fflush(stdout); }
+    // Install preflight: the #1 support request is "the game won't start"
+    // with zero clue why. A missing Game.exe is caught again below (at
+    // module load) but that check only reaches printf, invisible on
+    // console; a missing MPQ isn't caught by us AT ALL otherwise until D2's
+    // own guest code stumbles on it, deep into boot, with no message either
+    // (do_create_file's read-miss is silent by default). Check the whole
+    // required set HERE, once, so boot_progress.txt always names precisely
+    // what's absent and exactly where it was expected -- patch_d2.mpq is
+    // deliberately not in this list (recommended, not required; see
+    // docs-site/installation.md).
+    { static const char* kRequired[] = {
+          "Game.exe","d2data.mpq","d2exp.mpq","d2char.mpq","d2sfx.mpq",
+          "d2music.mpq","d2speech.mpq","d2video.mpq",
+          "d2xmusic.mpq","d2xtalk.mpq","d2xvideo.mpq", nullptr };
+      int nmiss=0; std::vector<std::string> missingNames;
+      for(const char** f=kRequired; *f; ++f){
+          std::string p=std::string(vdir)+"/"+*f;
+          struct stat st{};   // zero-initialized: a stat() that fails without
+                              // touching st must not leave st_size looking
+                              // like a plausible (nonzero) size by accident.
+          long rc=::stat(p.c_str(),&st);
+          if(rc!=0 || st.st_size==0){
+              char m[192]; std::snprintf(m,sizeof m,"install: MANQUANT %s (attendu: %s)",*f,p.c_str());
+              d2vita_progress(m); std::printf("[%s]\n",m); ++nmiss; missingNames.push_back(*f); } }
+      if(nmiss){ char m[96]; std::snprintf(m,sizeof m,"install: %d fichier(s) manquant(s) -- voir ci-dessus",nmiss);
+          d2vita_progress(m); std::printf("[%s]\n",m); std::fflush(stdout);
+          // Real on-screen message, not just a log line a player has to know
+          // to go find: shown BEFORE Game.exe is even opened, using the same
+          // sceGxm-free hand-drawn framebuffer as the crash-report consent
+          // dialog (see install_screen_vita.cpp for why).
+          d2vita_show_missing_files_screen(vdir, missingNames);
+          // A required file missing is always fatal in practice -- D2 does
+          // not degrade gracefully just because the ABSENT file happens not
+          // to be Game.exe itself, so there is nothing to gain and a much
+          // worse (later, less clear) failure to risk by letting the boot
+          // limp forward. Stop here, the same way the Game.exe-missing case
+          // below does.
+          return 1; } }
     // Hardware runs at real speed — but only once the scheduler starts: the
     // DllMain init phase depends on per-call tick advance (poll loops with
     // timeouts, workers not yet running) and crawls under a real clock.
@@ -2533,10 +2572,51 @@ int main(int argc,char**argv){
     } else {
         std::vector<const char*> mods = {"Game.exe"};
         std::printf("=== 1.14 monolith: single Game.exe ===\n"); d2vita_progress("mode: 1.14 monolith");
-        for(auto m:mods){ auto b=slurp(dir+"/"+m); if(b.empty()){std::printf("missing %s\n",m); return 1;}
+        for(auto m:mods){ auto b=slurp(dir+"/"+m); if(b.empty()){
+            char em[192]; std::snprintf(em,sizeof em,"install: %s introuvable ou vide (attendu: %s/%s)",m,dir.c_str(),m);
+            d2vita_progress(em); std::printf("[%s]\n",em); return 1;}
             if(!br.add_module(m,b,err)){ std::printf("add %s: %s\n",m,err.c_str()); return 1; } }
     }
     if(!br.commit(err)){ std::printf("commit: %s\n",err.c_str()); d2vita_progress("commit FAILED"); return 1; }
+    // Version guard (monolith path only). The install preflight above only
+    // checks that Game.exe and the MPQs EXIST, not their VERSION -- so a 1.13c
+    // install (which has a Game.exe + the MPQs) sails through it, then a few
+    // seconds later calls an unshimmed Storm.dll ordinal and stops with a
+    // cryptic "unshimmed import" the player can't act on. Close that gap here:
+    // a genuine 1.14d Game.exe is a monolith and imports NONE of the D2 split
+    // DLLs; a Game.exe that imports Storm/Fog/D2Win/... is 1.13c (or otherwise
+    // split), which this build does not support. Name it on screen and in the
+    // log, and stop cleanly.
+    if(!g_runexe){ if(PeImage* gpi=br.module("Game.exe")){
+        static const char* kSplit[]={"storm.dll","fog.dll","d2win.dll","d2client.dll","d2common.dll","d2gfx.dll",nullptr};
+        std::string badDll;
+        for(const auto& ir : gpi->imports()){
+            std::string dl=ir.dll; for(auto&ch:dl) ch=(char)std::tolower((unsigned char)ch);
+            for(const char** s=kSplit; *s; ++s) if(dl==*s){ badDll=ir.dll; break; }
+            if(!badDll.empty()) break; }
+        if(!badDll.empty()){
+            char m[192]; std::snprintf(m,sizeof m,
+                "install: Game.exe importe %s -> version 1.13c/splittee, D2Vita exige la 1.14d monolithe",badDll.c_str());
+            d2vita_progress(m); std::printf("[%s]\n",m); std::fflush(stdout);
+            d2vita_show_version_error_screen(dir);
+            return 1; } } }
+    // Purely informational: note (do NOT stop, do NOT alarm) any leftover 1.13c
+    // split DLLs / extra launchers sitting next to the 1.14d monolith.
+    // kernel32_modules IGNORES those DLLs at load time (see its kD2Split list),
+    // so their presence is HARMLESS -- the game behaves exactly as with a clean
+    // install. This one line only exists so a crash report / the log shows a
+    // messy install for what it is, should some subtler symptom ever be traced
+    // back to it. A clean 1.14d install prints nothing here.
+    if(!g_runexe){
+        static const char* kLeftover[]={"Storm.dll","Fog.dll","D2Win.dll","D2Client.dll",
+            "D2Common.dll","D2gfx.dll","D2Game.dll","Diablo II.exe","BNUpdate.exe","SystemSurvey.exe",nullptr};
+        std::string found; int nf=0;
+        for(const char** f=kLeftover; *f; ++f){ struct stat st{};
+            if(::stat((dir+"/"+*f).c_str(),&st)==0){ if(nf<6){ if(nf) found+=", "; found+=*f; } ++nf; } }
+        if(nf){ char m[224]; std::snprintf(m,sizeof m,
+            "install: %d fichier(s) PC en trop presents (%s%s) -- ignores, sans effet (seuls Game.exe + MPQ comptent)",
+            nf, found.c_str(), nf>6?", ...":"");
+            d2vita_progress(m); std::printf("[%s]\n",m); std::fflush(stdout); } }
     // Index the loaded module by base + name so LoadLibraryA/GetProcAddress resolve
     // to the real image (Game.exe dynamically loads D2 DLLs and calls exports).
     { PeImage* pi=br.module(exeLogical); if(pi){ g_modByBase[pi->load_base()]=pi;
