@@ -88,6 +88,12 @@ The **play** environment (perf/config) and the **diagnostic** environment
 (`D2_INPUTLOG`, profiling probes, etc.) are kept separate — don't enable the
 latter for normal use, they have a cost.
 
+One flag lives outside that reference block on purpose: `D2_LOCAL_ONLY=1`
+restricts the runtime to a private/local server instead of official
+Battle.net, which is the default. It's a network-policy choice, not a
+performance lever, so it isn't part of the config above — add it to
+`env.txt` yourself if you want it. Details: [Online play](en-ligne.md).
+
 ## Verifying the install
 
 Every boot writes a plain-text log to:

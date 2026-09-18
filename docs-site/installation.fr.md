@@ -91,6 +91,13 @@ L'environnement de **jeu** (perf/config) et l'environnement de
 **diagnostic** (`D2_INPUTLOG`, sondes de profilage, etc.) sont séparés — ne
 pas activer les seconds pour un usage normal, ils ont un coût.
 
+Un réglage reste volontairement hors de ce bloc de référence :
+`D2_LOCAL_ONLY=1` restreint le runtime à un serveur privé/local au lieu du
+Battle.net officiel, qui est le comportement par défaut. C'est un choix de
+politique réseau, pas un levier de perf, donc il ne fait pas partie de la
+config ci-dessus — ajoute-le toi-même dans `env.txt` si tu le veux. Détails :
+[Jouer en ligne](en-ligne.md).
+
 ## Vérifier l'installation
 
 Chaque démarrage écrit un journal texte dans :
