@@ -2376,10 +2376,23 @@ int main(int argc,char**argv){
     }
     rt_wall();   // warm up the wall-clock base on the real main thread (see rt_wall)
     // D2NET enables the real network layer on both platforms. On console,
-    // d2vita_platform_init has already brought up the Sony stack before the
-    // arena is entered, and sets D2NET_FAILED if it isn't up: in that case
-    // this stays offline, the game shows its own "cannot connect" message,
-    // and solo mode is unaffected.
+    // d2vita_platform_init already brought the Sony stack up (and, if that
+    // itself failed, already set D2NET_FAILED) before the arena was
+    // entered; the CONNECTION wait it kicked off in the background is
+    // joined here instead of back there -- by now several seconds of arena/
+    // DllMain/Authenticode/GXM setup have usually already covered it, so
+    // this rarely actually blocks. If it isn't up: this stays offline, the
+    // game shows its own "cannot connect" message, and solo mode is
+    // unaffected.
+    if(getenv("D2NET") && !getenv("D2NET_FAILED")){
+        int nr = d2vita_net_join();
+        d2vita_progress(d2vita_net_status());
+        if(nr != 0){
+            char m[64]; std::snprintf(m, sizeof m, "reseau: init KO (code %d) -> hors-ligne", nr);
+            d2vita_progress(m);
+            setenv("D2NET_FAILED", "1", 1);
+        }
+    }
     if(getenv("D2NET") && !getenv("D2NET_FAILED")){
         wx86_net_set_enabled(true); std::printf("[net] sockets reelles ACTIVEES (D2NET)\n"); }
     else if(getenv("D2NET")){

@@ -61,6 +61,20 @@ static void net_teardown(bool ctlUp, bool netUp) {
     if (netUp) sceNetTerm();
     if (g_netPool) { std::free(g_netPool); g_netPool = nullptr; }
 }
+
+// Stack state, promoted from d2vita_net_init()'s old local variables: the
+// background wait thread (net_wait_and_resolve) needs to reach these too,
+// not just the synchronous bring-up that sets them.
+static bool g_netUp = false, g_netCtlUp = false;
+
+// d2vita_net_start()/_join() background-wait bookkeeping. Single-instance
+// by construction (boot only ever has one connection attempt in flight).
+static SceUID g_netWaitThread = -1;
+// -4 (the "link state unusable" code) until a wait actually runs: a join that
+// happens without a prior start must report failure (safe/closed), never 0
+// which would read as "networking usable".
+static volatile int g_netWaitResult = -4;
+static int g_netWaitMs = 0;
 #endif
 
 // MSG_NOSIGNAL doesn't exist in VitaSDK's newlib, and it wouldn't do anything
@@ -92,12 +106,11 @@ static char g_ip[32]      = "0.0.0.0";
 const char* d2vita_net_status(void)   { return g_status; }
 const char* d2vita_net_local_ip(void) { return g_ip; }
 
-int d2vita_net_init(int wait_ms) {
-#ifndef __vita__
-    (void)wait_ms;
-    std::snprintf(g_status, sizeof g_status, "reseau: hote POSIX, rien a initialiser");
-    return 0;
-#else
+#ifdef __vita__
+// The part that must run before the arena claims memory: module load +
+// dedicated pool + NetInit + CtlInit. Split out so d2vita_net_start() can
+// return as soon as this is done, without waiting for a connection.
+static int net_bringup() {
     int rc = sceSysmoduleLoadModule(SCE_SYSMODULE_NET);
     if (rc < 0) {
         std::snprintf(g_status, sizeof g_status, "reseau: module NET non charge 0x%08X", (unsigned)rc);
@@ -110,40 +123,42 @@ int d2vita_net_init(int wait_ms) {
     }
     SceNetInitParam p;
     p.memory = g_netPool; p.size = D2VITA_NET_POOL; p.flags = 0;
-    rc = sceNetInit(&p);
-    // netUp says who OWNS g_netPool: while true, the block belongs to the
+    int rc2 = sceNetInit(&p);
+    // g_netUp says who OWNS g_netPool: while true, the block belongs to the
     // Sony stack, and freeing it without sceNetTerm corrupts memory (see
     // net_teardown). This flag, not a return code re-read later, drives
     // every error exit below.
-    bool netUp = false, ctlUp = false;
-    if (rc >= 0) {
-        netUp = true;
-    } else if ((unsigned)rc == (unsigned)SCE_NET_ERROR_EBUSY) {
+    g_netUp = false; g_netCtlUp = false;
+    if (rc2 >= 0) {
+        g_netUp = true;
+    } else if ((unsigned)rc2 == (unsigned)SCE_NET_ERROR_EBUSY) {
         // EBUSY = the stack was already running (the system brought it up),
         // so it never took our block; nobody owns it, so we free it
         // ourselves. The SDK libc does the same on this code.
         std::free(g_netPool); g_netPool = nullptr;
     } else {
-        std::snprintf(g_status, sizeof g_status, "reseau: sceNetInit 0x%08X", (unsigned)rc);
+        std::snprintf(g_status, sizeof g_status, "reseau: sceNetInit 0x%08X", (unsigned)rc2);
         std::free(g_netPool); g_netPool = nullptr;   // init failed: block was never taken
         return -2;
     }
-    rc = sceNetCtlInit();
-    if (rc >= 0) {
-        ctlUp = true;
-    } else if ((unsigned)rc != D2VITA_NETCTL_ALREADY_INITED) {
-        std::snprintf(g_status, sizeof g_status, "reseau: sceNetCtlInit 0x%08X", (unsigned)rc);
-        net_teardown(false, netUp);
+    rc2 = sceNetCtlInit();
+    if (rc2 >= 0) {
+        g_netCtlUp = true;
+    } else if ((unsigned)rc2 != D2VITA_NETCTL_ALREADY_INITED) {
+        std::snprintf(g_status, sizeof g_status, "reseau: sceNetCtlInit 0x%08X", (unsigned)rc2);
+        net_teardown(false, g_netUp);
         return -3;
     }
-    // Logged BEFORE the wait: it can run the full wait_ms, the screen isn't
-    // initialized yet at this point, and a silent multi-second wait is
-    // indistinguishable from a hang.
-    {
-        char m[96];
-        std::snprintf(m, sizeof m, "reseau: attente de la connexion (jusqu'a %d ms)", wait_ms);
-        wx86_vita_progress_c(m);
-    }
+    return 0;
+}
+
+// Everything after bring-up: wait up to wait_ms for a connection, then
+// resolve the local IP/DNS. d2vita_net_start() runs this on a background
+// thread so it overlaps with arena/DllMain/Authenticode/GXM setup instead
+// of blocking boot before any of it starts; d2vita_net_init() still calls
+// it inline, for callers (crash-report upload, D2NETTEST) with nothing to
+// overlap it with.
+static int net_wait_and_resolve(int wait_ms) {
     // Starts DISCONNECTED, never CONNECTED: an out-parameter must not start
     // out already equal to the success value, or a call that "succeeds"
     // without writing anything would look like a connection that isn't
@@ -157,7 +172,7 @@ int d2vita_net_init(int wait_ms) {
         if (rs < 0) {
             std::snprintf(g_status, sizeof g_status,
                           "reseau: sceNetCtlInetGetState 0x%08X", (unsigned)rs);
-            net_teardown(ctlUp, netUp);
+            net_teardown(g_netCtlUp, g_netUp);
             return -4;
         }
         if (state == SCE_NETCTL_STATE_CONNECTED) break;
@@ -169,7 +184,7 @@ int d2vita_net_init(int wait_ms) {
         if (!sawProgress && waited >= 1000) {
             std::snprintf(g_status, sizeof g_status,
                           "reseau: aucune tentative de connexion (wifi coupe ?)");
-            net_teardown(ctlUp, netUp);
+            net_teardown(g_netCtlUp, g_netUp);
             return -4;
         }
         if (waited >= wait_ms) {
@@ -177,7 +192,7 @@ int d2vita_net_init(int wait_ms) {
             // MOST COMMON failure path (Wi-Fi off, no association). Boot
             // continues solo: leaking the pool and two now-unusable modules
             // would eat into what little is left after the arena.
-            net_teardown(ctlUp, netUp);
+            net_teardown(g_netCtlUp, g_netUp);
             return -4;
         }
         sceKernelDelayThread(200 * 1000); waited += 200;
@@ -213,7 +228,72 @@ int d2vita_net_init(int wait_ms) {
     }
     std::snprintf(g_status, sizeof g_status, "reseau: pret, ip %s", g_ip);
     return 0;
+}
+
+static int net_wait_thread_entry(SceSize, void*) {
+    g_netWaitResult = net_wait_and_resolve(g_netWaitMs);
+    return 0;
+}
+#endif // __vita__
+
+int d2vita_net_start(int wait_ms) {
+#ifndef __vita__
+    (void)wait_ms;
+    std::snprintf(g_status, sizeof g_status, "reseau: hote POSIX, rien a initialiser");
+    return 0;
+#else
+    int rc = net_bringup();
+    if (rc != 0) { g_netWaitResult = rc; return rc; }
+    // Logged BEFORE the wait: it can run the full wait_ms in the
+    // background, the screen isn't initialized yet at this point, and a
+    // silent multi-second wait is indistinguishable from a hang.
+    {
+        char m[96];
+        std::snprintf(m, sizeof m, "reseau: attente de la connexion (jusqu'a %d ms)", wait_ms);
+        wx86_vita_progress_c(m);
+    }
+    g_netWaitMs = wait_ms;
+    g_netWaitResult = 1;   // sentinel "in progress" while the thread runs
+    g_netWaitThread = sceKernelCreateThread("d2vita_netwait", net_wait_thread_entry,
+                                             0x10000100, 0x4000, 0, 0, nullptr);
+    if (g_netWaitThread < 0) {
+        // Can't overlap it -- fall back to doing it inline, same as the old
+        // single-function behavior.
+        g_netWaitThread = -1;
+        g_netWaitResult = net_wait_and_resolve(wait_ms);
+        return g_netWaitResult;
+    }
+    if (sceKernelStartThread(g_netWaitThread, 0, nullptr) < 0) {
+        // The thread was created but won't run: don't leave it dormant (a
+        // later join would block or error and return the "in progress"
+        // sentinel). Delete it and do the wait inline, same fallback as a
+        // failed create above.
+        sceKernelDeleteThread(g_netWaitThread);
+        g_netWaitThread = -1;
+        g_netWaitResult = net_wait_and_resolve(wait_ms);
+        return g_netWaitResult;
+    }
+    return 0;
 #endif
+}
+
+int d2vita_net_join(void) {
+#ifndef __vita__
+    return 0;
+#else
+    if (g_netWaitThread >= 0) {
+        sceKernelWaitThreadEnd(g_netWaitThread, nullptr, nullptr);
+        sceKernelDeleteThread(g_netWaitThread);
+        g_netWaitThread = -1;
+    }
+    return g_netWaitResult;
+#endif
+}
+
+int d2vita_net_init(int wait_ms) {
+    int rc = d2vita_net_start(wait_ms);
+    if (rc != 0) return rc;
+    return d2vita_net_join();
 }
 
 // d2vita_net_set_nonblock / d2vita_net_resolve are generic (no D2-specific

@@ -1340,30 +1340,54 @@ const char* d2vita_platform_init() {
       long long u=d2vita_wall_unix();
       char m[120]; snprintf(m,sizeof m,"rtc: rc=0x%08x tick=%llu unix=%lld",rc,(unsigned long long)t.tick,u);
       d2vita_progress(m); }
-    // Network init happens BEFORE main() claims the arena: Sony's network
-    // stack needs its own memory block, and the user budget is already
-    // almost entirely consumed by the arena (297 MB out of ~330). Doing it
-    // the other way around fails silently. make_cpu_box86() runs after this
-    // point, so the ordering holds as long as this call stays here.
+    // Network bring-up happens BEFORE main() claims the arena: Sony's
+    // network stack needs its own memory block, and the user budget is
+    // already almost entirely consumed by the arena (297 MB out of ~330).
+    // Doing it the other way around fails silently. make_cpu_box86() runs
+    // after this point, so the ordering holds as long as this call stays
+    // here. The CONNECTION WAIT itself no longer blocks here though: it used
+    // to run serially before any of arena/DllMain/Authenticode/GXM setup,
+    // adding up to its full timeout on top of a screen that was already
+    // black for none of its own reasons. It now continues on a background
+    // thread (d2vita_net_start) and is only joined later, in rt_boot's
+    // main(), right before D2NET_FAILED is actually consulted -- by then
+    // several seconds of that other setup have usually already covered it.
     if (getenv("D2NET")) {
-        int nr = d2vita_net_init(15000);
-        d2vita_progress(d2vita_net_status());
-        if (nr != 0) {
-            // Clean failure: the network stack is torn down and its block
-            // freed. D2NET_FAILED is read by rt_boot right before arming
-            // g_netOn: stack down means sockets stay offline, the game shows
-            // its own connection-failed message, and solo play is unaffected.
-            char m[64]; snprintf(m, sizeof m, "reseau: init KO (code %d) -> hors-ligne", nr);
-            d2vita_progress(m);
-            setenv("D2NET_FAILED", "1", 1);
-        } else if (getenv("D2NETTEST")) {
-            char hp[96]; snprintf(hp, sizeof hp, "%s", getenv("D2NETTEST"));
-            char* col = strchr(hp, ':');
-            int port = col ? atoi(col + 1) : 6112;
-            if (col) *col = 0;
-            int f = d2vita_net_selftest(hp, port);
-            char m[64]; snprintf(m, sizeof m, "nettest: %d echec(s)", f);
-            d2vita_progress(m);
+        if (getenv("D2NETTEST")) {
+            // Diagnostic knob: wants an immediate, synchronous verdict to
+            // test against, not the overlapped background wait -- keep it
+            // simple and blocking, like before.
+            int nr = d2vita_net_init(5000);
+            d2vita_progress(d2vita_net_status());
+            if (nr != 0) {
+                char m[64]; snprintf(m, sizeof m, "reseau: init KO (code %d) -> hors-ligne", nr);
+                d2vita_progress(m);
+                setenv("D2NET_FAILED", "1", 1);
+            } else {
+                char hp[96]; snprintf(hp, sizeof hp, "%s", getenv("D2NETTEST"));
+                char* col = strchr(hp, ':');
+                int port = col ? atoi(col + 1) : 6112;
+                if (col) *col = 0;
+                int f = d2vita_net_selftest(hp, port);
+                char m[64]; snprintf(m, sizeof m, "nettest: %d echec(s)", f);
+                d2vita_progress(m);
+            }
+        } else {
+            int nr = d2vita_net_start(5000);
+            if (nr != 0) {
+                // Only the synchronous bring-up (module/pool/NetInit/
+                // CtlInit) can fail here -- same clean-failure handling as
+                // before. D2NET_FAILED is read by rt_boot right before
+                // arming g_netOn: stack down means sockets stay offline,
+                // the game shows its own connection-failed message, and
+                // solo play is unaffected.
+                d2vita_progress(d2vita_net_status());
+                char m[64]; snprintf(m, sizeof m, "reseau: init KO (code %d) -> hors-ligne", nr);
+                d2vita_progress(m);
+                setenv("D2NET_FAILED", "1", 1);
+            }
+            // else: bring-up ok, connection wait now running in the
+            // background -- joined later in rt_boot.cpp's main().
         }
     }
     d2vita_progress("platform_init: config baked, present ready");

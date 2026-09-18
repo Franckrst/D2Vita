@@ -391,6 +391,17 @@ void d2cr_after_present() {
         }
         g_net_started_by_us = true;
         d2vita_progress("crashreport: reseau lance pour le(s) rapport(s) (D2NET n'etait pas demande)");
+    } else if (getenv("D2NET_FAILED") || d2vita_net_join() != 0) {
+        // D2NET is set (the default): platform_init brought the game's stack
+        // up and left the connection wait running on a background thread.
+        // Join it here, before the upload thread touches the stack. If it
+        // never connected — or bring-up itself failed (D2NET_FAILED) — that
+        // wait thread has already torn the stack down and freed its pool, so
+        // opening a socket on it now would be a use-after-free. Bail; the
+        // reports stay pending for a future boot that gets online. (rt_boot's
+        // later join is idempotent and returns the same cached result.)
+        d2vita_progress("crashreport: reseau indisponible — rapport(s) restent en attente");
+        return;
     }
     g_net = make_vita_net();
     if (!g_net) { d2vita_progress("crashreport: NetApi indisponible — rapport(s) restent en attente"); return; }
