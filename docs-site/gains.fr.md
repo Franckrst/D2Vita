@@ -66,12 +66,37 @@ l'utilisateur) — c'est la combinaison de tous les leviers confirmés
 ci-dessus :
 
 ```
-D2SCHED=native D2_SELECTBLOCK=1 NATIVECELLLOOP=1 D2_CALLRET=1
-D2_NOPUMPWAIT=1 D2_LAZYSEEK=1
-D2_CELLOPT=63 D2_MMUSTACK=3 D2_MMUFOLD=1 D2_BUDGETTAIL=1 D2_CSINTRIN=1 WX86_B5=1
-D2ARGS=game.exe -3dfx  D2_GLIDERING=1 D2_GLIDEGXM=1 D2_GXMASYNC=2 D2_GXMCLEAR=plat
-WX86_YIELD=2  D2_ONEDRAW=2  D2_REPLAY60=1
+D2SCHED=native
+D2WRITE=ux0:data/d2vita/save2
+NATIVECELLLOOP=1
+D2_CALLRET=1
+D2_LAZYSEEK=1
+WX86_FRAMEPROF=1
+D2_FRAMEUS=1
+D2_CELLOPT=63
+D2_MMUSTACK=3
+D2_MMUFOLD=1
+D2_BUDGETTAIL=1
+D2_CSINTRIN=1
+WX86_B5=1
+D2ARGS=game.exe -3dfx
+D2_GLIDERING=1
+D2_GLIDEGXM=1
+D2_GXMASYNC=1
+D2_GXMCLEAR=plat
+D2_GXMRING=4
+WX86_YIELD=2
+D2_ONEDRAW=1
+D2_IOSTAT=1
+D2_READAHEAD=128
+D2_READAHEAD_MIN=32
+D2_READAHEAD_JUMP=8
+D2_READAHEAD_WIN=8
+D2_READAHEAD_WINKB=32
+D2_SON=1
 ```
 
-(`D2_NOCAP` n'y figure pas — c'est un outil de banc qui débraye les
-limiteurs d'images internes du jeu, pas un réglage à garder en jeu réel.)
+(tenu à jour avec `tools/bancs/env_jeu_glide.txt`, la source de vérité — ce
+bloc n'en est qu'une copie. `D2_NOCAP` n'y figure pas volontairement — c'est
+un outil de banc qui débraye les limiteurs d'images internes du jeu, pas un
+réglage à garder en jeu réel.)

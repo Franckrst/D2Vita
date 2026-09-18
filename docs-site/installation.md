@@ -82,7 +82,9 @@ alongside the MPQs (`ux0:data/d2vita/env.txt`), one variable per line. The
 chosen game configuration is documented in [Native ports and measured
 gains](gains.md#chosen-game-configuration) — `tools/bancs/env_jeu_glide.txt`
 is its reference version, to be copied as-is for normal play (not a
-measurement bench).
+measurement bench). It includes `D2_SON=1`, which turns on sound
+(DirectSound, natively-ported Storm codecs) — without it the runtime
+presents itself as a machine with no sound card and stays silent.
 
 The **play** environment (perf/config) and the **diagnostic** environment
 (`D2_INPUTLOG`, profiling probes, etc.) are kept separate — don't enable the
