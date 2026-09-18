@@ -527,6 +527,7 @@ UploadStats Uploader::run() {
         ++stats_.considered;
         const ReportOutcome o = send_report(id);
         stats_.last = o;
+        if (env_.on_report) env_.on_report(env_.ud, id.c_str(), (int)o, detail_.c_str());
         if (o == ReportOutcome::Skipped) ++stats_.skipped;
         if (o == ReportOutcome::Gated || o == ReportOutcome::Stopped) break;
         // A name that does not resolve or a connection that cannot be opened:

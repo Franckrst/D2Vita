@@ -66,6 +66,12 @@ struct UploadEnv {
   int64_t (*now_unix)(void* ud) = nullptr;                      // wall clock, seconds
   bool (*random_bytes)(uint8_t* out, size_t n, void* ud) = nullptr;   // sealing entropy
   bool (*should_stop)(void* ud) = nullptr;                      // teardown asked
+  // Optional: called once per report with its outcome and the reason string
+  // (why it ended that way). Lets the host surface per-report progress — above
+  // all the REASON a report did not upload — instead of only the aggregate
+  // counts, which never say why a crash's own logs failed to reach the
+  // maintainer. `outcome` is a ReportOutcome. Null = no per-report reporting.
+  void (*on_report)(void* ud, const char* id, int outcome, const char* detail) = nullptr;
   void* ud = nullptr;
 };
 

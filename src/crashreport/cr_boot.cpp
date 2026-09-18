@@ -219,6 +219,19 @@ int64_t vita_now_unix_cb(void*) { return d2vita_wall_unix(); }
 bool vita_random_cb(uint8_t* out, size_t n, void* ud) { (void)ud; return random_bytes(out, n); }
 bool vita_should_stop_cb(void*) { return g_upload_stop; }
 
+// Per-report line in boot_progress: outcome + the REASON. The end-of-run
+// summary only gives counts ("0 sent, 1 failed") and never says why a report
+// did not upload — which is exactly the missing piece when a crash's own logs
+// never reach the maintainer (a leased-but-never-stored sample, consent not
+// granted, a piece over max_bytes, an HTTP error, ...).
+void vita_on_report_cb(void*, const char* id, int outcome, const char* detail) {
+    char m[224];
+    std::snprintf(m, sizeof m, "crashreport: %.8s -> %s%s%s",
+                  id ? id : "?", report_outcome_name((ReportOutcome)outcome),
+                  (detail && *detail) ? " : " : "", (detail && *detail) ? detail : "");
+    d2vita_progress(m);
+}
+
 // Ed25519 public key that verifies API responses, and the X25519 public key
 // that pieces are sealed for (spec §4.7/§4.8: both built into the eboot).
 // Neither is secret — a public key is meant to be distributed, that is the
@@ -263,6 +276,7 @@ int upload_thread_entry(SceSize, void*) {
     env.now_unix = vita_now_unix_cb;
     env.random_bytes = vita_random_cb;
     env.should_stop = vita_should_stop_cb;
+    env.on_report = vita_on_report_cb;
 
     Uploader up(*g_io, *g_net, *g_outbox, cfg, keys, env);
     g_last_upload_stats = up.run();
@@ -459,7 +473,14 @@ void d2cr_shutdown() {
     // cr_http.h's own default (10 s) rather than being overridden here —
     // tightening it to the shutdown path's own real needs is a follow-up
     // worth doing, not done blind here.
-    constexpr int kPollMs = 20, kMaxPolls = 600;   // 12 s ceiling
+    // 20 s ceiling (was 12): a frame-0 crash shows nothing, so the player
+    // relaunches almost at once — the upload thread must be given enough of a
+    // window here to finish sending the ONE sample (boot_progress can be a few
+    // hundred KB, sealed, over a slow/real Wi-Fi link) before the process
+    // exits and takes the thread down. The general Sleep-slicing above still
+    // bounds every network call, so this only lengthens how long we wait for a
+    // transfer that is actually making progress, not a hang.
+    constexpr int kPollMs = 20, kMaxPolls = 1000;   // 20 s ceiling
     bool alive = true;
     for (int i = 0; i < kMaxPolls; ++i) {
         SceKernelThreadInfo ti; std::memset(&ti, 0, sizeof ti); ti.size = sizeof ti;
