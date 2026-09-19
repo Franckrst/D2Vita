@@ -424,7 +424,7 @@ Toujours dans `worldTick`, juste après la ligne
     // ---- Alt held: browse ground items (D-pad = cursor, Croix = pick up) ----
     if (alt_) {
         int fromIdx = findId(u, n, lootCursorId_);
-        if (fromIdx < 0) { fromIdx = nearest_item(u, n, v); lootCursorId_ = fromIdx >= 0 ? u[fromIdx].id : 0; }
+        if (fromIdx < 0 && !interact_) { fromIdx = nearest_item(u, n, v); lootCursorId_ = fromIdx >= 0 ? u[fromIdx].id : 0; }
         if (fromIdx >= 0 && !interact_) {
             static const Dir kDirs[4] = { D_UP, D_LEFT, D_DOWN, D_RIGHT };   // matches kDpadBits order
             for (int i = 0; i < 4; ++i) if (down & kDpadBits[i]) {
@@ -452,9 +452,31 @@ Toujours dans `worldTick`, juste après la ligne
         if (fromIdx >= 0) { lootTgt_.has = true; lootTgt_.id = u[fromIdx].id; lootTgt_.sx = u[fromIdx].sx; lootTgt_.sy = u[fromIdx].sy; }
     } else {
         lootTgt_ = Target{};
+        lootCursorId_ = 0;   // fresh entry next time always re-derives nearest-to-player (spec §3.2/§3.7)
         if (lootConfirm_ && interact_) { out.push(A_LUP, cx_, cy_); interact_ = false; lootConfirm_ = false; interId_ = 0; }
     }
 ```
+
+> **Mise à jour post-relecture (commit `dec0090`, après une revue qualité qui a trouvé
+> deux vrais problèmes dans le Step 9 ci-dessus tel qu'écrit initialement — ce texte
+> reflète maintenant le code réellement livré, pas la version d'origine) :**
+> 1. Le repli de réacquisition (`if (fromIdx < 0) {...}`) n'était PAS protégé par
+>    `!interact_`, contrairement à la navigation D-pad juste en dessous. Quand l'objet
+>    en cours de ramassage disparaît (cas normal peu après un clic réussi, pendant que
+>    Croix est encore physiquement maintenu), le curseur affiché dérivait silencieusement
+>    vers un autre objet alors que le clic réel restait correctement ancré sur `interId_`.
+>    Corrigé ci-dessus par `&& !interact_`.
+> 2. `lootCursorId_` n'était jamais remis à zéro à la fin normale d'Alt (seulement via
+>    `releaseAll` lors d'un changement de mode), donc rentrer à nouveau dans Alt avec le
+>    même objet encore visible reprenait silencieusement l'ancienne sélection au lieu de
+>    redériver « le plus proche du personnage » (spec §3.2). Corrigé ci-dessus par
+>    `lootCursorId_ = 0;` dans la branche `else`.
+>
+> Le scénario du point 1 (objet ramassé qui disparaît pendant que Croix est encore
+> maintenu) n'a toujours **aucun test de non-régression** — la relecture qualité l'a
+> signalé comme point important à traiter avant ou pendant la Task 3, puisque c'est
+> exactement le moment où une régression silencieuse deviendrait visible à l'écran
+> (le repère cyan du curseur de butin).
 
 - [ ] **Step 10 : Rendre le stick gauche inerte pendant Alt (spec §3.6)**
 
