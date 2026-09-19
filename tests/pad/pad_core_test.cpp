@@ -150,7 +150,6 @@ static pad::Unit mkItem(uint32_t id, int sx, int sy) {
 }
 
 static void test_nav_direction() {
-    pad::View v = mkView();
     // "plus" layout centered on Z (400,300): one item per cardinal direction,
     // all at distance 100 so no direction's pick is ambiguous with another.
     pad::Unit u[6] = {
