@@ -15,6 +15,7 @@
 #include "runtime/guest_thread.h"
 #include "runtime/sched_cooperative.h"
 #include "runtime/rt_host.h"
+#include "runtime/pad_state.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -385,8 +386,9 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
     //   (d) D2_RINGPHASE_X=<rva,...> (8 max) and D2_REPLAY60_UI=<rva>: PHASE
     //       {rva, 1|0} on entry/exit — the per-function draw/vertex inventory
     //       (the "ringtag:" line) used to locate the UI boundary.
-    if(r60Tag && g_114 && g_d2base){
-        g_r60TagOn=true;
+    const bool padOn = padst::on();
+    if((r60Tag || padOn) && g_114 && g_d2base){
+        g_r60TagOn = r60Tag;      // the ring consumer; padOn is the second consumer of the same hooks
         // D2_GLIDERING is now a permanent default (rt_boot.cpp) — no env
         // lookup here; only D2_GLIDEGXM (grgx_on) is still a real condition.
         g_r60Active = d2gr::Replay60::on() && grgx_on();
@@ -410,35 +412,62 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
             br.register_shim("native.hook","r60_unit_exit",x);
             s_unitExit=br.shim_trap("native.hook","r60_unit_exit");
             Shim e; e.argc=0; e.stdcall_cleanup=false; e.tag="native!r60_unit";
-            e.fn=[&br](Cpu&c)->uint32_t{
+            e.fn=[&br,padOn](Cpu&c)->uint32_t{
                 const uint32_t u=c.reg(R_ECX);
                 uint32_t w[7]={0,0,0,0,0,0,0};
                 if(u){
                     const uint32_t type=c.read_u32(u), id=c.read_u32(u+0xc), mode=c.read_u32(u+0x10), path=c.read_u32(u+0x2c);
                     int32_t x=0,y=0; uint32_t r8=0,rc=0;
                     if(path){
-                        // STATIC path (objects, items, tiles): the two words GetUnitX/Y reads,
-                        // kept RAW (not 16.16: only used for matching, these units don't move)
+                        // STATIC path (objects, items, tiles): GetUnitX/Y read [+4]/[+8]
+                        // (0x620697); DYNAMIC: [+8]/[+0xC] (0x6489c0/0x6489d0). Both 16.16.
                         if(type==2||type==4||type==5){ x=(int32_t)c.read_u32(path+4); y=(int32_t)c.read_u32(path+8); }
                         else { x=(int32_t)c.read_u32(path); y=(int32_t)c.read_u32(path+4); r8=c.read_u32(path+8); rc=c.read_u32(path+0xc); } }
-                    w[0]=id; w[1]=type; w[2]=(uint32_t)x; w[3]=(uint32_t)y; w[4]=mode; w[5]=r8; w[6]=rc; }
-                gr_emit(c,D2GR_OP_UNITTAG,w,7);
+                    w[0]=id; w[1]=type; w[2]=(uint32_t)x; w[3]=(uint32_t)y; w[4]=mode; w[5]=r8; w[6]=rc;
+                    if(padOn){
+                        padst::Unit pu; std::memset(&pu,0,sizeof pu);
+                        pu.id=id; pu.type=type; pu.mode=mode; pu.cls=c.read_u32(u+4);
+                        if(type==2||type==4||type==5){ pu.fx=x; pu.fy=y; } else { pu.fx=(int32_t)r8; pu.fy=(int32_t)rc; }
+                        if(type==1){
+                            pu.ownerType=c.read_u32(u+0x94); pu.ownerId=c.read_u32(u+0x98);
+                            const uint32_t md=c.read_u32(u+0x14);
+                            if(md) pu.monFlags=(c.read_u32(md+0x14)>>16)&0xffu;   // byte at MonsterData+0x16
+                        }
+                        padst::add_unit(pu);
+                    }
+                }
+                if(g_r60TagOn) gr_emit(c,D2GR_OP_UNITTAG,w,7);
                 const uint32_t E=c.reg(R_ESP);
-                if(!s_unit.busy){ s_unit.busy=true; s_unit.ret=c.read_u32(E); s_unit.id=w[0]; c.write_u32(E,s_unitExit); }
-                else ++g_r60Reent;
+                if(g_r60TagOn){
+                    if(!s_unit.busy){ s_unit.busy=true; s_unit.ret=c.read_u32(E); s_unit.id=w[0]; c.write_u32(E,s_unitExit); }
+                    else ++g_r60Reent;
+                }
                 c.write_u32(E-4,c.reg(R_EBP)); c.set_reg(R_ESP,E-8); br.redirect_next(s_unitEntry+1);   // faithful fallback: push ebp
                 return c.reg(R_EAX); };
             br.register_shim("native.hook","r60_unit",e);
             cpu->set_alternate(s_unitEntry,br.shim_trap("native.hook","r60_unit"));
             // (b) camera: read on EXIT (globals have just been set)
             Shim cx; cx.argc=0; cx.stdcall_cleanup=false; cx.tag="native!r60_cam_exit";
-            cx.fn=[&br](Cpu&c)->uint32_t{
+            cx.fn=[&br,padOn](Cpu&c)->uint32_t{
                 uint32_t w[5]={0,0,0,0,0};
                 w[0]=c.read_u32(g_d2base+0x003a520cu); w[1]=c.read_u32(g_d2base+0x003a5208u);
                 const uint32_t pl=c.read_u32(g_d2base+0x003a6a70u);
-                if(pl){ w[2]=c.read_u32(pl+0xc); const uint32_t path=c.read_u32(pl+0x2c);
+                uint32_t path=0;
+                if(pl){ w[2]=c.read_u32(pl+0xc); path=c.read_u32(pl+0x2c);
                         if(path){ w[3]=c.read_u32(path); w[4]=c.read_u32(path+4); } }
-                gr_emit(c,D2GR_OP_CAMERA,w,5);
+                if(g_r60TagOn) gr_emit(c,D2GR_OP_CAMERA,w,5);
+                if(padOn){
+                    uint32_t ui[38]; for(int i=0;i<38;i++) ui[i]=c.read_u32(g_d2base+0x003a27c0u+4u*(uint32_t)i);
+                    uint32_t lvl=0; int32_t pfx=0,pfy=0;
+                    if(pl && path){
+                        pfx=(int32_t)c.read_u32(path+8); pfy=(int32_t)c.read_u32(path+0xc);     // same source as the units
+                        const uint32_t r1=c.read_u32(path+0x1c);
+                        if(r1){ const uint32_t r2=c.read_u32(r1+0x10);
+                            if(r2){ const uint32_t lv=c.read_u32(r2+0x58); if(lv) lvl=c.read_u32(lv+0x1f8); } } }
+                    padst::frame_begin(w[2], pfx, pfy, (int32_t)w[0], (int32_t)w[1], lvl,
+                                       c.read_u32(g_d2base+0x003a6a94u), c.read_u32(g_d2base+0x003a6a78u),
+                                       c.read_u32(g_d2base+0x003a6a8cu), ui);
+                }
                 const uint32_t ret=s_cam.ret; s_cam.busy=false;
                 c.set_reg(R_ESP,c.reg(R_ESP)-4); br.redirect_next(ret); return c.reg(R_EAX); };
             br.register_shim("native.hook","r60_cam_exit",cx);
@@ -451,8 +480,8 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
                 return c.reg(R_EAX); };
             br.register_shim("native.hook","r60_cam",ce);
             cpu->set_alternate(s_camEntry,br.shim_trap("native.hook","r60_cam"));
-            jpline("ringtag: crochets poses — unite Game+0xdc7b0 (ECX=UnitAny*), camera Game+0x5b440, pas Game+0x12fd90 ; rejeu=%s ui=Game+0x%x",
-                   g_r60Active?"ACTIF":"non",(unsigned)g_r60UiRva);
+            jpline("ringtag: crochets poses — unite Game+0xdc7b0 (ECX=UnitAny*), camera Game+0x5b440, pas Game+0x12fd90 ; rejeu=%s ui=Game+0x%x ; pad=%s",
+                   g_r60Active?"ACTIF":"non",(unsigned)g_r60UiRva, padOn?"oui":"non");
             }
         }
         // (d) phases: D2_RINGPHASE_X + the UI boundary
