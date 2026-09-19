@@ -92,6 +92,17 @@ bool orbit_point(const View& v, const Ctl& c, const Config& cfg, const Unit* u, 
 // fbx/fby when idle), rangeMin..rangeMax subtiles by tilt, clamped on screen.
 void ground_point(const View& v, const Ctl& c, const Config& cfg, float fbx, float fby, int* px, int* py);
 
+// Directional focus navigation among on-screen ground items (type==4 only,
+// matching Alt's own item-only scope — objects/NPCs stay L-only). Returns
+// the index in `u` of the nearest item to u[fromIdx] in screen direction
+// `d`, or -1 if none qualifies. Non-item units in `u` are never candidates.
+enum Dir { D_UP, D_DOWN, D_LEFT, D_RIGHT };
+int nav_direction(const Unit* u, int n, int fromIdx, Dir d);
+// Nearest on-screen item (type==4) to the player, no distance cap (unlike
+// pick_interact's 220px pass — Alt already shows everything on screen).
+// Returns -1 if none.
+int nearest_item(const Unit* u, int n, const View& v);
+
 // The scheme itself: one tick per controller sample (30 Hz). Emits the Win32
 // actions the glue injects, in order. Modes: WORLD (in game, no panel), PANEL
 // (in game, a panel open). Out of game the glue does not call tick(); it

@@ -145,6 +145,70 @@ static void test_ground_point() {
     CHECK(px == 400 && py > 300 && py < 300 + 12 * cfg.rangeMin + 2);
 }
 
+static pad::Unit mkItem(uint32_t id, int sx, int sy) {
+    pad::Unit u; u.id = id; u.type = 4; u.sx = sx; u.sy = sy; u.interact = true; return u;
+}
+
+static void test_nav_direction() {
+    pad::View v = mkView();
+    // "plus" layout centered on Z (400,300): one item per cardinal direction,
+    // all at distance 100 so no direction's pick is ambiguous with another.
+    pad::Unit u[6] = {
+        mkItem(20, 400, 300),   // Z: the cursor start
+        mkItem(21, 500, 300),   // right of Z, dist 100
+        mkItem(23, 300, 300),   // left of Z, dist 100
+        mkItem(24, 400, 200),   // above Z, dist 100
+        mkItem(25, 400, 400),   // below Z, dist 100
+    };
+    CHECK(pad::nav_direction(u, 5, 0, pad::D_RIGHT) == 1);
+    CHECK(pad::nav_direction(u, 5, 0, pad::D_LEFT)  == 2);
+    CHECK(pad::nav_direction(u, 5, 0, pad::D_UP)    == 3);
+    CHECK(pad::nav_direction(u, 5, 0, pad::D_DOWN)  == 4);
+
+    // no candidate in a direction: cursor does not move (returns -1)
+    pad::Unit only[2] = { mkItem(30, 400, 300), mkItem(31, 500, 300) };
+    CHECK(pad::nav_direction(only, 2, 0, pad::D_LEFT) == -1);
+    CHECK(pad::nav_direction(only, 2, 0, pad::D_UP)   == -1);
+    CHECK(pad::nav_direction(only, 1, 0, pad::D_RIGHT) == -1);   // single item: no candidates at all
+
+    // non-item units are never candidates, even when nearer than the real item
+    pad::Unit withMon[3] = { mkItem(40, 400, 300), mkItem(41, 500, 300) };
+    withMon[2] = mkItem(42, 450, 300); withMon[2].type = 1; withMon[2].mode = 1; withMon[2].hostile = true;
+    CHECK(pad::nav_direction(withMon, 3, 0, pad::D_RIGHT) == 1);   // finds item 41, not the closer monster
+
+    // a target at exactly 45 degrees qualifies for BOTH adjacent directions
+    // (both tests use an inclusive >=), with nothing else around to compete
+    pad::Unit diag[2] = { mkItem(50, 400, 300), mkItem(51, 500, 400) };
+    CHECK(pad::nav_direction(diag, 2, 0, pad::D_RIGHT) == 1);
+    CHECK(pad::nav_direction(diag, 2, 0, pad::D_DOWN)  == 1);
+
+    // tie in distance: lower id wins, regardless of array order
+    pad::Unit tie[3] = { mkItem(60, 400, 300), mkItem(41, 500, 250), mkItem(40, 500, 350) };
+    CHECK(pad::nav_direction(tie, 3, 0, pad::D_RIGHT) == 2);   // index 2 = id 40, the lower id
+}
+
+static void test_nearest_item() {
+    pad::View v = mkView();   // player projects to (400,300)
+    pad::Unit u[3] = { mkItem(70, 450, 350), mkItem(71, 400, 250) };
+    // dist(70) = sqrt(50^2+50^2) ~= 70.7 ; dist(71) = 50 -> 71 is nearest
+    CHECK(pad::nearest_item(u, 2, v) == 1);
+
+    // no cap: an item far outside L's 220px catchment is still found when it's
+    // the only one present
+    pad::Unit far[1] = { mkItem(72, 400, 900) };
+    CHECK(pad::nearest_item(far, 1, v) == 0);
+
+    // non-item units are ignored
+    pad::Unit withMon[2]; withMon[0] = mkItem(73, 500, 500);
+    withMon[1].id = 74; withMon[1].type = 1; withMon[1].sx = 401; withMon[1].sy = 301; withMon[1].mode = 1;
+    CHECK(pad::nearest_item(withMon, 2, v) == 0);
+
+    // no items at all
+    pad::Unit mon[1]; mon[0].id = 75; mon[0].type = 1; mon[0].sx = 400; mon[0].sy = 300; mon[0].mode = 1;
+    CHECK(pad::nearest_item(mon, 1, v) == -1);
+    CHECK(pad::nearest_item(nullptr, 0, v) == -1);
+}
+
 static bool hasAct(const pad::Actions& a, pad::ActKind k, int x = -1, int y = -1) {
     for (int i = 0; i < a.n; ++i) if (a.v[i].k == k && (x < 0 || a.v[i].a == x) && (y < 0 || a.v[i].b == y)) return true;
     return false;
@@ -312,6 +376,8 @@ int main() {
     test_hover_table();
     test_orbit();
     test_ground_point();
+    test_nav_direction();
+    test_nearest_item();
     test_scheme_cast();
     test_scheme_move();
     test_scheme_interact_and_keys();

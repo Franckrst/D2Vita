@@ -153,6 +153,40 @@ void ground_point(const View& v, const Ctl& c, const Config& cfg, float fbx, flo
     clamp_point(v, cfg, px, py);
 }
 
+int nav_direction(const Unit* u, int n, int fromIdx, Dir d) {
+    if (!u || fromIdx < 0 || fromIdx >= n) return -1;
+    const Unit& from = u[fromIdx];
+    int best = -1; float bd = 0.f;
+    for (int i = 0; i < n; ++i) {
+        if (i == fromIdx || u[i].type != 4) continue;
+        const float dx = (float)(u[i].sx - from.sx), dy = (float)(u[i].sy - from.sy);
+        bool ok = false;
+        switch (d) {
+            case D_RIGHT: ok = dx > 0.f && std::fabs(dx) >= std::fabs(dy); break;
+            case D_LEFT:  ok = dx < 0.f && std::fabs(dx) >= std::fabs(dy); break;
+            case D_DOWN:  ok = dy > 0.f && std::fabs(dy) >= std::fabs(dx); break;
+            case D_UP:    ok = dy < 0.f && std::fabs(dy) >= std::fabs(dx); break;
+        }
+        if (!ok) continue;
+        const float dist = std::sqrt(dx * dx + dy * dy);
+        if (best < 0 || dist < bd || (dist == bd && u[i].id < u[best].id)) { best = i; bd = dist; }
+    }
+    return best;
+}
+
+int nearest_item(const Unit* u, int n, const View& v) {
+    if (!u) return -1;
+    int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
+    int best = -1; float bd = 0.f;
+    for (int i = 0; i < n; ++i) {
+        if (u[i].type != 4) continue;
+        const float dx = (float)(u[i].sx - psx), dy = (float)(u[i].sy - psy);
+        const float dist = std::sqrt(dx * dx + dy * dy);
+        if (best < 0 || dist < bd) { best = i; bd = dist; }
+    }
+    return best;
+}
+
 // ---------------------------------------------------------------------------
 // Scheme
 // ---------------------------------------------------------------------------
