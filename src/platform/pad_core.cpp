@@ -153,4 +153,229 @@ void ground_point(const View& v, const Ctl& c, const Config& cfg, float fbx, flo
     clamp_point(v, cfg, px, py);
 }
 
+// ---------------------------------------------------------------------------
+// Scheme
+// ---------------------------------------------------------------------------
+static const uint32_t kFaceBits[4] = { B_CROSS, B_CIR, B_SQR, B_TRI };
+static const uint32_t kDpadBits[4] = { B_UP, B_LEFT, B_DOWN, B_RIGHT };   // belt 1..4, same order as the legacy table
+
+void Scheme::moveTo(int x, int y, Actions& out) {
+    if (x != cx_ || y != cy_) { cx_ = x; cy_ = y; out.push(A_MOVE, x, y); }
+}
+
+int Scheme::findId(const Unit* u, int n, uint32_t id) const {
+    if (!id) return -1;
+    for (int i = 0; i < n; ++i) if (u[i].id == id) return i;
+    return -1;
+}
+
+void Scheme::hoverPoint(const Unit& t, int h, const View& v, int* px, int* py) const {
+    *px = t.sx; *py = t.sy - h;
+    clamp_point(v, cfg_, px, py);
+}
+
+void Scheme::releaseAll(Actions& out) {
+    if (rmb_)    { out.push(A_RUP, cx_, cy_); rmb_ = false; }
+    if (lmb_)    { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+    if (alt_)    { out.push(A_KEYUP, 0x12); alt_ = false; }
+    if (shiftSq_){ out.push(A_KEYUP, 0x10); shiftSq_ = false; }
+    if (esc_)    { out.push(A_KEYUP, 0x1B); esc_ = false; }
+    if (wkey_)   { out.push(A_KEYUP, 0x57); wkey_ = false; }
+    for (Held& h : dpad_) if (h.vk) { out.push(A_KEYUP, h.vk); if (h.shift) out.push(A_KEYUP, 0x10); h = Held{}; }
+    castSlot_ = -1; castBit_ = 0; castId_ = 0; castVerified_ = false;
+    interact_ = false; interNoop_ = false; interId_ = 0; interVerified_ = false;
+    lsOn_ = false; tgt_ = Target{}; tgtId_ = 0; aimActive_ = false;
+}
+
+void Scheme::leave(Actions& out) { releaseAll(out); mode_ = M_NONE; prev_ = 0; }
+
+void Scheme::tick(const Ctl& c, const Ctx& x, const View& v, const Unit* u, int n, Actions& out) {
+    const Mode m = !x.inGame ? M_NONE : (x.panelOpen ? M_PANEL : M_WORLD);
+    if (m != mode_) { releaseAll(out); mode_ = m; }
+    const uint32_t down = c.buttons & ~prev_, up = prev_ & ~c.buttons;
+    if (mode_ == M_WORLD)      worldTick(c, x, v, u, n, down, up, out);
+    else if (mode_ == M_PANEL) panelTick(c, x, v, down, up, out);
+    prev_ = c.buttons;
+}
+
+// Start / D-pad / Alt — identical in both modes.
+void Scheme::commonButtons(const Ctl& c, uint32_t down, uint32_t up, Actions& out) {
+    const bool layer = (c.buttons & B_R) != 0;
+    if (down & B_START) {
+        if (layer) { out.push(A_KEYDOWN, 0x57); wkey_ = true; }       // W: weapon swap
+        else       { out.push(A_KEYDOWN, 0x1B); esc_ = true; }        // Escape
+    }
+    if (up & B_START) {
+        if (wkey_) { out.push(A_KEYUP, 0x57); wkey_ = false; }
+        if (esc_)  { out.push(A_KEYUP, 0x1B); esc_ = false; }
+    }
+    for (int i = 0; i < 4; ++i) {
+        if (down & kDpadBits[i]) {
+            dpad_[i].vk = 0x31 + i; dpad_[i].shift = layer;
+            if (layer) out.push(A_KEYDOWN, 0x10);                     // Shift + belt key = potion to the mercenary
+            out.push(A_KEYDOWN, 0x31 + i);
+        }
+        if ((up & kDpadBits[i]) && dpad_[i].vk) {
+            out.push(A_KEYUP, dpad_[i].vk);
+            if (dpad_[i].shift) out.push(A_KEYUP, 0x10);
+            dpad_[i] = Held{};
+        }
+    }
+    // Alt (ground item labels): R held first, then L. Ends when either goes up.
+    if ((down & B_L) && layer && !interact_ && castSlot_ < 0) { out.push(A_KEYDOWN, 0x12); alt_ = true; }
+    if (alt_ && ((up & B_L) || (up & B_R))) { out.push(A_KEYUP, 0x12); alt_ = false; }
+}
+
+void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u, int n, uint32_t down, uint32_t up, Actions& out) {
+    const bool layer = (c.buttons & B_R) != 0;
+    commonButtons(c, down, up, out);
+
+    // ---- hostile target of the moment (overlay + next cast) ----
+    int ti = -1;
+    if (cfg_.aim) { ti = pick_hostile(u, n, v, c, cfg_, findId(u, n, tgtId_)); tgtId_ = ti >= 0 ? u[ti].id : 0; }
+    {
+        const float am = std::sqrt(c.rx * c.rx + c.ry * c.ry);
+        aimActive_ = am > cfg_.deadzone;
+        if (aimActive_) ground_point(v, c, cfg_, lastDx_, lastDy_, &aimX_, &aimY_);
+    }
+
+    // ---- cast: faces = slots 1-4, R + faces = 5-8 ----
+    if (castSlot_ < 0 && !interact_) {
+        for (int i = 0; i < 4; ++i) if (down & kFaceBits[i]) {
+            castSlot_ = i + (layer ? 4 : 0); castBit_ = kFaceBits[i];
+            castAttempt_ = 0; castVerified_ = false;
+            out.push(A_KEY, 0x70 + castSlot_);                          // F1..F8 selects the right skill
+            if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }      // movement suspended while casting
+            int px, py;
+            if (ti >= 0) {
+                castId_ = u[ti].id; castType_ = u[ti].type; castCls_ = u[ti].cls;
+                castH_ = hover_.get(castType_, castCls_, cfg_.hoverH);
+                hoverPoint(u[ti], castH_, v, &px, &py);
+            } else { castId_ = 0; ground_point(v, c, cfg_, lastDx_, lastDy_, &px, &py); }
+            cx_ = px; cy_ = py; out.push(A_MOVE, px, py);              // forced move: a new cast always re-places the cursor
+            out.push(A_RDOWN, px, py); rmb_ = true;
+            break;
+        }
+    } else if (castSlot_ >= 0) {
+        if (!(c.buttons & castBit_)) {
+            out.push(A_RUP, cx_, cy_); rmb_ = false;
+            castSlot_ = -1; castBit_ = 0; castId_ = 0; castVerified_ = false;
+        } else {
+            int px = cx_, py = cy_;
+            int ci = findId(u, n, castId_);
+            if (castId_ && (ci < 0 || !u[ci].hostile)) {               // target died or left: re-pick
+                ci = cfg_.aim ? pick_hostile(u, n, v, c, cfg_, -1) : -1;
+                if (ci >= 0) {
+                    castId_ = u[ci].id; castType_ = u[ci].type; castCls_ = u[ci].cls;
+                    castAttempt_ = 0; castVerified_ = false;
+                    castH_ = hover_.get(castType_, castCls_, cfg_.hoverH);
+                } else castId_ = 0;
+            }
+            if (ci >= 0 && castId_) {
+                if (!castVerified_) {
+                    if (x.selValid && x.selId == castId_ && x.selType == castType_) {
+                        castVerified_ = true; hover_.learn(castType_, castCls_, castH_);
+                    } else if (castAttempt_ < 4) {
+                        ++castAttempt_;
+                        castH_ = HoverTable::try_seq(castAttempt_, hover_.get(castType_, castCls_, cfg_.hoverH));
+                    }
+                }
+                hoverPoint(u[ci], castH_, v, &px, &py);
+            } else ground_point(v, c, cfg_, lastDx_, lastDy_, &px, &py);
+            moveTo(px, py, out);
+        }
+    }
+    // overlay target
+    if (castSlot_ >= 0 && castId_) {
+        const int ci = findId(u, n, castId_);
+        tgt_ = Target{};
+        if (ci >= 0) { tgt_.has = true; tgt_.id = castId_; tgt_.sx = u[ci].sx; tgt_.sy = u[ci].sy; tgt_.verified = castVerified_; }
+    } else if (ti >= 0) { tgt_ = Target{}; tgt_.has = true; tgt_.id = u[ti].id; tgt_.sx = u[ti].sx; tgt_.sy = u[ti].sy; }
+    else tgt_ = Target{};
+
+    // ---- L: interact (items > objects / town NPCs > the hostile target) ----
+    if ((down & B_L) && !layer && castSlot_ < 0 && !interact_ && !alt_) {
+        int ii = pick_interact(u, n, v, cfg_);
+        if (ii < 0 && ti >= 0) ii = ti;
+        if (ii >= 0) {
+            interact_ = true; interId_ = u[ii].id; interType_ = u[ii].type; interCls_ = u[ii].cls;
+            interAttempt_ = 0; interVerified_ = false;
+            interH_ = interType_ == 4 ? 6 : hover_.get(interType_, interCls_, interType_ == 2 ? 20 : cfg_.hoverH);
+            if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+            int px, py; hoverPoint(u[ii], interH_, v, &px, &py);
+            cx_ = px; cy_ = py; out.push(A_MOVE, px, py);              // forced move, same reason as the cast
+            out.push(A_LDOWN, px, py);
+        } else interNoop_ = true;
+    } else if (interact_) {
+        if (!(c.buttons & B_L)) { out.push(A_LUP, cx_, cy_); interact_ = false; interId_ = 0; }
+        else {
+            const int ii = findId(u, n, interId_);
+            if (ii >= 0) {
+                if (!interVerified_) {
+                    if (x.selValid && x.selId == interId_ && x.selType == interType_) {
+                        interVerified_ = true;
+                        if (interType_ != 4) hover_.learn(interType_, interCls_, interH_);
+                    } else if (interAttempt_ < 4 && interType_ != 4) {
+                        ++interAttempt_;
+                        interH_ = HoverTable::try_seq(interAttempt_, hover_.get(interType_, interCls_, interType_ == 2 ? 20 : cfg_.hoverH));
+                    }
+                }
+                int px, py; hoverPoint(u[ii], interH_, v, &px, &py);
+                moveTo(px, py, out);
+            }
+        }
+    }
+    if ((up & B_L) && interNoop_) interNoop_ = false;
+
+    // ---- left stick: move-only orbit, hard stop on release ----
+    const float lm = std::sqrt(c.lx * c.lx + c.ly * c.ly);
+    const bool on = lsOn_ ? (lm > cfg_.deadzone) : (lm > cfg_.deadzone + 0.05f);
+    if (on) { lastDx_ = c.lx / lm; lastDy_ = c.ly / lm; }
+    if (castSlot_ < 0 && !interact_) {
+        if (on) {
+            int px, py; orbit_point(v, c, cfg_, u, n, &px, &py);
+            moveTo(px, py, out);
+            if (!lmb_) { out.push(A_LDOWN, px, py); lmb_ = true; }
+        } else if (lsOn_) {
+            if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+            int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
+            psy += 6; clamp_point(v, cfg_, &psx, &psy);
+            cx_ = psx; cy_ = psy; out.push(A_CLICK, psx, psy);            // click at the feet = stop
+        }
+    } else if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }        // suspended while casting / interacting
+    lsOn_ = on;
+}
+
+void Scheme::panelTick(const Ctl& c, const Ctx& x, const View& v, uint32_t down, uint32_t up, Actions& out) {
+    const bool layer = (c.buttons & B_R) != 0;
+    commonButtons(c, down, up, out);
+    // free cursor: both sticks, relative, quadratic response
+    {
+        const float sc = cfg_.sens * ((float)v.w / 800.f);
+        float dx = 0.f, dy = 0.f;
+        if (std::fabs(c.lx) > cfg_.deadzone || std::fabs(c.ly) > cfg_.deadzone) { dx += c.lx * std::fabs(c.lx) * sc; dy += c.ly * std::fabs(c.ly) * sc; }
+        if (std::fabs(c.rx) > cfg_.deadzone || std::fabs(c.ry) > cfg_.deadzone) { dx += c.rx * std::fabs(c.rx) * sc; dy += c.ry * std::fabs(c.ry) * sc; }
+        if (dx != 0.f || dy != 0.f) {
+            int px = cx_ + (int)dx, py = cy_ + (int)dy;
+            if (px < 0) px = 0; if (px > v.w - 1) px = v.w - 1;
+            if (py < 0) py = 0; if (py > v.h - 1) py = v.h - 1;
+            moveTo(px, py, out);
+        }
+    }
+    if (x.skillTree) {                                                    // faces = hotkeys on the hovered icon
+        for (int i = 0; i < 4; ++i) if (down & kFaceBits[i]) out.push(A_KEY, 0x70 + i + (layer ? 4 : 0));
+    } else {
+        if (down & B_CROSS) { out.push(A_LDOWN, cx_, cy_); lmb_ = true; }
+        if ((up & B_CROSS) && lmb_ && !(c.buttons & B_L)) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+        if (down & B_TRI) { out.push(A_RDOWN, cx_, cy_); rmb_ = true; }
+        if ((up & B_TRI) && rmb_) { out.push(A_RUP, cx_, cy_); rmb_ = false; }
+        if (down & B_SQR) { out.push(A_KEYDOWN, 0x10); shiftSq_ = true; }
+        if ((up & B_SQR) && shiftSq_) { out.push(A_KEYUP, 0x10); shiftSq_ = false; }
+        if (down & B_CIR) out.push(A_KEY, 0x1B);
+    }
+    if ((down & B_L) && !layer && !alt_) { out.push(A_LDOWN, cx_, cy_); lmb_ = true; }
+    if ((up & B_L) && lmb_ && !(c.buttons & B_CROSS)) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+    tgt_ = Target{}; aimActive_ = false;
+}
+
 } // namespace pad

@@ -92,4 +92,57 @@ bool orbit_point(const View& v, const Ctl& c, const Config& cfg, const Unit* u, 
 // fbx/fby when idle), rangeMin..rangeMax subtiles by tilt, clamped on screen.
 void ground_point(const View& v, const Ctl& c, const Config& cfg, float fbx, float fby, int* px, int* py);
 
+// The scheme itself: one tick per controller sample (30 Hz). Emits the Win32
+// actions the glue injects, in order. Modes: WORLD (in game, no panel), PANEL
+// (in game, a panel open). Out of game the glue does not call tick(); it
+// calls leave() once so everything held is released.
+class Scheme {
+public:
+    explicit Scheme(const Config& c) : cfg_(c) {}
+    void tick(const Ctl& c, const Ctx& x, const View& v, const Unit* units, int n, Actions& out);
+    void leave(Actions& out);                      // release everything, forget the mode
+    Target target() const { return tgt_; }
+    bool cursorOwned() const { return lmb_ || rmb_ || interact_; }
+    int  cx() const { return cx_; }
+    int  cy() const { return cy_; }
+    void setCursor(int x, int y) { cx_ = x; cy_ = y; }   // touch moved the cursor
+    bool aimActive() const { return aimActive_; }
+    int  aimX() const { return aimX_; }
+    int  aimY() const { return aimY_; }
+    bool casting() const { return castSlot_ >= 0; }
+
+private:
+    enum Mode { M_NONE, M_WORLD, M_PANEL };
+    struct Held { int vk = 0; bool shift = false; };
+    void moveTo(int x, int y, Actions& out);
+    void worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u, int n, uint32_t down, uint32_t up, Actions& out);
+    void panelTick(const Ctl& c, const Ctx& x, const View& v, uint32_t down, uint32_t up, Actions& out);
+    void commonButtons(const Ctl& c, uint32_t down, uint32_t up, Actions& out);
+    void releaseAll(Actions& out);
+    int  findId(const Unit* u, int n, uint32_t id) const;
+    void hoverPoint(const Unit& t, int h, const View& v, int* px, int* py) const;
+
+    Config   cfg_;
+    Mode     mode_ = M_NONE;
+    uint32_t prev_ = 0;
+    int      cx_ = 400, cy_ = 300;
+    bool     lsOn_ = false, lmb_ = false, rmb_ = false;
+    float    lastDx_ = 0.f, lastDy_ = 1.f;
+    // cast in progress
+    int      castSlot_ = -1; uint32_t castBit_ = 0;
+    uint32_t castId_ = 0, castType_ = 0, castCls_ = 0;
+    int      castAttempt_ = 0, castH_ = 0; bool castVerified_ = false;
+    // interaction in progress
+    bool     interact_ = false, interNoop_ = false;
+    uint32_t interId_ = 0, interType_ = 0, interCls_ = 0;
+    int      interAttempt_ = 0, interH_ = 0; bool interVerified_ = false;
+    // modifiers / keys held
+    bool     alt_ = false, shiftSq_ = false, esc_ = false, wkey_ = false;
+    Held     dpad_[4];
+    // overlay
+    uint32_t tgtId_ = 0; Target tgt_;
+    bool     aimActive_ = false; int aimX_ = 0, aimY_ = 0;
+    HoverTable hover_;
+};
+
 } // namespace pad

@@ -145,6 +145,165 @@ static void test_ground_point() {
     CHECK(px == 400 && py > 300 && py < 300 + 12 * cfg.rangeMin + 2);
 }
 
+static bool hasAct(const pad::Actions& a, pad::ActKind k, int x = -1, int y = -1) {
+    for (int i = 0; i < a.n; ++i) if (a.v[i].k == k && (x < 0 || a.v[i].a == x) && (y < 0 || a.v[i].b == y)) return true;
+    return false;
+}
+static int actIndex(const pad::Actions& a, pad::ActKind k) {
+    for (int i = 0; i < a.n; ++i) if (a.v[i].k == k) return i;
+    return -1;
+}
+
+static void test_scheme_cast() {
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; x.playerId = 99;
+    pad::Unit u[1] = { mkMon(5, 500, 300) };
+    pad::Ctl c; pad::Actions a;
+    s.tick(c, x, v, u, 1, a);                                   // settle, nothing pressed
+    CHECK(a.n == 0);
+    CHECK(s.target().has && s.target().id == 5 && !s.target().verified);
+    // press Cross: F1, cursor on the target (28 px above its feet), right button down
+    c.buttons = pad::B_CROSS; a = pad::Actions{};
+    s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_KEY, 0x70));
+    CHECK(hasAct(a, pad::A_MOVE, 500, 272));
+    CHECK(hasAct(a, pad::A_RDOWN, 500, 272));
+    CHECK(actIndex(a, pad::A_KEY) < actIndex(a, pad::A_RDOWN));
+    CHECK(s.casting() && s.cursorOwned());
+    // held, game does not hover it yet: second attempt height (14)
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_MOVE, 500, 286));
+    // now the game hovers it: verified, learned
+    x.selValid = 1; x.selId = 5; x.selType = 1;
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(s.target().verified);
+    // release: right button up, no more cast
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_RUP) && !s.casting());
+    // next cast of the same class starts at the learned height (14)
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_MOVE, 500, 286));
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    // R + Triangle = slot 8 (F8)
+    c.buttons = pad::B_R | pad::B_TRI; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_KEY, 0x77));
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_RUP));
+    // no hostile: ground cast along the fallback direction
+    c.buttons = pad::B_CIR; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_KEY, 0x71) && hasAct(a, pad::A_RDOWN));
+    CHECK(!s.target().has);
+}
+
+static void test_scheme_move() {
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; x.playerId = 99;
+    pad::Ctl c; pad::Actions a;
+    c.lx = 1.f; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_MOVE, 400 + cfg.orbitMax, 300));
+    CHECK(hasAct(a, pad::A_LDOWN, 400 + cfg.orbitMax, 300));
+    a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);        // held: nothing new (same point)
+    CHECK(a.n == 0);
+    c.lx = 0.f; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);   // release: LUP then stop click at the feet
+    CHECK(hasAct(a, pad::A_LUP));
+    CHECK(hasAct(a, pad::A_CLICK, 400, 306));
+    CHECK(actIndex(a, pad::A_LUP) < actIndex(a, pad::A_CLICK));
+    // moving then casting: the left button is released for the cast, re-pressed after
+    pad::Unit u[1] = { mkMon(5, 500, 300) };
+    c.lx = 1.f; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_LDOWN));
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(actIndex(a, pad::A_LUP) >= 0 && actIndex(a, pad::A_LUP) < actIndex(a, pad::A_RDOWN));
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    // spec 5.1 "reprend au relachement": release ends the cast AND resumes movement
+    // in the same tick (worldTick runs the cast section before the left-stick one).
+    CHECK(hasAct(a, pad::A_RUP) && hasAct(a, pad::A_LDOWN));
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);              // stick still pushed, point unchanged: steady state
+    CHECK(a.n == 0);
+}
+
+static void test_scheme_interact_and_keys() {
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; x.playerId = 99;
+    pad::Unit u[2] = { mkMon(5, 500, 300) };
+    u[1].id = 8; u[1].type = 4; u[1].sx = 430; u[1].sy = 310; u[1].interact = true;
+    pad::Ctl c; pad::Actions a;
+    c.buttons = pad::B_L; s.tick(c, x, v, u, 2, a);                  // L: the item wins over the monster
+    CHECK(hasAct(a, pad::A_MOVE, 430, 304) && hasAct(a, pad::A_LDOWN, 430, 304));
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    CHECK(hasAct(a, pad::A_LUP));
+    // L with nothing around and no target: no click at all
+    a = pad::Actions{}; c.buttons = pad::B_L; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(a.n == 0);
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(a.n == 0);
+    // R then L = Alt held ; released with either
+    c.buttons = pad::B_R; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_KEYDOWN, 0x12) && !hasAct(a, pad::A_LDOWN));
+    c.buttons = pad::B_L; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_KEYUP, 0x12));
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    // D-pad up = potion 1 ; R + D-pad left = Shift + potion 2 (merc)
+    c.buttons = pad::B_UP; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_KEYDOWN, 0x31));
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_KEYUP, 0x31));
+    c.buttons = pad::B_R | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_KEYDOWN, 0x10) && hasAct(a, pad::A_KEYDOWN, 0x32));
+    c.buttons = pad::B_R; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_KEYUP, 0x32) && hasAct(a, pad::A_KEYUP, 0x10));
+    // R + Start = W ; Start = Escape
+    c.buttons = pad::B_R | pad::B_START; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_KEYDOWN, 0x57));
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_KEYUP, 0x57));
+    c.buttons = pad::B_START; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_KEYDOWN, 0x1B));
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_KEYUP, 0x1B));
+}
+
+static void test_scheme_panel_and_leave() {
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; x.playerId = 99;
+    pad::Unit u[1] = { mkMon(5, 500, 300) };
+    pad::Ctl c; pad::Actions a;
+    // a cast is held when a panel opens: it is released on the mode change
+    c.buttons = pad::B_CROSS; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_RDOWN));
+    x.panelOpen = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_RUP) && !s.casting());
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    // panel: Circle = Escape ; Cross = click at the cursor ; Square = Shift held
+    s.setCursor(200, 200);
+    c.buttons = pad::B_CIR; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_KEY, 0x1B));
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_LDOWN, 200, 200));
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_LUP, 200, 200));
+    c.buttons = pad::B_SQR; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_KEYDOWN, 0x10));
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_KEYUP, 0x10));
+    // left stick moves the free cursor in a panel
+    c.lx = 1.f; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_MOVE) && s.cx() > 200);
+    c.lx = 0.f;
+    // skill tree: faces are hotkeys, not clicks
+    x.skillTree = true;
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_KEY, 0x70) && !hasAct(a, pad::A_LDOWN));
+    c.buttons = pad::B_R | pad::B_CIR; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_KEY, 0x75));
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    // leave() while a Shift is held releases it
+    c.buttons = pad::B_SQR; x.skillTree = false; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    a = pad::Actions{}; s.leave(a);
+    CHECK(hasAct(a, pad::A_KEYUP, 0x10));
+}
+
 int main() {
     test_projection();
     test_clamp_and_box();
@@ -153,6 +312,10 @@ int main() {
     test_hover_table();
     test_orbit();
     test_ground_point();
+    test_scheme_cast();
+    test_scheme_move();
+    test_scheme_interact_and_keys();
+    test_scheme_panel_and_leave();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
