@@ -46,6 +46,7 @@
 #include "runtime/path_cache.h"      // host_path() + directory index (D2_PATHCACHE)
 #include "runtime/d2ini.h"           // D2.ini reader (GetPrivateProfileStringA/IntA)
 #include "runtime/exe_identity.h"    // which Game.exe is this? (size + PE timestamp -> 1.14d or not)
+#include "runtime/alloc_site.h"      // name the guest call site of a failed allocation
 #include "runtime/pristine_audit.h"  // Warden-fidelity integrity checkers (tests #7/#8)
 #include "runtime/cell_frame_diag.h" // D2_LOOPSHAPE / D2_CAMVEC / D2_FRAMEUS diagnostics
 #include "runtime/jit_profile.h"     // D2_JITPROFILE / D2_SIGNTAG / fastmmu dynarec profiling
@@ -180,7 +181,20 @@ static void apply_compact_layout(){
     // 0x12900000 (297 MiB incl. the 16 MiB membase-rounding slack) — inside the
     // ~330 MiB real-Vita user budget (ATTRIBUTE2=12). The span above VA
     // (stacks/TIBs/trap window/D2ARENA) is byte-identical regardless of these sizes.
-    HEAP_BASE=0x00500000; HEAP_SIZE=0x01400000;   // 20 MiB  -> ends 0x01900000 (= bridge next_base_)
+    // Heap grown 20 -> ~24.9 MiB by reclaiming the low slack that sat under it
+    // (base was 0x00500000; that ~5 MiB gap below the heap served only as a
+    // null-deref guard). The heap ENDS at the module base (bridge next_base_ =
+    // HI+0x01900000 = 25 MiB from 0), so Game.exe and every region above it are
+    // byte-for-byte unmoved -- only the floor drops. 25 MiB is therefore the
+    // HARD ceiling for a heap that lives below Game.exe; a 124 KiB guard is kept
+    // under it (page 0 = main TIB, then unmapped up to HEAP_BASE), enough to
+    // still fault on a null pointer plus a normal struct offset. Motivated by a
+    // real 0.1.5 host_fault (report 01M2VHNS...) that struck right after
+    // "ALLOC FAIL region=heap" at the old 20 MiB ceiling -- the guest wanted
+    // ~24 MiB. The alloc-site log (see the fail handler) will show whether even
+    // this ceiling is hit; if so the next step is moving the module base up
+    // (which shifts the whole pack -- see bridge.cpp's synced constants).
+    HEAP_BASE=0x00020000; HEAP_SIZE=0x018E0000;   // 25472 Kio -> ends 0x01900000 (= bridge next_base_)
     // modules (bridge) 0x01900000..0x02200000 (9 MiB reserved)
     // MISC window is 9 MiB: Game.exe alone needs 8 MiB, but d2vhost (2 MiB) and
     // CheckRevision.dll (0x4b000, loaded at Battle.net connect) also live here;
@@ -224,8 +238,8 @@ static void apply_compact_layout(){
     // (the guest scratch allocator is armed later, at the mapping site, once
     // MISC_BASE/MISC_SIZE are final)
     // Compact REQUIRES the relocatable main exe. The pack above reserves the
-    // module window (0x01D00000) for it and starts the heap at HEAP_BASE
-    // (0x00500000). A non-relocated exe at its preferred base 0x00400000 (5.9 MiB
+    // module window at 0x01900000 for it and starts the heap at HEAP_BASE
+    // (0x00020000). A non-relocated exe at its preferred base 0x00400000 (5.9 MiB
     // image, ending ~0x009E0000) OVERLAPS that heap — heap allocations then
     // trample the exe's .data, corrupting an init sync flag and DEADLOCKING the
     // boot (all init threads wait on an event that never gets signaled; frames=0).
@@ -1510,6 +1524,19 @@ using KThread = WxThread;         // engine (guest_sync.h)
 // GetCurrentThreadId deliberately DISAGREE; a fully honest fix must first solve
 // the SMem pool sizing (docs/FIDELITY_TODO.md), not just write the id.
 static Cpu* g_cpu=nullptr;   // set in main() right after the Cpu is created
+// Names the guest call site of a FAILED allocation. When a HeapAlloc/VirtualAlloc
+// is refused, the size alone doesn't say which allocation drained the region;
+// scanning the live guest stack for return addresses inside Game.exe's .text
+// (the same trick exit_chain() uses for ExitProcess) attributes it. The pure
+// formatting half is unit-tested in src/runtime/alloc_site.cpp; here we only
+// snapshot the stack. Bounds [g_d2base+0x1000, g_d2base+0x2cb5a1) match
+// exit_chain's .text window.
+static std::string alloc_fail_site(){
+    if(!g_cpu || !g_d2base) return std::string();
+    uint32_t esp=g_cpu->reg(R_ESP), buf[512];
+    for(int i=0;i<512;i++) buf[i]=g_cpu->read_u32(esp+(uint32_t)i*4);
+    return d2diag::format_guest_chain(buf,512,g_d2base,g_d2base+0x1000,g_d2base+0x2cb5a1,8);
+}
 // CS state lives in C++ (owner/count), INVISIBLE to the guest. This was tried
 // guest-backed (writing OwningThread/RecursionCount into the real structure)
 // and REVERTED: with visible state the level load livelocks — Blizzard code
@@ -2724,8 +2751,18 @@ int main(int argc,char**argv){
             f.name, f.base, f.want, f.used>>20, f.largest>>20);
         d2_crashlog("ALLOC FAIL region=%s req=%u KB used=%u KB peak=%u KB largest-free=%u KB",
             f.name, f.want>>10, f.used>>10, f.peak>>10, f.largest>>10);
+        // Name WHO asked: without the guest call chain the size says the region
+        // ran out but not which allocation did it. Runs only on the (rare) fail
+        // path, so the 512-slot stack scan is free in the common case.
+        const std::string site=alloc_fail_site();
+        if(!site.empty()) d2_crashlog("ALLOC FAIL site: %s", site.c_str());
     });
     g_heapA.init(HEAP_BASE+0x1000, HEAP_SIZE-0x1000, 16, "heap");
+    // Record the heap ceiling in every boot log: OOM triage needs to know how
+    // much room this build actually gave the guest (compact packs it tight).
+    // Kio, not Mio: the span isn't a whole number of MiB and >>20 would hide it.
+    d2_crashlog("heap invite: base=0x%08x fin=0x%08x taille=%u Kio",
+        HEAP_BASE, HEAP_BASE+HEAP_SIZE, HEAP_SIZE>>10);
     // FIDELITY (root cause of the Halt 904/1420/253/124/607 family): Windows
     // returns VirtualAlloc bases aligned to dwAllocationGranularity (64 KiB),
     // and Fog relies on this: it rounds its pointers down to that granularity

@@ -23,6 +23,7 @@ RT_BOOT_SRCS_HEAD=(
   "$ROOT/src/runtime/path_cache.cpp"
   "$ROOT/src/runtime/d2ini.cpp"
   "$ROOT/src/runtime/exe_identity.cpp"
+  "$ROOT/src/runtime/alloc_site.cpp"
   "$ROOT/src/runtime/pristine_audit.cpp"
   "$ROOT/src/runtime/cell_frame_diag.cpp"
   "$ROOT/src/runtime/jit_profile.cpp"
