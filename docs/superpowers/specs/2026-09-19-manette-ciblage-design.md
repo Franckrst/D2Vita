@@ -317,18 +317,40 @@ Résultats obtenus, avec preuve :
    **non modifié** par ce plan (seule une porte de sortie anticipée a été ajoutée avant
    lui), donc à risque structurellement bas mais pas vérifié empiriquement ici.
 
-### Bug ouvert (non corrigé dans cette snapshot)
+### Bug niveau — tentative de correction (commit après `bdcbbad`), confiance partielle
 
 **Chaîne de niveau** (`pPath+0x1C → Room1 → +0x10 Room2 → +0x58 Level → +0x1F8
-dwLevelNo`) : les trois pointeurs intermédiaires résolvent (non nuls, vérifié en qemu
-déterministe) mais `lvl=0` au lieu de `1` au camp des Rogues. Un balayage mémoire autour
-des trois pointeurs candidats n'a pas révélé d'offset de repli évident (plusieurs petites
-valeurs plausibles mais dispersées, aucune isolée comme LA bonne). Nécessite un
-désassemblage ciblé (pas fait ici, faute de xref connue vers une fonction qui lit
-`dwLevelNo`). **Conséquence concrète** : `pad_is_town()` retourne vrai partout tant que
-`niveau` reste à 0, donc le ciblage hostile automatique (§5.2) ne s'engage jamais, nulle
-part — la snapshot livre le déplacement, la visée manuelle et l'interaction, mais pas
-encore le ciblage automatique. Tâche de correction dédiée à ouvrir séparément (pas un
-contournement documentaire : le comportement de repli — traiter l'inconnu comme ville,
-donc ne jamais cibler par erreur — est déjà celui prévu par la conception §4 pour ce cas
-d'échec, donc rien ne casse, la fonctionnalité est juste incomplète).
+dwLevelNo`) : `lvl=0` au lieu de `1` au camp des Rogues malgré des pointeurs
+intermédiaires non nuls. Root-causé au désassemblage (capstone sur `Game.exe` 1.14d,
+pas seulement un balayage mémoire) :
+
+- **`Level+0x1F8` n'existe pas dans ce binaire.** Un passage exhaustif de toutes les
+  instructions `.text` (mov/cmp/lea/movzx/test, adressage direct ET indexé) référençant
+  ce déplacement donne **zéro résultat**. La table §3 citait « struct D2BS », jamais
+  confirmée par désassemblage pour 1.14d spécifiquement — elle est fausse pour ce build.
+- **`r1`/`r2` (Room1/Room2) sont en revanche prouvés dynamiquement** : 3 unités
+  différentes (donc `r1` et `r2` différents — tuiles de salle distinctes) convergent
+  toutes sur le même pointeur `r2+0x58`, exactement la convergence attendue de
+  « plusieurs salles, un seul niveau ». La chaîne jusque-là est correcte.
+- **Correctif appliqué : `Level+0x1C0`** au lieu de `+0x1F8`. C'est le premier petit
+  entier stable juste après le groupe de pointeurs (`+0x1AC..+0x1B4`) et juste avant
+  une paire qui est sans ambiguïté une graine aléatoire de session (`+0x1C4`/`+0x1C8`,
+  valeur différente à chaque run qemu) — lu à `1` sur 3 runs qemu indépendants, jamais
+  `0`.
+- **Confiance : raisonnée, pas confirmée par un second niveau.** Deux autres candidats
+  dans la même structure lisent aussi `1` de façon tout aussi stable (`+0x1D0`,
+  `+0x1DC`, ce dernier juste après un candidat « nombre de salles » à `+0x1D8=3`,
+  corroboré indépendamment par les 3 `Room1` distincts observés). Sortir de la ville
+  en aveugle (D2SCRIPT qemu, sans retour visuel autre que des FBDUMP périodiques) pour
+  trancher entre les trois via un vrai second niveau a été tenté en profondeur
+  (8 directions cardinales, 4 diagonales, une poussée prolongée sur ~90 clics vers ce
+  qui ressemblait à une ouverture dans la palissade) sans succès — le personnage reste
+  dans les limites de la ville. **Si la console/Vita3K montre `niveau=1` figé même hors
+  ville (Blood Moor), ce correctif est réfuté : essayer `+0x1D0` puis `+0x1DC`, en
+  redéployant le diagnostic `jpline` (pas en re-devinant à l'aveugle).**
+
+**Conséquence si le correctif est bon** : `pad_is_town()` fonctionne partout, le
+ciblage hostile automatique (§5.2) s'engage hors ville. Si réfuté, le comportement de
+repli reste sûr (inconnu → traité comme ville → jamais de ciblage par erreur), donc
+aucune régression possible dans les deux cas — seule la fonctionnalité de ciblage
+automatique est en jeu.

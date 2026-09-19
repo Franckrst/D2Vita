@@ -471,9 +471,34 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
                         // dump: +0/+4 gave plausible large 16.16 values (~4874,~4228
                         // subtiles) while +8/+0xC gave near-zero garbage, at the same tick.
                         pfx=(int32_t)w[3]; pfy=(int32_t)w[4];
+                        // Level+0x1F8 (spec table, sourced from struct D2BS, never
+                        // disassembly-confirmed for 1.14d) does not exist in this
+                        // binary: a scan of every mov/cmp/lea/movzx/test in .text found
+                        // ZERO instructions touching [reg+0x1F8] anywhere. r1/r2 (Room1/
+                        // Room2) DO resolve correctly — proven dynamically: 3 different
+                        // units (different Room1 *and* Room2 pointers, i.e. different
+                        // room tiles) all converged on the exact same r2+0x58 pointer,
+                        // which is exactly the fan-in you expect from "many rooms, one
+                        // level". +0x1C0 is the fix: the first small stable integer
+                        // right after that struct's pointer cluster (+0x1AC..+0x1B4:
+                        // self/room1-first/other pointers) and right before what is
+                        // unmistakably a session-random seed pair (+0x1C4/+0x1C8) —
+                        // read 1 at the Rogue camp across 3 independent qemu runs, never
+                        // 0. NOT independently confirmed against a second, non-town
+                        // level: reaching one blind (no screenshot feedback beyond
+                        // FBDUMP snapshots) via qemu D2SCRIPT did not succeed — every
+                        // direction tried from spawn dead-ended on the town's perimeter
+                        // wall. Two other candidates read 1 as consistently in the same
+                        // struct and were not ruled out: +0x1D0, and +0x1DC (immediately
+                        // after a likely room-count field reading 3, corroborated by
+                        // that same 3-distinct-Room1 observation). If console/Vita3K
+                        // testing in a real non-town area (Blood Moor) still shows
+                        // niveau=1 (or any single fixed value that never changes),
+                        // that disproves +0x1C0 and +0x1D0/+0x1DC should be tried next —
+                        // do not re-guess blindly, dump padst-diag again there instead.
                         const uint32_t r1=c.read_u32(path+0x1c);
                         if(r1){ const uint32_t r2=c.read_u32(r1+0x10);
-                            if(r2){ const uint32_t lv=c.read_u32(r2+0x58); if(lv) lvl=c.read_u32(lv+0x1f8); } }
+                            if(r2){ const uint32_t lv=c.read_u32(r2+0x58); if(lv) lvl=c.read_u32(lv+0x1c0); } }
                     }
                     padst::frame_begin(w[2], pfx, pfy, (int32_t)w[0], (int32_t)w[1], lvl,
                                        c.read_u32(g_d2base+0x003a6a94u), c.read_u32(g_d2base+0x003a6a78u),
