@@ -159,6 +159,9 @@ void draw_fps(uint32_t* fb, int fps10) {           // fps*10 (one decimal)
 d2kb::State g_kb;
 int g_kb_simple = -1;                 // read once, on first open
 radial_menu::State g_rm{};            // radial menu: state written by the input tick, read by presentation
+// Scheme v2 overlay (game coords), written by the input tick, read by the
+// presentation thread (display only): current hostile target + ground aim point.
+volatile int g_ret_has = 0, g_ret_ver = 0, g_ret_x = 0, g_ret_y = 0, g_aim_on = 0, g_aim_x = 0, g_aim_y = 0;
 inline void draw_keyboard(uint32_t* fb){ d2kb::draw(g_kb, fb, SCR_W, SCR_H); }
 // --- async present: the scale+flip runs on its OWN Vita core -----------------
 // The guest emulation is single-core; the 960x544 palette scale (~2-5 ms of
@@ -389,6 +392,29 @@ void* alloc_fb(SceUID* uid) {
 }
 } // namespace
 
+// Scheme v2 overlay: a diamond on the current hostile target (gold once the
+// game is verified to hover it, white before), a dot at the ground aim point.
+// Game -> screen uses the same stretch as the presentation (vita_gxm.cpp).
+static void draw_reticle(uint32_t* fb) {
+    if (!g_ret_has && !g_aim_on) return;
+    using radial_menu::draw_detail::blend_px;
+    const int gw = g_game_w > 0 ? g_game_w : 800, gh = g_game_h > 0 ? g_game_h : 600;
+    if (g_ret_has) {
+        const int cx = g_ret_x * SCR_W / gw, cy = g_ret_y * SCR_H / gh - 8;
+        const uint8_t r = g_ret_ver ? 255 : 240, g = g_ret_ver ? 200 : 240, b = g_ret_ver ? 60 : 240;
+        for (int d = 0; d <= 10; ++d) {
+            blend_px(fb, SCR_W, SCR_H, cx - 10 + d, cy - d, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx + 10 - d, cy - d, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx - 10 + d, cy + d, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx + 10 - d, cy + d, r, g, b, 220);
+        }
+    }
+    if (g_aim_on) {
+        const int ax = g_aim_x * SCR_W / gw, ay = g_aim_y * SCR_H / gh;
+        for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) blend_px(fb, SCR_W, SCR_H, ax + dx, ay + dy, 255, 255, 255, 200);
+    }
+}
+
 // Overlays for the sceGxm path: the GPU has already written the frame, so
 // only the counter and keyboard remain to draw. Same code as the GDI path —
 // two different drawings of the same digits would eventually drift apart.
@@ -404,6 +430,7 @@ void d2vita_overlay(uint32_t* fb) {
     if (++n >= 30) { const uint64_t dt = now - t0; if (dt) fps10 = (int)((uint64_t)n * 10000000ull / dt);
                      n = 0; t0 = now; }
     if (fps_en) draw_fps(fb, fps10);
+    draw_reticle(fb);
     if (g_kb.open) draw_keyboard(fb);
     if (g_rm.open) radial_menu::draw(g_rm, fb, SCR_W, SCR_H);
 }
@@ -1495,8 +1522,6 @@ pad::Scheme* g_scheme = nullptr;           // built at first use (after controls
 bool         g_scheme_active = false;      // the scheme currently owns the controls (in game)
 uint32_t     g_pad_lastFrame = 0; int g_pad_stale = 0;
 int          g_padlog = -1;                // D2_PADLOG
-// overlay (game coords), written by the tick, read by the presentation thread (display only)
-volatile int g_ret_has = 0, g_ret_ver = 0, g_ret_x = 0, g_ret_y = 0, g_aim_on = 0, g_aim_x = 0, g_aim_y = 0;
 
 void pad_emit(const pad::Actions& a){
     for (int i = 0; i < a.n; i++) {
