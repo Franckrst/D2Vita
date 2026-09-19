@@ -218,6 +218,7 @@ void Scheme::releaseAll(Actions& out) {
     for (Held& h : dpad_) if (h.vk) { out.push(A_KEYUP, h.vk); if (h.shift) out.push(A_KEYUP, 0x10); h = Held{}; }
     castSlot_ = -1; castBit_ = 0; castId_ = 0; castVerified_ = false;
     interact_ = false; interNoop_ = false; interId_ = 0; interVerified_ = false;
+    lootConfirm_ = false; lootCursorId_ = 0; lootTgt_ = Target{};
     lsOn_ = false; tgt_ = Target{}; tgtId_ = 0; aimActive_ = false;
 }
 
@@ -244,7 +245,7 @@ void Scheme::commonButtons(const Ctl& c, uint32_t down, uint32_t up, Actions& ou
         if (esc_)  { out.push(A_KEYUP, 0x1B); esc_ = false; }
     }
     for (int i = 0; i < 4; ++i) {
-        if (down & kDpadBits[i]) {
+        if (!alt_ && (down & kDpadBits[i])) {   // D-pad navigates the loot cursor while Alt is held, not potions
             dpad_[i].vk = 0x31 + i; dpad_[i].shift = layer;
             if (layer) out.push(A_KEYDOWN, 0x10);                     // Shift + belt key = potion to the mercenary
             out.push(A_KEYDOWN, 0x31 + i);
@@ -269,12 +270,12 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
     if (cfg_.aim) { ti = pick_hostile(u, n, v, c, cfg_, findId(u, n, tgtId_)); tgtId_ = ti >= 0 ? u[ti].id : 0; }
     {
         const float am = std::sqrt(c.rx * c.rx + c.ry * c.ry);
-        aimActive_ = am > cfg_.deadzone;
+        aimActive_ = !alt_ && am > cfg_.deadzone;
         if (aimActive_) ground_point(v, c, cfg_, lastDx_, lastDy_, &aimX_, &aimY_);
     }
 
     // ---- cast: faces = slots 1-4, R + faces = 5-8 ----
-    if (castSlot_ < 0 && !interact_) {
+    if (castSlot_ < 0 && !interact_ && !alt_) {
         for (int i = 0; i < 4; ++i) if (down & kFaceBits[i]) {
             castSlot_ = i + (layer ? 4 : 0); castBit_ = kFaceBits[i];
             castAttempt_ = 0; castVerified_ = false;
@@ -324,7 +325,7 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
         const int ci = findId(u, n, castId_);
         tgt_ = Target{};
         if (ci >= 0) { tgt_.has = true; tgt_.id = castId_; tgt_.sx = u[ci].sx; tgt_.sy = u[ci].sy; tgt_.verified = castVerified_; }
-    } else if (ti >= 0) { tgt_ = Target{}; tgt_.has = true; tgt_.id = u[ti].id; tgt_.sx = u[ti].sx; tgt_.sy = u[ti].sy; }
+    } else if (ti >= 0 && !alt_) { tgt_ = Target{}; tgt_.has = true; tgt_.id = u[ti].id; tgt_.sx = u[ti].sx; tgt_.sy = u[ti].sy; }
     else tgt_ = Target{};
 
     // ---- L: interact (items > objects / town NPCs > the hostile target) ----
@@ -340,7 +341,7 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             cx_ = px; cy_ = py; out.push(A_MOVE, px, py);              // forced move, same reason as the cast
             out.push(A_LDOWN, px, py);
         } else interNoop_ = true;
-    } else if (interact_) {
+    } else if (interact_ && !lootConfirm_) {
         if (!(c.buttons & B_L)) { out.push(A_LUP, cx_, cy_); interact_ = false; interId_ = 0; }
         else {
             const int ii = findId(u, n, interId_);
@@ -361,11 +362,45 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
     }
     if ((up & B_L) && interNoop_) interNoop_ = false;
 
+    // ---- Alt held: browse ground items (D-pad = cursor, Croix = pick up) ----
+    if (alt_) {
+        int fromIdx = findId(u, n, lootCursorId_);
+        if (fromIdx < 0) { fromIdx = nearest_item(u, n, v); lootCursorId_ = fromIdx >= 0 ? u[fromIdx].id : 0; }
+        if (fromIdx >= 0 && !interact_) {
+            static const Dir kDirs[4] = { D_UP, D_LEFT, D_DOWN, D_RIGHT };   // matches kDpadBits order
+            for (int i = 0; i < 4; ++i) if (down & kDpadBits[i]) {
+                const int next = nav_direction(u, n, fromIdx, kDirs[i]);
+                if (next >= 0) { lootCursorId_ = u[next].id; fromIdx = next; }
+                break;
+            }
+        }
+        if ((down & B_CROSS) && !interact_ && fromIdx >= 0) {
+            interact_ = true; lootConfirm_ = true;
+            interId_ = u[fromIdx].id; interType_ = u[fromIdx].type; interCls_ = u[fromIdx].cls;
+            interH_ = 6;                                              // items: fixed hover height, same as L
+            if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+            int px, py; hoverPoint(u[fromIdx], interH_, v, &px, &py);
+            cx_ = px; cy_ = py; out.push(A_MOVE, px, py);
+            out.push(A_LDOWN, px, py);
+        } else if (interact_ && lootConfirm_) {
+            if (!(c.buttons & B_CROSS)) { out.push(A_LUP, cx_, cy_); interact_ = false; lootConfirm_ = false; interId_ = 0; }
+            else {
+                const int ii = findId(u, n, interId_);
+                if (ii >= 0) { int px, py; hoverPoint(u[ii], interH_, v, &px, &py); moveTo(px, py, out); }
+            }
+        }
+        lootTgt_ = Target{};
+        if (fromIdx >= 0) { lootTgt_.has = true; lootTgt_.id = u[fromIdx].id; lootTgt_.sx = u[fromIdx].sx; lootTgt_.sy = u[fromIdx].sy; }
+    } else {
+        lootTgt_ = Target{};
+        if (lootConfirm_ && interact_) { out.push(A_LUP, cx_, cy_); interact_ = false; lootConfirm_ = false; interId_ = 0; }
+    }
+
     // ---- left stick: move-only orbit, hard stop on release ----
     const float lm = std::sqrt(c.lx * c.lx + c.ly * c.ly);
     const bool on = lsOn_ ? (lm > cfg_.deadzone) : (lm > cfg_.deadzone + 0.05f);
     if (on) { lastDx_ = c.lx / lm; lastDy_ = c.ly / lm; }
-    if (castSlot_ < 0 && !interact_) {
+    if (castSlot_ < 0 && !interact_ && !alt_) {
         if (on) {
             int px, py; orbit_point(v, c, cfg_, u, n, &px, &py);
             moveTo(px, py, out);

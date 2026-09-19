@@ -113,6 +113,7 @@ public:
     void tick(const Ctl& c, const Ctx& x, const View& v, const Unit* units, int n, Actions& out);
     void leave(Actions& out);                      // release everything, forget the mode
     Target target() const { return tgt_; }
+    Target lootCursor() const { return lootTgt_; }
     bool cursorOwned() const { return lmb_ || rmb_ || interact_; }
     int  cx() const { return cx_; }
     int  cy() const { return cy_; }
@@ -152,6 +153,8 @@ private:
     Held     dpad_[4];
     // overlay
     uint32_t tgtId_ = 0; Target tgt_;
+    // ground-item browsing (Alt held: D-pad moves the cursor, Croix confirms)
+    uint32_t lootCursorId_ = 0; bool lootConfirm_ = false; Target lootTgt_;
     bool     aimActive_ = false; int aimX_ = 0, aimY_ = 0;
     HoverTable hover_;
 };

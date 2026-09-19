@@ -327,6 +327,62 @@ static void test_scheme_interact_and_keys() {
     CHECK(hasAct(a, pad::A_KEYUP, 0x1B));
 }
 
+static void test_scheme_loot_browse() {
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; x.playerId = 99;
+    pad::Unit u[3];
+    u[0] = mkItem(50, 480, 300);                                 // dist 80 from player (400,300): nearest
+    u[1] = mkItem(51, 300, 300);                                 // dist 100: farther, to the LEFT of u[0]
+    u[2].id = 52; u[2].type = 1; u[2].sx = 470; u[2].sy = 300; u[2].mode = 1; u[2].hostile = true;
+    // ^ monster: closer to u[1] (dist 170) than u[0] is (dist 180) -- must never be selected
+    pad::Ctl c; pad::Actions a;
+
+    // R then L: Alt activates; cursor defaults to the item nearest the player
+    c.buttons = pad::B_R; s.tick(c, x, v, u, 3, a);
+    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
+    CHECK(hasAct(a, pad::A_KEYDOWN, 0x12));
+    CHECK(s.lootCursor().has && s.lootCursor().id == 50);
+
+    // D-pad left: moves to item 51; does NOT also drink a belt potion
+    c.buttons = pad::B_R | pad::B_L | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
+    CHECK(s.lootCursor().id == 51);
+    CHECK(!hasAct(a, pad::A_KEYDOWN, 0x32));
+    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
+
+    // D-pad right: back to item 50 -- the closer monster must never win
+    c.buttons = pad::B_R | pad::B_L | pad::B_RIGHT; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
+    CHECK(s.lootCursor().id == 50);
+    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
+
+    // left stick pushed during Alt: no movement click, character stays put (spec 3.6)
+    c.buttons = pad::B_R | pad::B_L; c.lx = 1.f; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
+    CHECK(!hasAct(a, pad::A_LDOWN) && !s.cursorOwned());
+    c.lx = 0.f;
+
+    // right stick pushed during Alt: no aim reticle (spec 3.6)
+    c.buttons = pad::B_R | pad::B_L; c.rx = 1.f; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
+    CHECK(!s.aimActive());
+    c.rx = 0.f;
+
+    // Croix: picks up item 50 via the same hover mechanism L already uses (h=6 for items)
+    c.buttons = pad::B_R | pad::B_L | pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
+    CHECK(hasAct(a, pad::A_MOVE, 480, 294) && hasAct(a, pad::A_LDOWN, 480, 294));
+    CHECK(!hasAct(a, pad::A_KEY, 0x70));                          // did NOT also cast skill 1
+
+    // D-pad is locked out while the pickup is held
+    c.buttons = pad::B_R | pad::B_L | pad::B_CROSS | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
+    CHECK(s.lootCursor().id == 50);
+
+    // release Croix: LUP, browsing resumes
+    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
+    CHECK(hasAct(a, pad::A_LUP));
+
+    // release L (R still held): Alt ends, selection forgotten
+    c.buttons = pad::B_R; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
+    CHECK(hasAct(a, pad::A_KEYUP, 0x12));
+    CHECK(!s.lootCursor().has);
+}
+
 static void test_scheme_panel_and_leave() {
     pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; x.playerId = 99;
@@ -380,6 +436,7 @@ int main() {
     test_scheme_cast();
     test_scheme_move();
     test_scheme_interact_and_keys();
+    test_scheme_loot_browse();
     test_scheme_panel_and_leave();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
