@@ -57,6 +57,21 @@ chemin** — rien n'est injecté après coup dans sa mémoire. Validé de bout e
 bout avec de vraies clés sur console : le serveur reçoit exactement les
 mêmes valeurs publiques qu'avec une installation classique.
 
+Si vous possédez les CD originaux, vous disposez de deux clés alphanumériques
+de 16 caractères. Celles-ci doivent d'abord être converties en clés de
+26 caractères dans votre compte Battle.net. Si vous ne possédez pas de clés
+valides, vous pouvez les acheter auprès de vendeurs tiers en ligne pour
+environ 4–6 € chacune.
+
+
+Votre fichier `keys.txt` situé dans `ux0:data/d2vita/` doit ressembler à ceci :
+```text
+classic=Your26AlphaNumericalSerial
+lod=Your26AlphaNumericalSerial
+classic_owner=YourFreeToChooseNick
+lod_owner=YourFreeToChooseNick
+```
+
 ## Ce qui reste ouvert
 
 - **Warden**, le module anti-triche que Battle.net peut pousser en jeu : son

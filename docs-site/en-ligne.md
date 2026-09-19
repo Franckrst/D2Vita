@@ -49,12 +49,24 @@ code, with encryption that depends on no machine-specific data.
 
 This port provides an honest alternative mechanism for entering your own
 keys: a text file (`ux0:data/d2vita/keys.txt`, alongside the MPQs) that the
-player fills in themselves. Its content is
-re-encoded exactly in the format the Blizzard installer would have
-produced, then **the game decrypts it itself, through its own path** —
-nothing is injected into its memory after the fact. Validated end-to-end
-with real keys on console: the server receives exactly the same public
-values as with a classic install.
+player fills in themselves. Its content is re-encoded exactly in the format
+the Blizzard installer would have produced, then **the game decrypts it itself,
+through its own path** — nothing is injected into its memory after the fact.
+Validated end-to-end with real keys on console: the server receives exactly the
+same public values as with a classic install.
+
+If you own the original CDs, you have two 16-character alphanumeric keys.
+These must first be converted to 26-character keys in your Battle.net account.
+If you do not own valid keys, you can purchase them from third-party
+vendors online for approximately 4–6 € each.
+
+Your `keys.txt` located in `ux0:data/d2vita/` should look like this:
+```text
+classic=Your26AlphaNumericalSerial
+lod=Your26AlphaNumericalSerial
+classic_owner=YourFreeToChooseNick
+lod_owner=YourFreeToChooseNick
+```
 
 ## What remains open
 
