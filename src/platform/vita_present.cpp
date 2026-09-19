@@ -14,6 +14,9 @@ extern "C" int d2_tlswrap_dump(char*, unsigned);
 #include "platform/vita_net.h"
 #include "platform/vita_kb.h"   // full virtual keyboard (layouts, font, drawing)
 #include "platform/radial_menu.h"   // 7-sector radial menu (hold Select + left stick)
+#include "platform/pad_core.h"      // scheme v2 ("aim"): pure core
+#include "runtime/pad_state.h"      // per-frame guest snapshot (hooks)
+#include "runtime/scripted_input.h" // d2vita_vpad_get
 #include "platform/vita_host.h"        // engine: log, cores, sleep (CONSOLE-specific)
 #include "runtime/host_clock.h"           // engine: monotonic host clock
 #include "platform/present_scale.h"   // engine: generic scaling (D2_PRESENT_WX86)
@@ -1485,6 +1488,43 @@ Act g_engaged[sizeof g_btn / sizeof *g_btn];
 enum { SEL_IDLE=0, SEL_SPACE, SEL_RADIAL };
 int g_sel_mode = SEL_IDLE;
 
+// ---- scheme v2 ("aim") — docs/superpowers/specs/2026-09-19-manette-ciblage-design.md
+bool         g_scheme_aim = true;          // controls.txt scheme=aim|mouse ; env D2_PAD=0 forces mouse
+pad::Config  g_padcfg;
+pad::Scheme* g_scheme = nullptr;           // built at first use (after controls.txt)
+bool         g_scheme_active = false;      // the scheme currently owns the controls (in game)
+uint32_t     g_pad_lastFrame = 0; int g_pad_stale = 0;
+int          g_padlog = -1;                // D2_PADLOG
+// overlay (game coords), written by the tick, read by the presentation thread (display only)
+volatile int g_ret_has = 0, g_ret_ver = 0, g_ret_x = 0, g_ret_y = 0, g_aim_on = 0, g_aim_x = 0, g_aim_y = 0;
+
+void pad_emit(const pad::Actions& a){
+    for (int i = 0; i < a.n; i++) {
+        const pad::Action& x = a.v[i];
+        switch (x.k) {
+            case pad::A_MOVE:    d2vita_inject("move", x.a, x.b); break;
+            case pad::A_LDOWN:   d2vita_inject("ldown", x.a, x.b); break;
+            case pad::A_LUP:     d2vita_inject("lup", x.a, x.b); break;
+            case pad::A_RDOWN:   d2vita_inject("rdown", x.a, x.b); break;
+            case pad::A_RUP:     d2vita_inject("rup", x.a, x.b); break;
+            case pad::A_CLICK:   d2vita_inject("click", x.a, x.b); break;
+            case pad::A_KEYDOWN: d2vita_inject("keydown", x.a, 0); break;
+            case pad::A_KEYUP:   d2vita_inject("keyup", x.a, 0); break;
+            case pad::A_KEY:     d2vita_inject("key", x.a, 0); break;
+        }
+    }
+}
+// Release everything the scheme holds (radial menu / keyboard opening, leaving the game).
+void pad_leave(){
+    if (g_scheme && g_scheme_active) {
+        pad::Actions a; g_scheme->leave(a); pad_emit(a); g_scheme_active = false;
+        g_cx = (float)g_scheme->cx(); g_cy = (float)g_scheme->cy();
+    }
+    g_ret_has = 0; g_aim_on = 0;
+}
+bool pad_is_town(uint32_t lvl){ return lvl == 0 || lvl == 1 || lvl == 40 || lvl == 75 || lvl == 103 || lvl == 109; }
+bool pad_is_merc(uint32_t cls){ return cls == 271 || cls == 338 || cls == 359 || cls == 560; }
+
 bool parse_act(const char* v, Act* out){
     struct E { const char* n; Act a; };
     static const E T[] = {
@@ -1524,12 +1564,22 @@ void load_controls_txt(){
         else if (!strcasecmp(line,"sens"))    { g_sens=(float)atof(v); n++; continue; }
         else if (!strcasecmp(line,"deadzone")){ g_dz=(float)atof(v); n++; continue; }
         else if (!strcasecmp(line,"anchor_y")){ g_anchor_y_pm=atoi(v); n++; continue; }
+        else if (!strcasecmp(line,"scheme"))   { g_scheme_aim = strcasecmp(v,"mouse")!=0; n++; continue; }
+        else if (!strcasecmp(line,"aim"))      { g_padcfg.aim = atoi(v)!=0; n++; continue; }
+        else if (!strcasecmp(line,"orbit_min")){ g_padcfg.orbitMin=atoi(v); n++; continue; }
+        else if (!strcasecmp(line,"orbit_max")){ g_padcfg.orbitMax=atoi(v); n++; continue; }
+        else if (!strcasecmp(line,"range_min")){ g_padcfg.rangeMin=atoi(v); n++; continue; }
+        else if (!strcasecmp(line,"range_max")){ g_padcfg.rangeMax=atoi(v); n++; continue; }
+        else if (!strcasecmp(line,"cone"))     { g_padcfg.coneDeg=(float)atof(v); n++; continue; }
+        else if (!strcasecmp(line,"hover_h"))  { g_padcfg.hoverH=atoi(v); n++; continue; }
+        else if (!strcasecmp(line,"hud_h"))    { g_padcfg.hudH=atoi(v); n++; continue; }
         bool layer = !strncasecmp(line,"r+",2);
         uint32_t bit = name_bit(layer?line+2:line);
         Act a; if (!bit || !parse_act(v,&a)) continue;
         for (BtnMap& m : g_btn) if (m.bit==bit) { (layer?m.layer:m.base)=a; n++; }
     }
     fclose(f);
+    g_padcfg.deadzone = g_dz; g_padcfg.sens = g_sens;
     char m[64]; snprintf(m,sizeof m,"input: controls.txt applique (%d entrees)",n); d2vita_progress(m);
 }
 void lmb_update(){
@@ -1547,6 +1597,96 @@ void do_release(const Act& a){
     else if (a.kind==A_RMB){ if(g_rmb_sent){ d2vita_inject("rup",(int)g_cx,(int)g_cy); g_rmb_sent=false; } }
     else if (a.kind==A_KEY)  d2vita_inject("keyup",a.vk,0);
 }
+// Front touch: absolute cursor; a brief still tap = full left click.
+// allowMove=false: the cursor position is tracked but no move is injected
+// (the aim scheme owns the cursor while a button is held).
+void touch_tick(bool allowMove, bool* moved){
+    SceTouchData td; memset(&td,0,sizeof td);
+    if (sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1)>=0){
+        if (td.reportNum>0){
+            int tx=td.report[0].x*g_game_w/1920, ty=td.report[0].y*g_game_h/1088;
+            if (g_t_at<0){ g_t_at=g_itick; g_t_x0=tx; g_t_y0=ty; g_t_moved=false; }
+            if (std::abs(tx-g_t_x0)>10||std::abs(ty-g_t_y0)>10) g_t_moved=true;
+            g_t_x=tx; g_t_y=ty;
+            if (allowMove){ g_cx=(float)tx; g_cy=(float)ty; *moved=true; }
+        } else if (g_t_at>=0){
+            if (g_itick-g_t_at<g_tap_ticks && !g_t_moved) d2vita_inject("click",g_t_x,g_t_y);
+            g_t_at=-1;
+        }
+    }
+}
+// Scheme v2 tick. Returns true when the scheme handled the tick (in game);
+// false = out of game, the legacy path runs (menus, character select).
+bool aim_tick(const SceCtrlData& cd, uint32_t b){
+    padst::Snapshot s;
+    if (!padst::read(s)) return false;
+    if (s.frame == g_pad_lastFrame) { if (g_pad_stale < 1000) ++g_pad_stale; }
+    else { g_pad_stale = 0; g_pad_lastFrame = s.frame; }
+    const bool inGame = s.inGame && g_pad_stale < 20;          // camera hook silent ~0.7 s = not in game
+    if (!inGame) { pad_leave(); return false; }
+    if (!g_scheme) g_scheme = new pad::Scheme(g_padcfg);
+    g_scheme_active = true;
+
+    pad::View v; v.w = g_game_w; v.h = g_game_h;
+    v.playerFx = s.playerFx; v.playerFy = s.playerFy; v.viewX = s.viewX; v.viewY = s.viewY;
+    pad::Ctx x; x.inGame = true; x.playerId = s.playerId;
+    static const int panels[] = { 1, 2, 4, 8, 9, 0x0C, 0x14, 0x19, 0x1A, 0x21, 0x24 };
+    for (int p : panels) if (s.uiVars[p]) x.panelOpen = true;
+    x.skillTree = s.uiVars[4] != 0;
+    x.selValid = s.selValid; x.selId = s.selId; x.selType = s.selType;
+    const bool town = pad_is_town(s.levelNo);
+
+    static pad::Unit units[padst::MAX_UNITS]; int n = 0;
+    for (int i = 0; i < s.nUnits && n < padst::MAX_UNITS; i++) {
+        const padst::Unit& q = s.units[i];
+        if (q.type == 0 && q.id == s.playerId) continue;              // never box/target ourselves
+        if (q.type == 3 || q.type == 5) continue;                     // missiles, tiles
+        pad::Unit& o = units[n]; o = pad::Unit{};
+        o.id = q.id; o.type = q.type; o.cls = q.cls; o.mode = q.mode;
+        pad::world_to_screen(v, q.fx, q.fy, &o.sx, &o.sy);
+        if (q.type == 1) {
+            const bool alive = q.mode != 0 && q.mode != 12;
+            const bool ours  = q.ownerId != 0 && q.ownerId == s.playerId;
+            o.hostile  = alive && !town && !ours && !pad_is_merc(q.cls);
+            o.interact = alive && town;                                // town NPCs
+        } else if (q.type == 4 || q.type == 2) o.interact = true;     // items, objects
+        ++n;
+    }
+    pad::Ctl c;
+    c.lx = (cd.lx - 128) / 128.f; c.ly = (cd.ly - 128) / 128.f;
+    c.rx = (cd.rx - 128) / 128.f; c.ry = (cd.ry - 128) / 128.f;
+    c.buttons = b & ~(uint32_t)pad::B_SELECT;                          // Select = radial menu, handled before us
+
+    pad::Actions a; g_scheme->tick(c, x, v, units, n, a); pad_emit(a);
+    g_cx = (float)g_scheme->cx(); g_cy = (float)g_scheme->cy();
+    const pad::Target t = g_scheme->target();
+    g_ret_has = t.has; g_ret_ver = t.verified; g_ret_x = t.sx; g_ret_y = t.sy;
+    g_aim_on = g_scheme->aimActive(); g_aim_x = g_scheme->aimX(); g_aim_y = g_scheme->aimY();
+
+    bool moved = false;
+    touch_tick(!g_scheme->cursorOwned(), &moved);
+    if (moved) { d2vita_inject("move", (int)g_cx, (int)g_cy); g_scheme->setCursor((int)g_cx, (int)g_cy); }
+
+    if (g_padlog) {                                                    // capped diagnostics (boot_progress.txt)
+        static int lines = 0; static uint32_t lastTgt = 0, lastLvl = 0xffffffffu; static uint32_t lastUi[38] = {0};
+        static int projN = 0;
+        char m[160];
+        if (lines < 2000) {
+            if (projN < 60) { int psx, psy; pad::world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
+                snprintf(m, sizeof m, "pad: joueur ecran=(%d,%d) view=(%d,%d) fine=(%d,%d) unites=%d", psx, psy, v.viewX, v.viewY, v.playerFx >> 16, v.playerFy >> 16, n);
+                d2vita_progress(m); ++projN; ++lines; }
+            if (s.levelNo != lastLvl) { lastLvl = s.levelNo; snprintf(m, sizeof m, "pad: niveau=%u ville=%d", s.levelNo, (int)town); d2vita_progress(m); ++lines; }
+            for (int i = 0; i < 38 && lines < 2000; i++) if (s.uiVars[i] != lastUi[i]) { lastUi[i] = s.uiVars[i];
+                snprintf(m, sizeof m, "pad: uivar[%d]=%u", i, s.uiVars[i]); d2vita_progress(m); ++lines; }
+            if (t.id != lastTgt) { lastTgt = t.id;
+                int ti = -1; for (int i = 0; i < n; i++) if (units[i].id == t.id) ti = i;
+                snprintf(m, sizeof m, "pad: cible id=%u type=%u cls=%u ecran=(%d,%d) verif=%d sel=(%u,%u,%u)", t.id,
+                         ti >= 0 ? units[ti].type : 0u, ti >= 0 ? units[ti].cls : 0u, t.sx, t.sy, (int)t.verified, s.selValid, s.selId, s.selType);
+                d2vita_progress(m); ++lines; }
+        }
+    }
+    return true;
+}
 } // namespace
 
 extern "C" void d2vita_input_tick(void){
@@ -1555,6 +1695,11 @@ extern "C" void d2vita_input_tick(void){
         sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
         sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
         load_controls_txt();
+        if (const char* e = getenv("D2_PAD")) g_scheme_aim = (*e && *e != '0');     // env wins over controls.txt
+        if (!padst::on()) g_scheme_aim = false;                                         // hooks unarmed: nothing to read
+        g_padcfg.deadzone = g_dz; g_padcfg.sens = g_sens;
+        g_padlog = getenv("D2_PADLOG") ? 1 : 0;
+        d2vita_progress(g_scheme_aim ? "input: schema v2 (visee assistee) actif" : "input: schema souris (legacy)");
         g_cx=g_game_w*0.5f; g_cy=g_game_h*0.5f;
         // Tick rate — D2_INPUTHZ, default 30.
         // Why it's capped: this tick makes TWO syscalls (sceCtrlPeek +
@@ -1584,6 +1729,10 @@ extern "C" void d2vita_input_tick(void){
     ++g_itick;
     SceCtrlData cd; memset(&cd,0,sizeof cd);
     if (sceCtrlPeekBufferPositive(0,&cd,1)<1) return;
+    { uint32_t vb = 0; uint8_t va[4]; d2vita_vpad_get(&vb, va);
+      cd.buttons |= vb;
+      if (va[0] != 128 || va[1] != 128) { cd.lx = va[0]; cd.ly = va[1]; }
+      if (va[2] != 128 || va[3] != 128) { cd.rx = va[2]; cd.ry = va[3]; } }
     const uint32_t b=cd.buttons, was=g_ctl_prev; g_ctl_prev=b;
     static int ilog=-1; if(ilog<0) ilog=getenv("D2_INPUTLOG")?1:0;
     // Autopilot (baked D2SCRIPT): cuts out on the FIRST physical action — the
@@ -1642,6 +1791,7 @@ extern "C" void d2vita_input_tick(void){
     // Select.
     if ((b&B_TRI)&&!(was&B_TRI)&&layer&&!g_kb.open){
         if (g_kb_simple < 0){ const char* e=getenv("D2_KBSIMPLE"); g_kb_simple = (e&&*e&&strcmp(e,"0"))?1:0; }
+        pad_leave();
         d2kb::open_kb(g_kb, g_kb_simple);
         return;
     }
@@ -1691,7 +1841,7 @@ extern "C" void d2vita_input_tick(void){
         const bool selDown=(b&B_SELECT)!=0, selWas=(was&B_SELECT)!=0;
         if (selDown && !selWas) {
             if (layer) { g_sel_mode=SEL_SPACE; d2vita_inject("keydown",0x20,0); }
-            else       { g_sel_mode=SEL_RADIAL; radial_menu::begin(g_rm); }
+            else       { g_sel_mode=SEL_RADIAL; pad_leave(); radial_menu::begin(g_rm); }
         }
         if (g_sel_mode==SEL_RADIAL) {
             g_lmb_stick=false; g_lmb_btn=false; lmb_update();      // release any click in progress
@@ -1709,6 +1859,9 @@ extern "C" void d2vita_input_tick(void){
         }
         if (g_sel_mode==SEL_RADIAL) return;   // menu open: nothing else passes through to the game
     }
+    // Scheme v2 owns everything below while in game; out of game the legacy
+    // scheme (menus, character select, autopilot hand-over) runs unchanged.
+    if (g_scheme_aim && aim_tick(cd, b)) return;
 
     // L: left click (held); R: right click (held). Independent of `layer`: R
     // keeps its OWN click while still arming the combo layer for the OTHER
@@ -1748,19 +1901,7 @@ extern "C" void d2vita_input_tick(void){
             g_cx += rx*std::fabs(rx)*sc; g_cy += ry*std::fabs(ry)*sc; moved=true; }
     }
 
-    // Front touch: absolute cursor; a brief still tap = full left click
-    SceTouchData td; memset(&td,0,sizeof td);
-    if (sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1)>=0){
-        if (td.reportNum>0){
-            int tx=td.report[0].x*g_game_w/1920, ty=td.report[0].y*g_game_h/1088;
-            if (g_t_at<0){ g_t_at=g_itick; g_t_x0=tx; g_t_y0=ty; g_t_moved=false; }
-            if (std::abs(tx-g_t_x0)>10||std::abs(ty-g_t_y0)>10) g_t_moved=true;
-            g_t_x=tx; g_t_y=ty; g_cx=(float)tx; g_cy=(float)ty; moved=true;
-        } else if (g_t_at>=0){
-            if (g_itick-g_t_at<g_tap_ticks && !g_t_moved) d2vita_inject("click",g_t_x,g_t_y);
-            g_t_at=-1;
-        }
-    }
+    touch_tick(true, &moved);
 
     if (g_cx<0)g_cx=0; if (g_cx>g_game_w-1)g_cx=(float)(g_game_w-1);
     if (g_cy<0)g_cy=0; if (g_cy>g_game_h-1)g_cy=(float)(g_game_h-1);
