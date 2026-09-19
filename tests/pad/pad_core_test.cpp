@@ -374,6 +374,14 @@ static void test_scheme_loot_browse() {
     c.buttons = pad::B_R | pad::B_L | pad::B_CROSS | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
     CHECK(s.lootCursor().id == 50);
 
+    // the picked-up item vanishes from the unit list (normal case: it was just
+    // grabbed) while Croix is still held -- the reported cursor must NOT drift
+    // to a different item; the reacquire-fallback must stay locked out by
+    // !interact_ until Croix is released
+    pad::Unit withoutPickedItem[2] = { u[1], u[2] };   // item 50 gone, item 51 + the monster remain
+    c.buttons = pad::B_R | pad::B_L | pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, withoutPickedItem, 2, a);
+    CHECK(!s.lootCursor().has);                        // gone from view -- critically NOT drifted to item 51
+
     // release Croix: LUP, browsing resumes
     c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
     CHECK(hasAct(a, pad::A_LUP));
