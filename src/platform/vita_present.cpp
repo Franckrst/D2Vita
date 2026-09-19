@@ -394,7 +394,8 @@ void* alloc_fb(SceUID* uid) {
 } // namespace
 
 // Scheme v2 overlay: a diamond on the current hostile target (gold once the
-// game is verified to hover it, white before), a dot at the ground aim point.
+// game is verified to hover it, white before), a dot at the ground aim point,
+// and cyan corner brackets on the ground-item browse cursor (Phase 2).
 // Game -> screen uses the same stretch as the presentation (vita_gxm.cpp).
 static void draw_reticle(uint32_t* fb) {
     if (!g_ret_has && !g_aim_on && !g_loot_has) return;
@@ -1562,7 +1563,7 @@ void pad_leave(){
         pad::Actions a; g_scheme->leave(a); pad_emit(a); g_scheme_active = false;
         g_cx = (float)g_scheme->cx(); g_cy = (float)g_scheme->cy();
     }
-    g_ret_has = 0; g_aim_on = 0;
+    g_ret_has = 0; g_aim_on = 0; g_loot_has = 0;
 }
 bool pad_is_town(uint32_t lvl){ return lvl == 0 || lvl == 1 || lvl == 40 || lvl == 75 || lvl == 103 || lvl == 109; }
 bool pad_is_merc(uint32_t cls){ return cls == 271 || cls == 338 || cls == 359 || cls == 560; }
