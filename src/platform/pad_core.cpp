@@ -101,4 +101,56 @@ int HoverTable::try_seq(int attempt, int def) {
     return seq[attempt - 1];
 }
 
+bool orbit_point(const View& v, const Ctl& c, const Config& cfg, const Unit* u, int n, int* px, int* py) {
+    float lx = c.lx, ly = c.ly;
+    const float m = std::sqrt(lx * lx + ly * ly);
+    if (m <= cfg.deadzone) return false;
+    lx /= m; ly /= m;
+    float t = (m - cfg.deadzone) / (1.f - cfg.deadzone);
+    if (t > 1.f) t = 1.f;
+    const float sc = (float)v.h / 600.f;
+    const float r = (cfg.orbitMin + t * (cfg.orbitMax - cfg.orbitMin)) * sc;
+    int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
+    static const float dAng[7] = { 0.f, 20.f, -20.f, 40.f, -40.f, 60.f, -60.f };
+    for (int shrink = 0; shrink < 3; ++shrink) {
+        const float rr = r - shrink * 20.f * sc;
+        if (rr < 16.f * sc) break;
+        for (int k = 0; k < 7; ++k) {
+            const float a = dAng[k] * kPi / 180.f, ca = std::cos(a), sa = std::sin(a);
+            const float dx = lx * ca - ly * sa, dy = lx * sa + ly * ca;
+            int x = psx + (int)std::lround(dx * rr), y = psy + (int)std::lround(dy * rr);
+            clamp_point(v, cfg, &x, &y);
+            bool hit = false;
+            for (int i = 0; i < n; ++i) if (in_unit_box(u[i], x, y)) { hit = true; break; }
+            if (!hit) { *px = x; *py = y; return true; }
+        }
+    }
+    *px = psx + (int)std::lround(lx * r); *py = psy + (int)std::lround(ly * r);
+    clamp_point(v, cfg, px, py);
+    return true;
+}
+
+void ground_point(const View& v, const Ctl& c, const Config& cfg, float fbx, float fby, int* px, int* py) {
+    float dx = c.rx, dy = c.ry;
+    const float m = std::sqrt(dx * dx + dy * dy);
+    float t;
+    if (m > cfg.deadzone) {
+        dx /= m; dy /= m;
+        t = (m - cfg.deadzone) / (1.f - cfg.deadzone);
+        if (t > 1.f) t = 1.f;
+    } else {
+        const float fm = std::sqrt(fbx * fbx + fby * fby);
+        if (fm < 1e-3f) { dx = 0.f; dy = 1.f; } else { dx = fbx / fm; dy = fby / fm; }
+        t = 0.f;
+    }
+    float wx, wy; screen_dir_to_world(dx, dy, &wx, &wy);
+    const float wm = std::sqrt(wx * wx + wy * wy);
+    wx /= wm; wy /= wm;
+    const float dist = cfg.rangeMin + t * (cfg.rangeMax - cfg.rangeMin);      // subtiles
+    const int32_t fx = v.playerFx + (int32_t)(wx * dist * 65536.f);
+    const int32_t fy = v.playerFy + (int32_t)(wy * dist * 65536.f);
+    world_to_screen(v, fx, fy, px, py);
+    clamp_point(v, cfg, px, py);
+}
+
 } // namespace pad

@@ -108,12 +108,51 @@ static void test_hover_table() {
     CHECK(pad::HoverTable::try_seq(5, 28) == 28);
 }
 
+static void test_orbit() {
+    pad::View v = mkView(); pad::Config cfg; pad::Ctl c;
+    int px = 0, py = 0;
+    CHECK(!pad::orbit_point(v, c, cfg, nullptr, 0, &px, &py));           // idle
+    c.lx = 1.f; c.ly = 0.f;                                               // full right
+    CHECK(pad::orbit_point(v, c, cfg, nullptr, 0, &px, &py));
+    CHECK(px == 400 + cfg.orbitMax && py == 300);
+    c.lx = 0.5f;                                                          // half tilt
+    CHECK(pad::orbit_point(v, c, cfg, nullptr, 0, &px, &py));
+    CHECK(px > 400 + cfg.orbitMin && px < 400 + cfg.orbitMax && py == 300);
+    // a monster standing exactly on the ring: the point moves off its box
+    c.lx = 1.f;
+    pad::Unit m = mkMon(7, 400 + cfg.orbitMax, 300 + 10);
+    CHECK(pad::orbit_point(v, c, cfg, &m, 1, &px, &py));
+    CHECK(!pad::in_unit_box(m, px, py));
+    // never below the HUD band
+    c.lx = 0.f; c.ly = 1.f; v.viewY -= 250;                               // player low on screen
+    CHECK(pad::orbit_point(v, c, cfg, nullptr, 0, &px, &py));
+    CHECK(py <= 600 - cfg.hudH - 1);
+}
+
+static void test_ground_point() {
+    pad::View v = mkView(); pad::Config cfg; pad::Ctl c;
+    int px, py;
+    c.rx = 1.f; c.ry = 0.f;                                               // full right -> rangeMax subtiles
+    pad::ground_point(v, c, cfg, 0.f, 1.f, &px, &py);
+    CHECK(py == 300 && px > 400);
+    const int farX = px;
+    c.rx = 0.5f;                                                          // half tilt -> closer
+    pad::ground_point(v, c, cfg, 0.f, 1.f, &px, &py);
+    CHECK(px > 400 && px < farX);
+    c.rx = 0.f; c.ry = 0.f;                                               // idle -> fallback direction (down), rangeMin
+    pad::ground_point(v, c, cfg, 0.f, 1.f, &px, &py);
+    // straight down on screen = world diagonal: ~11.3 px per subtile
+    CHECK(px == 400 && py > 300 && py < 300 + 12 * cfg.rangeMin + 2);
+}
+
 int main() {
     test_projection();
     test_clamp_and_box();
     test_pick_hostile();
     test_pick_interact();
     test_hover_table();
+    test_orbit();
+    test_ground_point();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

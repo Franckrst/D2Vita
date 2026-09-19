@@ -84,4 +84,12 @@ struct HoverTable {
     static int try_seq(int attempt, int def);   // 0 -> def, then 14, 44, 64, 90
 };
 
+// Left-stick "move only" click point: on a ring around the player (radius
+// orbitMin..orbitMax by tilt, scaled by h/600), rotated/shrunk until it sits
+// on no unit box. Returns false when the stick is inside the dead zone.
+bool orbit_point(const View& v, const Ctl& c, const Config& cfg, const Unit* u, int n, int* px, int* py);
+// Ground cast point: along the right stick (or the fallback direction
+// fbx/fby when idle), rangeMin..rangeMax subtiles by tilt, clamped on screen.
+void ground_point(const View& v, const Ctl& c, const Config& cfg, float fbx, float fby, int* px, int* py);
+
 } // namespace pad
