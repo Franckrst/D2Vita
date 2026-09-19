@@ -498,7 +498,28 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
                         // do not re-guess blindly, dump padst-diag again there instead.
                         const uint32_t r1=c.read_u32(path+0x1c);
                         if(r1){ const uint32_t r2=c.read_u32(r1+0x10);
-                            if(r2){ const uint32_t lv=c.read_u32(r2+0x58); if(lv) lvl=c.read_u32(lv+0x1c0); } }
+                            if(r2){ const uint32_t lv=c.read_u32(r2+0x58); if(lv) lvl=c.read_u32(lv+0x1c0);
+                                // D2_PADLOG=1: log the 3 candidate dwLevelNo offsets
+                                // whenever ANY of them changes (capped). +0x1C0 is what
+                                // ships; +0x1D0/+0x1DC are the two runner-up candidates
+                                // from the qemu-only investigation (never cross-checked
+                                // against a real non-town level). Walking from a town
+                                // into ANY non-town area (Blood Moor, a cave, a
+                                // dungeon...) and back should make exactly ONE of c0/d0/
+                                // dc actually change value while the other two stay
+                                // fixed forever — that one is the real dwLevelNo.
+                                if(lv && getenv("D2_PADLOG")){
+                                    static uint32_t lc0=0xffffffffu, ld0=0xffffffffu, ldc=0xffffffffu, ld8=0xffffffffu;
+                                    static int n=0;
+                                    const uint32_t c0=c.read_u32(lv+0x1c0), d0=c.read_u32(lv+0x1d0),
+                                                   dc=c.read_u32(lv+0x1dc), d8=c.read_u32(lv+0x1d8);
+                                    if(n<500 && (c0!=lc0||d0!=ld0||dc!=ldc||d8!=ld8)){
+                                        lc0=c0; ld0=d0; ldc=dc; ld8=d8; ++n;
+                                        jpline("pad: niveau-candidats c0=%u d0=%u dc=%u (salles~d8=%u) lv=0x%x",
+                                               (unsigned)c0,(unsigned)d0,(unsigned)dc,(unsigned)d8,(unsigned)lv);
+                                    }
+                                }
+                            } }
                     }
                     padst::frame_begin(w[2], pfx, pfy, (int32_t)w[0], (int32_t)w[1], lvl,
                                        c.read_u32(g_d2base+0x003a6a94u), c.read_u32(g_d2base+0x003a6a78u),
