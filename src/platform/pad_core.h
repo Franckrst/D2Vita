@@ -65,4 +65,23 @@ void screen_dir_to_world(float dx, float dy, float* wx, float* wy);
 void clamp_point(const View& v, const Config& cfg, int* px, int* py);
 bool in_unit_box(const Unit& u, int x, int y);
 
+// Hostile target: right stick pushed -> nearest-ish inside a +-coneDeg cone
+// (score = distance + 300*(1-cos)), <= 500 px; idle -> nearest <= 420 px.
+// `current` = index of the current target in `u` (or -1); kept while it
+// qualifies and its score <= 1.25*best + 20 (hysteresis). Returns -1 if none.
+int  pick_hostile(const Unit* u, int n, const View& v, const Ctl& c, const Config& cfg, int current);
+// L target: nearest item (type 4) <= 220 px, else nearest other interactable
+// (object / town NPC) <= 160 px. Returns -1 if none.
+int  pick_interact(const Unit* u, int n, const View& v, const Config& cfg);
+
+// Learned hover height per (type, class): where the cursor must sit for the
+// game to hover a unit of that class. Reset at boot (RAM only).
+struct HoverTable {
+    enum { N = 64 };
+    uint32_t key[N]; int h[N]; int n = 0;
+    int  get(uint32_t type, uint32_t cls, int def) const;
+    void learn(uint32_t type, uint32_t cls, int hv);
+    static int try_seq(int attempt, int def);   // 0 -> def, then 14, 44, 64, 90
+};
+
 } // namespace pad
