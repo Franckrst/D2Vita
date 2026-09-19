@@ -177,32 +177,40 @@ static void apply_compact_layout(){
     // Rogue profile (heap peak 15.6 MiB, VA peak 200.2 MiB, monolith Game.exe
     // image 5.9 MiB — relocatable, loads in the module window; misc < 2 MiB),
     // trimmed to that observed usage plus headroom (not a leak — the working
-    // set here is stable). Total span 0x10F00000 = 271 MiB; D2ARENA =
-    // 0x12900000 (297 MiB incl. the 16 MiB membase-rounding slack) — inside the
-    // ~330 MiB real-Vita user budget (ATTRIBUTE2=12). The span above VA
+    // set here is stable). Total span 0x11700000 = 279 MiB; D2ARENA =
+    // 0x12700000 (295 MiB incl. the 16 MiB membase-rounding slack) — inside the
+    // ~330 MiB real-Vita user budget (ATTRIBUTE2=12); the bench scripts pass
+    // 0x12900000, which still covers this span. The span above VA
     // (stacks/TIBs/trap window/D2ARENA) is byte-identical regardless of these sizes.
-    // Heap grown 20 -> ~24.9 MiB by reclaiming the low slack that sat under it
-    // (base was 0x00500000; that ~5 MiB gap below the heap served only as a
-    // null-deref guard). The heap ENDS at the module base (bridge next_base_ =
-    // HI+0x01900000 = 25 MiB from 0), so Game.exe and every region above it are
-    // byte-for-byte unmoved -- only the floor drops. 25 MiB is therefore the
-    // HARD ceiling for a heap that lives below Game.exe; a 124 KiB guard is kept
-    // under it (page 0 = main TIB, then unmapped up to HEAP_BASE), enough to
-    // still fault on a null pointer plus a normal struct offset. Motivated by a
-    // real 0.1.5 host_fault (report 01M2VHNS...) that struck right after
-    // "ALLOC FAIL region=heap" at the old 20 MiB ceiling -- the guest wanted
-    // ~24 MiB. The alloc-site log (see the fail handler) will show whether even
-    // this ceiling is hit; if so the next step is moving the module base up
-    // (which shifts the whole pack -- see bridge.cpp's synced constants).
-    HEAP_BASE=0x00020000; HEAP_SIZE=0x018E0000;   // 25472 Kio -> ends 0x01900000 (= bridge next_base_)
-    // modules (bridge) 0x01900000..0x02200000 (9 MiB reserved)
+    // Heap history: 20 -> ~24.9 MiB by dropping the FLOOR to 0x00020000 (the old
+    // ~5 MiB null-guard slack; 124 KiB of guard is kept, still enough to fault
+    // on a null pointer plus a normal struct offset), then -> ~32.9 MiB by
+    // raising the CEILING: module base 0x01900000 -> 0x02100000, which shifts
+    // the whole pack above it up by 8 MiB.
+    // Why the ceiling and not the floor again: the region is first-fit, so the
+    // ordinary small-allocation churn fills it from the BOTTOM. Room added below
+    // is eaten by that churn before any big request arrives, while room added on
+    // top COALESCES with the free tail a big request actually lands in. On the
+    // issue #4 report (4269 KiB refused at used=17342 KiB) the floor-drop alone
+    // leaves a largest free block of ~4992 KiB — 723 KiB of margin over the
+    // request — where the ceiling-raise takes that block to ~11.2 MiB.
+    // Trigger: a Traditional Chinese install. The CJK glyph atlas is a single
+    // ~4.2 MB allocation where the Latin font is a few tens of KB, and it is
+    // built lazily at the first text draw — hence "boots fine, dies on any
+    // input". Refusing it hands D2 a null that resurfaces as the Codec
+    // "corrupted size" Halt 904, not as an allocation error.
+    // This pack is NOT free to grow: D2ARENA must cover the whole span
+    // (src/platform/d2_boot_config.cpp — kept in sync, 287 -> 295 MiB here)
+    // and the real-Vita user budget is ~330 MiB.
+    HEAP_BASE=0x00020000; HEAP_SIZE=0x020E0000;   // 33664 Kio -> ends 0x02100000 (= bridge next_base_)
+    // modules (bridge) 0x02100000..0x02A00000 (9 MiB reserved)
     // MISC window is 9 MiB: Game.exe alone needs 8 MiB, but d2vhost (2 MiB) and
     // CheckRevision.dll (0x4b000, loaded at Battle.net connect) also live here;
     // an undersized window lets CheckRevision.dll overlap MISC's callback stubs,
     // so the main thread jumps into DLL bytes and faults. The bound is also
     // enforced at the bridge (set_module_limit): overflow becomes a named
     // refusal, not a silent overwrite.
-    MISC_BASE=0x02200000; MISC_SIZE=0x00200000;   // 2 MiB   -> ends 0x02400000 (= VA_BASE)
+    MISC_BASE=0x02A00000; MISC_SIZE=0x00200000;   // 2 MiB   -> ends 0x02C00000 (= VA_BASE)
     // VirtualAlloc arena: Storm's MPQ decompressor (SCOMP) grows a doubling
     // working buffer during level load; the 1.14d Rogue Encampment run peaks
     // at 200.2 MiB of VA (measured, soak). 216 MiB leaves ~16 MiB
@@ -216,12 +224,13 @@ static void apply_compact_layout(){
     // Without this headroom the JIT cache cannot grow; since this build has no
     // interpreter fallback (shim_impl.c: Run() sets quit=1), a refused block
     // kills the guest thread outright — this is not a soft degradation.
-    // ⚠️ The same constants exist in src/runtime/bridge.cpp (stack_base_,
-    // trap_base_, trap_hi_) — the two files must be kept in sync.
-    VA_BASE  =0x02400000; VA_SIZE  =0x0DC00000;   // 220 MiB -> ends 0x10000000 (= bridge stack_base_)
-    // main guest stack 0x10000000..0x10200000 (2 MiB, bridge stack_base_)
-    MAIN_STACK_TOP=0x10200000;
-    SCHED_STACKS=0x10200000; SCHED_TIBS=0x10C00000;   // worker stacks/TIBs, below the 0x10E00000 trap window
+    // The bridge holds its own copy of the module/stack/trap bases; they are no
+    // longer allowed to drift, they are pushed to it from here (see the
+    // D2_MODBASE/D2_STACKBASE/D2_TRAPBASE block after the HIGH-layout shift).
+    VA_BASE  =0x02C00000; VA_SIZE  =0x0DC00000;   // 220 MiB -> ends 0x10800000 (= bridge stack_base_)
+    // main guest stack 0x10800000..0x10A00000 (2 MiB, bridge stack_base_)
+    MAIN_STACK_TOP=0x10A00000;
+    SCHED_STACKS=0x10A00000; SCHED_TIBS=0x11400000;   // worker stacks/TIBs, below the 0x11600000 trap window
     // ---- HIGH layout (D2LAYOUT=haut): the same pack, shifted above 0x80000000,
     // membase=0. This is the byte-identical model run under qemu to validate
     // the Vita layout (src/runtime/layout.h); offset 0 for "compact" makes the
@@ -231,6 +240,19 @@ static void apply_compact_layout(){
         SCHED_STACKS+=HI; SCHED_TIBS+=HI;
         MAIN_TIB=HI;                  // first page of the block: the main TIB
     }
+    // Push the three bases the bridge keeps on its side (module/stack/trap) so
+    // this function stays the ONE place the pack is described. They used to be
+    // a hand-kept copy in bridge.cpp, which is shared with other ports (carn-
+    // vita) and must not be repointed at Diablo II's pack; the engine already
+    // exposes them as named overrides, applied after its own presets, so the
+    // sync costs nothing here and cannot silently drift. Bridge construction
+    // reads these (main() calls us well before it). Not overwritten: an explicit
+    // D2_MODBASE/D2_STACKBASE/D2_TRAPBASE from the caller still wins.
+    // trap_hi_ and the sentinel are re-derived by the bridge from trap_base_.
+    { const uint32_t HI=d2rt::layout_hi(); char b[16];
+      std::snprintf(b,sizeof b,"%08x",HI+0x02100000u); setenv("D2_MODBASE",  b,0);
+      std::snprintf(b,sizeof b,"%08x",HI+0x10800000u); setenv("D2_STACKBASE",b,0);
+      std::snprintf(b,sizeof b,"%08x",HI+0x11600000u); setenv("D2_TRAPBASE", b,0); }
     // The engine owns current-TIB logic; this port only supplies where its
     // memory layout places the main TIB. Set here as soon as the layout is
     // fixed, before any shim runs.
@@ -238,7 +260,7 @@ static void apply_compact_layout(){
     // (the guest scratch allocator is armed later, at the mapping site, once
     // MISC_BASE/MISC_SIZE are final)
     // Compact REQUIRES the relocatable main exe. The pack above reserves the
-    // module window at 0x01900000 for it and starts the heap at HEAP_BASE
+    // module window at 0x02100000 for it and starts the heap at HEAP_BASE
     // (0x00020000). A non-relocated exe at its preferred base 0x00400000 (5.9 MiB
     // image, ending ~0x009E0000) OVERLAPS that heap — heap allocations then
     // trample the exe's .data, corrupting an init sync flag and DEADLOCKING the

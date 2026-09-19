@@ -37,7 +37,9 @@ import subprocess
 import sys
 import tempfile
 
-GAME_BASE = 0x01900000      # Game.exe load base in the guest arena
+GAME_BASE = 0x02100000      # Game.exe load base in the guest arena (it was 0x01900000
+                            # up to 0.1.6, before the heap-ceiling raise: read an older
+                            # report with --game-base 0x01900000)
 PE_IMAGE_BASE = 0x400000    # its PE image base: VA = address - load base + this
 CODE_SPAN = 0x400000        # a return address of Game.exe lies in [base, base + span)
 ARENA_HOST_BASE = 0x84000000   # host view of the guest arena (varies by boot: a real log has shown membase 0x85000000 too)
