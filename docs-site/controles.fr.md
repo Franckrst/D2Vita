@@ -15,7 +15,7 @@
 | Croix / Rond / Carré / Triangle | **Compétences 1 à 4**, lancer immédiat sur l'ennemi ciblé (le plus proche si le stick droit est au repos) ; maintenir = répéter |
 | R maintenu + faces | Compétences 5 à 8 |
 | L | **Interagir** : objet au sol le plus proche, sinon coffre / porte / PNJ, sinon attaque de base sur la cible |
-| R puis L (maintenus) | Alt — étiquettes des objets au sol |
+| R puis L (maintenus) | Alt — étiquettes des objets au sol ; D-pad = déplacer le curseur d'objet en objet (vers le plus proche du curseur dans cette direction), Croix = ramasser l'objet sélectionné (repère cyan) |
 | D-pad ↑ / ← / ↓ / → | Potions ceinture 1 / 2 / 3 / 4 |
 | R + D-pad | Potion au mercenaire |
 | Start | Échap ; R + Start : échange d'armes |

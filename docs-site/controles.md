@@ -16,7 +16,7 @@
 | Cross / Circle / Square / Triangle | **Skills 1 to 4**, instant cast on the targeted enemy (nearest one if the right stick is idle); hold = repeat |
 | R held + faces | Skills 5 to 8 |
 | L | **Interact**: nearest item on the ground, else chest / door / NPC, else a basic attack on the target |
-| R then L (held) | Alt — ground item labels |
+| R then L (held) | Alt — ground item labels ; D-pad = move the selection cursor from item to item (nearest to the cursor in that direction), Cross = pick up the selected item (cyan marker) |
 | D-pad ↑ / ← / ↓ / → | Belt potions 1 / 2 / 3 / 4 |
 | R + D-pad | Potion to the mercenary |
 | Start | Escape; R + Start: weapon swap |
