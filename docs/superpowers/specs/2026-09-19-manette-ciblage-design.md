@@ -317,40 +317,39 @@ Résultats obtenus, avec preuve :
    **non modifié** par ce plan (seule une porte de sortie anticipée a été ajoutée avant
    lui), donc à risque structurellement bas mais pas vérifié empiriquement ici.
 
-### Bug niveau — tentative de correction (commit après `bdcbbad`), confiance partielle
+### Bug niveau — CORRIGÉ et confirmé sur console (2026-09-19, après `bdcbbad`)
 
-**Chaîne de niveau** (`pPath+0x1C → Room1 → +0x10 Room2 → +0x58 Level → +0x1F8
-dwLevelNo`) : `lvl=0` au lieu de `1` au camp des Rogues malgré des pointeurs
-intermédiaires non nuls. Root-causé au désassemblage (capstone sur `Game.exe` 1.14d,
-pas seulement un balayage mémoire) :
+**Chaîne de niveau** (`pPath+0x1C → Room1 → +0x10 Room2 → +0x58 Level → dwLevelNo`) :
+`lvl=0` au lieu de `1` au camp des Rogues malgré des pointeurs intermédiaires non nuls.
+Root-causé au désassemblage (capstone sur `Game.exe` 1.14d, pas un balayage mémoire) :
 
-- **`Level+0x1F8` n'existe pas dans ce binaire.** Un passage exhaustif de toutes les
-  instructions `.text` (mov/cmp/lea/movzx/test, adressage direct ET indexé) référençant
-  ce déplacement donne **zéro résultat**. La table §3 citait « struct D2BS », jamais
-  confirmée par désassemblage pour 1.14d spécifiquement — elle est fausse pour ce build.
-- **`r1`/`r2` (Room1/Room2) sont en revanche prouvés dynamiquement** : 3 unités
-  différentes (donc `r1` et `r2` différents — tuiles de salle distinctes) convergent
-  toutes sur le même pointeur `r2+0x58`, exactement la convergence attendue de
-  « plusieurs salles, un seul niveau ». La chaîne jusque-là est correcte.
-- **Correctif appliqué : `Level+0x1C0`** au lieu de `+0x1F8`. C'est le premier petit
-  entier stable juste après le groupe de pointeurs (`+0x1AC..+0x1B4`) et juste avant
-  une paire qui est sans ambiguïté une graine aléatoire de session (`+0x1C4`/`+0x1C8`,
-  valeur différente à chaque run qemu) — lu à `1` sur 3 runs qemu indépendants, jamais
-  `0`.
-- **Confiance : raisonnée, pas confirmée par un second niveau.** Deux autres candidats
-  dans la même structure lisent aussi `1` de façon tout aussi stable (`+0x1D0`,
-  `+0x1DC`, ce dernier juste après un candidat « nombre de salles » à `+0x1D8=3`,
-  corroboré indépendamment par les 3 `Room1` distincts observés). Sortir de la ville
-  en aveugle (D2SCRIPT qemu, sans retour visuel autre que des FBDUMP périodiques) pour
-  trancher entre les trois via un vrai second niveau a été tenté en profondeur
-  (8 directions cardinales, 4 diagonales, une poussée prolongée sur ~90 clics vers ce
-  qui ressemblait à une ouverture dans la palissade) sans succès — le personnage reste
-  dans les limites de la ville. **Si la console/Vita3K montre `niveau=1` figé même hors
-  ville (Blood Moor), ce correctif est réfuté : essayer `+0x1D0` puis `+0x1DC`, en
-  redéployant le diagnostic `jpline` (pas en re-devinant à l'aveugle).**
+- **`Level+0x1F8` (table §3, sourcée « struct D2BS », jamais confirmée par
+  désassemblage pour 1.14d) n'existe pas dans ce binaire.** Un passage exhaustif de
+  toutes les instructions `.text` (mov/cmp/lea/movzx/test, adressage direct ET indexé)
+  référençant ce déplacement donne **zéro résultat**.
+- **`r1`/`r2` (Room1/Room2) sont prouvés dynamiquement** : 3 unités différentes (donc
+  `r1` et `r2` différents — tuiles de salle distinctes) convergent toutes sur le même
+  pointeur `r2+0x58`, exactement la convergence attendue de « plusieurs salles, un seul
+  niveau ». La chaîne jusque-là est correcte.
+- **Trois candidats plausibles trouvés dans la même structure** (`+0x1C0`, `+0x1D0`,
+  `+0x1DC`), tous lisant `1` de façon stable au camp des Rogues sur plusieurs runs qemu
+  indépendants — indiscernables par une seule mesure en ville.
+- **Départagés le 19/09 par un vrai test terrain** : diagnostic `D2_PADLOG=1` déployé
+  sur la console réelle, l'utilisateur a joué manuellement — sortie du camp des Rogues
+  vers les Prairies de Sang, puis retour en ville. Résultat sans ambiguïté :
 
-**Conséquence si le correctif est bon** : `pad_is_town()` fonctionne partout, le
-ciblage hostile automatique (§5.2) s'engage hors ville. Si réfuté, le comportement de
-repli reste sûr (inconnu → traité comme ville → jamais de ciblage par erreur), donc
-aucune régression possible dans les deux cas — seule la fonctionnalité de ciblage
-automatique est en jeu.
+  | | camp (ville) | Prairies de Sang | retour au camp |
+  |---|---|---|---|
+  | `+0x1C0` | 1 | **2** | 1 |
+  | `+0x1D0` | 1 | **2** | 1 |
+  | `+0x1DC` | 1 | 1 | 1 |
+
+  `+0x1C0` et `+0x1D0` suivent tous deux la vraie numérotation D2 (1 = camp des Rogues,
+  2 = Prairies de Sang) ; `+0x1DC` ne bouge jamais — faux candidat. **`+0x1C0` est le
+  correctif livré** (déjà en place avant ce test ; `+0x1D0` aurait été équivalent).
+  `ville` bascule correctement à `0` hors ville. Le diagnostic des 3 candidats a été
+  retiré du code une fois la question tranchée (plus nécessaire).
+
+**Conséquence** : `pad_is_town()` fonctionne partout, le ciblage hostile automatique
+(§5.2) s'engage hors ville comme prévu. Aucune régression (`rt_boot_arm_check.sh`
+repasse vert après le nettoyage du diagnostic).

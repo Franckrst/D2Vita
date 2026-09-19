@@ -478,48 +478,15 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
                         // Room2) DO resolve correctly — proven dynamically: 3 different
                         // units (different Room1 *and* Room2 pointers, i.e. different
                         // room tiles) all converged on the exact same r2+0x58 pointer,
-                        // which is exactly the fan-in you expect from "many rooms, one
-                        // level". +0x1C0 is the fix: the first small stable integer
-                        // right after that struct's pointer cluster (+0x1AC..+0x1B4:
-                        // self/room1-first/other pointers) and right before what is
-                        // unmistakably a session-random seed pair (+0x1C4/+0x1C8) —
-                        // read 1 at the Rogue camp across 3 independent qemu runs, never
-                        // 0. NOT independently confirmed against a second, non-town
-                        // level: reaching one blind (no screenshot feedback beyond
-                        // FBDUMP snapshots) via qemu D2SCRIPT did not succeed — every
-                        // direction tried from spawn dead-ended on the town's perimeter
-                        // wall. Two other candidates read 1 as consistently in the same
-                        // struct and were not ruled out: +0x1D0, and +0x1DC (immediately
-                        // after a likely room-count field reading 3, corroborated by
-                        // that same 3-distinct-Room1 observation). If console/Vita3K
-                        // testing in a real non-town area (Blood Moor) still shows
-                        // niveau=1 (or any single fixed value that never changes),
-                        // that disproves +0x1C0 and +0x1D0/+0x1DC should be tried next —
-                        // do not re-guess blindly, dump padst-diag again there instead.
+                        // the fan-in you expect from "many rooms, one level". +0x1C0 is
+                        // the fix, CONFIRMED on console: 1 at the Rogue camp, 2 in Blood
+                        // Moor, back to 1 on returning to town (the two runner-up
+                        // candidates found during the offline investigation, +0x1D0 and
+                        // +0x1DC, either moved in lockstep with +0x1C0 or never moved at
+                        // all — neither is a better choice).
                         const uint32_t r1=c.read_u32(path+0x1c);
                         if(r1){ const uint32_t r2=c.read_u32(r1+0x10);
-                            if(r2){ const uint32_t lv=c.read_u32(r2+0x58); if(lv) lvl=c.read_u32(lv+0x1c0);
-                                // D2_PADLOG=1: log the 3 candidate dwLevelNo offsets
-                                // whenever ANY of them changes (capped). +0x1C0 is what
-                                // ships; +0x1D0/+0x1DC are the two runner-up candidates
-                                // from the qemu-only investigation (never cross-checked
-                                // against a real non-town level). Walking from a town
-                                // into ANY non-town area (Blood Moor, a cave, a
-                                // dungeon...) and back should make exactly ONE of c0/d0/
-                                // dc actually change value while the other two stay
-                                // fixed forever — that one is the real dwLevelNo.
-                                if(lv && getenv("D2_PADLOG")){
-                                    static uint32_t lc0=0xffffffffu, ld0=0xffffffffu, ldc=0xffffffffu, ld8=0xffffffffu;
-                                    static int n=0;
-                                    const uint32_t c0=c.read_u32(lv+0x1c0), d0=c.read_u32(lv+0x1d0),
-                                                   dc=c.read_u32(lv+0x1dc), d8=c.read_u32(lv+0x1d8);
-                                    if(n<500 && (c0!=lc0||d0!=ld0||dc!=ldc||d8!=ld8)){
-                                        lc0=c0; ld0=d0; ldc=dc; ld8=d8; ++n;
-                                        jpline("pad: niveau-candidats c0=%u d0=%u dc=%u (salles~d8=%u) lv=0x%x",
-                                               (unsigned)c0,(unsigned)d0,(unsigned)dc,(unsigned)d8,(unsigned)lv);
-                                    }
-                                }
-                            } }
+                            if(r2){ const uint32_t lv=c.read_u32(r2+0x58); if(lv) lvl=c.read_u32(lv+0x1c0); } }
                     }
                     padst::frame_begin(w[2], pfx, pfy, (int32_t)w[0], (int32_t)w[1], lvl,
                                        c.read_u32(g_d2base+0x003a6a94u), c.read_u32(g_d2base+0x003a6a78u),
