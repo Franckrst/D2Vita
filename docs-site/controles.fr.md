@@ -6,30 +6,37 @@
     à rien et il conduit jusqu'en jeu ; touche n'importe quoi et la main est
     rendue immédiatement. Il reste actif en continu pour les tests headless.
 
-## En jeu
+## En jeu (schéma « visée assistée », défaut depuis la snapshot manette v2)
 
 | Entrée Vita | Action Diablo II |
 |---|---|
-| Stick gauche | **Déplacement direct** (curseur en orbite autour du personnage + clic gauche maintenu) |
-| Stick droit | Souris libre, sans clic (visée, menus, survol) |
-| Écran tactile | Curseur absolu ; tap bref = clic gauche |
-| **L (maintenu)** | **Clic gauche** |
-| **R (maintenu)** | **Clic droit** (sert aussi de couche combo, voir plus bas) |
-| Croix | R — bascule marche/course |
-| Rond | Shift (maintenu) — attaque sur place / cast forcé |
-| Carré (maintenu) | Alt — affiche les objets au sol |
-| Triangle | W — échange d'armes |
+| Stick gauche | **Déplacement seul** : le personnage marche dans la direction du stick (rayon selon l'inclinaison), sans jamais attaquer, parler ni ramasser par accident ; relâcher = arrêt net |
+| Stick droit | **Visée** : choisit l'ennemi dans un cône de ±35° ; pour un sort au sol (téléport, météore…), la distance suit l'inclinaison |
+| Croix / Rond / Carré / Triangle | **Compétences 1 à 4**, lancer immédiat sur l'ennemi ciblé (le plus proche si le stick droit est au repos) ; maintenir = répéter |
+| R maintenu + faces | Compétences 5 à 8 |
+| L | **Interagir** : objet au sol le plus proche, sinon coffre / porte / PNJ, sinon attaque de base sur la cible |
+| R puis L (maintenus) | Alt — étiquettes des objets au sol |
 | D-pad ↑ / ← / ↓ / → | Potions ceinture 1 / 2 / 3 / 4 |
-| Start | Échap (menu / fermer) |
-| **Select** | **Menu radial** (voir plus bas) |
+| R + D-pad | Potion au mercenaire |
+| Start | Échap ; R + Start : échange d'armes |
+| Select | Menu radial (voir plus bas) ; R + Select : Espace |
+| Écran tactile | Curseur absolu ; tap bref = clic gauche |
 
-## Couche R (R maintenu + …)
+Un losange marque l'ennemi ciblé (doré dès que le jeu confirme le survol) et un
+point le lieu d'impact d'un sort au sol quand le stick droit est poussé.
 
-| Combo | Action |
-|---|---|
-| R + Triangle | **Clavier virtuel** (ouvrir ; fermer avec Select) |
-| R + D-pad | F1 / F2 / F3 / F4 — compétences rapides |
-| R + Select | Espace — fermer tous les panneaux |
+**Assigner une compétence à un bouton** : ouvrir l'arbre de compétences
+(menu radial), toucher l'icône, presser le bouton voulu (R + bouton pour les
+emplacements 5 à 8). Dépenser un point : L ou tap.
+
+**Panneaux ouverts** (inventaire, coffre, marchand…) : les sticks déplacent le
+curseur, L ou Croix cliquent, Triangle = clic droit, Carré maintenu = Shift
+(déplacement rapide), Rond ferme.
+
+Hors partie (menus, sélection de personnage), l'ancien schéma souris reste
+actif. `scheme=mouse` dans `controls.txt` le rétablit partout (mapping de la
+0.1.6 : L/R = clics, Croix = marche/course, Rond = Shift, Carré = Alt,
+Triangle = W, R + D-pad = F1-F4).
 
 ## Menu radial (Select)
 
@@ -73,6 +80,26 @@ déclenchement (R + Triangle), lui, est spécifique à d2vita.
 ## Remappage sans rebuild
 
 Fichier `ux0:data/d2vita/controls.txt`, une ligne par entrée :
+
+```
+scheme=aim        # aim (défaut, visée assistée) | mouse (schéma legacy intégral)
+aim=1              # 0 = pas de choix automatique de cible (schéma aim seulement)
+orbit_min=40       # px (à 600 de haut), rayon d'orbite stick à peine poussé
+orbit_max=110      # px, stick à fond
+range_min=6        # sous-tuiles, sort au sol stick à peine poussé
+range_max=20
+cone=35            # demi-angle du cône de visée, degrés
+hover_h=28         # hauteur de survol par défaut, px
+hud_h=60           # bande basse interdite au curseur, px
+deadzone=0.25
+sens=10            # curseur libre (panneaux)
+```
+
+`D2_PAD=0` (ou `1`) dans `env.txt` a priorité sur `scheme=` — pratique pour
+un A/B sans toucher à `controls.txt`.
+
+Les clés suivantes, et les remaps `cross=…`/`r+triangle=…` ci-dessous, ne
+s'appliquent qu'au schéma `scheme=mouse` (legacy) :
 
 ```
 cross=rclick
