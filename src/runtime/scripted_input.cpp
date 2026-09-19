@@ -23,6 +23,13 @@ using namespace d2rt;
 bool g_snap=false;                         // one-shot frame dump request
 uint8_t g_keyState[256]={0};               // VK states driven by injected input
 
+// Virtual controller for remote tests (D2CMDFILE / D2SCRIPT): ORed with the
+// physical pad by vita_present.cpp's input tick. Axes 0..255, 128 = centered.
+//   padb:<buttons>:0            e.g. padb:16384:0 = Cross held, padb:0:0 = release
+//   pada:<lx|ly<<8>:<rx|ry<<8>  e.g. pada:32896:32896 = both sticks centered (128|128<<8)
+static uint32_t g_vpadButtons=0; static uint8_t g_vpadAxes[4]={128,128,128,128};
+extern "C" void d2vita_vpad_get(uint32_t* buttons, uint8_t axes[4]){ *buttons=g_vpadButtons; std::memcpy(axes,g_vpadAxes,4); }
+
 struct InjEv { int frame; std::string act; int a,b; };
 static std::vector<InjEv> g_inj; static size_t g_injIx=0;
 
@@ -80,6 +87,9 @@ void inj_queue(const std::string& act,int a,int b){
     else if(act=="keyup"){   g_keyState[a&0xff]=0;    g_msgQ.push_back({0x101,(uint32_t)a,0xC0000001u|(inj_scan(a)<<16)}); g_injN++; }
     else if(act=="key"){     g_msgQ.push_back({0x100,(uint32_t)a,1u|(inj_scan(a)<<16)}); g_msgQ.push_back({0x101,(uint32_t)a,0xC0000001u|(inj_scan(a)<<16)}); g_injN+=2; }
     else if(act=="chr"){     g_msgQ.push_back({0x102,(uint32_t)a,1u|(inj_scan(a)<<16)}); g_injN++; }   // WM_CHAR (a = ASCII)
+    else if(act=="padb"){ g_vpadButtons=(uint32_t)a; }
+    else if(act=="pada"){ g_vpadAxes[0]=(uint8_t)(a&0xff); g_vpadAxes[1]=(uint8_t)((a>>8)&0xff);
+                          g_vpadAxes[2]=(uint8_t)(b&0xff); g_vpadAxes[3]=(uint8_t)((b>>8)&0xff); }
     else if(act=="eipdump"){  // dump the preempt-slice EIP histogram (needs -DPROF_COUNTERS)
 #ifdef PROF_COUNTERS
         {   char m[96]; std::snprintf(m,sizeof m,"[eipdump] %llu echantillons, top %d",

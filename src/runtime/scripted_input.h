@@ -11,6 +11,7 @@ extern bool g_snap;                     // one-shot frame dump request (D2SCRIPT
 extern uint8_t g_keyState[256];         // VK states driven by injected input
 
 extern "C" { __attribute__((weak)) void d2vita_input_tick(void); }   // Vita physical-input tick (weak)
+extern "C" void d2vita_vpad_get(uint32_t* buttons, uint8_t axes[4]);   // virtual pad (padb/pada commands)
 
 void win_activate_once();               // WM_ACTIVATEAPP/ACTIVATE/SETFOCUS, idempotent
 void inj_parse(const char* s);          // parses D2SCRIPT into the scheduled event list
