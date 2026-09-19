@@ -460,10 +460,21 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
                     uint32_t ui[38]; for(int i=0;i<38;i++) ui[i]=c.read_u32(g_d2base+0x003a27c0u+4u*(uint32_t)i);
                     uint32_t lvl=0; int32_t pfx=0,pfy=0;
                     if(pl && path){
-                        pfx=(int32_t)c.read_u32(path+8); pfy=(int32_t)c.read_u32(path+0xc);     // same source as the units
+                        // Fine position at camera-hook time: pPath+0/+4, NOT +8/+0xC.
+                        // Proven by the existing D2GR_OP_CAMERA consumer (replay60.cpp
+                        // worldToScreen on frame-to-frame deltas of exactly these two
+                        // words; replay60.h calls them "camera = player, 16.16") — the
+                        // spec table's +8/+0xC is what GetUnitX/Y return, which is only
+                        // populated once this frame's unit-draw pass reaches the player;
+                        // read that early (camera fires "right before the world"), it is
+                        // still last frame's value or zero. Confirmed by a qemu diagnostic
+                        // dump: +0/+4 gave plausible large 16.16 values (~4874,~4228
+                        // subtiles) while +8/+0xC gave near-zero garbage, at the same tick.
+                        pfx=(int32_t)w[3]; pfy=(int32_t)w[4];
                         const uint32_t r1=c.read_u32(path+0x1c);
                         if(r1){ const uint32_t r2=c.read_u32(r1+0x10);
-                            if(r2){ const uint32_t lv=c.read_u32(r2+0x58); if(lv) lvl=c.read_u32(lv+0x1f8); } } }
+                            if(r2){ const uint32_t lv=c.read_u32(r2+0x58); if(lv) lvl=c.read_u32(lv+0x1f8); } }
+                    }
                     padst::frame_begin(w[2], pfx, pfy, (int32_t)w[0], (int32_t)w[1], lvl,
                                        c.read_u32(g_d2base+0x003a6a94u), c.read_u32(g_d2base+0x003a6a78u),
                                        c.read_u32(g_d2base+0x003a6a8cu), ui);
