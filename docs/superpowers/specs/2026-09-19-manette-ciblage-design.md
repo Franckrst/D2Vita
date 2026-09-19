@@ -229,3 +229,106 @@ lancer sera observé une fois en ligne en phase 2).
 | Coût des crochets (≈ 100 pièges/image) | mesuré à 1,29 µs par appel ⇒ < 0,5 % d'une image de 40 ms ; `scheme=mouse` désarme tout |
 | Le F-key à chaque lancer spamme le serveur en ligne | hors périmètre snapshot ; phase 2 : n'envoyer que si le slot change (lecture `pInfo+0xC` du joueur) |
 | Panneau non détecté (chat, dialogue PNJ sans UiVar) | journal des UiVar ; le tactile reste toujours fonctionnel |
+
+## 11. Résultat snapshot 1 (console, 2026-09-19)
+
+**Bilan : projection et déplacement PROUVÉS sur console réelle après un bug bloquant corrigé en cours de route ; ciblage hostile encore bloqué par un second bug, non corrigé, documenté ci-dessous.**
+
+### Bug bloquant trouvé et corrigé (commit `d190222`)
+
+Le premier passage sur Vita3K (agent dédié) a montré `fine=(-1,1)` (quasi zéro) au lieu
+d'une position plausible, et un déplacement au stick gauche sans aucun effet visible sur
+2,5 s. Root cause (méthode `systematic-debugging`, reproduite en qemu déterministe via
+`tools/rt_gameplay_arm_check.sh`, personnage VITA au camp) : le crochet de SORTIE caméra
+lisait `pPath+8/+0xC` (convention « GetUnitX/Y » de la table §3, correcte pour les unités
+lues au dessin) au lieu de `pPath+0/+4` — le pointeur que l'opcode `D2GR_OP_CAMERA`
+existant (replay60, éprouvé sur console depuis des mois) capture déjà pour le même usage.
+`+8/+0xC` n'est vraisemblablement rafraîchi que par la passe de dessin par-unité, qui
+tourne APRÈS le crochet caméra (« juste avant le monde ») : le lire à cet instant renvoie
+zéro ou la valeur de l'image précédente. Confirmé en qemu : `p04=(370507776,361988096)`
+(~4874,~4228 sous-tuiles, plausible) contre `p8c=(2080,89416)` (~0,~1, incohérent), au
+même tick. Correctif : réutiliser directement les mots déjà lus pour la caméra au lieu de
+relire `pPath+8/+0xC`. Aucune régression (`rt_boot_arm_check.sh` et
+`rt_gameplay_arm_check.sh` repassent verts).
+
+### Vita3K (agent dédié, préfixe isolé `/tmp/vita3k_manette`, TITLE=DTWO00077)
+
+Avant le correctif : projection fausse, aucun mouvement observable (captures avant/après
+identiques au pixel après 2,5 s de stick plein droit).
+
+Après le correctif (re-validation, même VPK reconstruit) :
+- `input: schema v2 (visee assistee) actif` : présent.
+- `pad: joueur ecran=(400,284) view=(-18240,77652) fine=(4313,5428)` : stable sur 60/60
+  lignes, valeur plausible (centre de l'image 800×600).
+- Déplacement confirmé deux fois par captures avant/après : le stick plein droit a
+  rapproché le personnage assez pour déclencher le message de proximité de Warriv ; le
+  stick plein bas a fait défiler entièrement le décor du camp (tentes/caisses hors
+  cadre, nouveau terrain visible).
+- `pad: niveau=0 ville=1` : présent (voir bug ouvert ci-dessous).
+- Cible hostile (`pad: cible`) : non testée, le personnage n'a pas quitté la ville lors
+  des essais (recherche de la sortie du camp infructueuse en un nombre raisonnable
+  d'essais).
+
+### Console réelle (10.113.1.159, DTWO00001, build `d190222`)
+
+Procédure : `env.txt` absent avant test (confirmé, rien à restaurer sur ce fichier) ;
+créé avec `D2_PADLOG=1` + `D2CMDFILE=ux0:data/d2vita/d2cmd.txt`, puis supprimé après le
+test (état d'origine restauré). Sauvegarde `VITA.d2s`/`VITA.key` (identiques à celles du
+banc Vita3K partagé, même format de sauvegarde) copiées sur la console pour éviter de
+rejouer la création de personnage sur un flux de test — dossier `save/` vide au départ,
+rien écrasé.
+
+**Constat méthodologique important pour de futurs tests à distance** : le pipeline
+`D2CMDFILE` (upload FTP → lecture par le jeu) a montré une latence systématique
+d'environ 60 s entre l'écriture du fichier et son effet observable en jeu — largement
+au-dessus de la période de scrutation nominale (`D2_CMDMS`, 500 ms par défaut). Cause non
+investiguée (possiblement la couche FTP de VitaShell/le rouvre-fichier de `cmd_poll`
+après une série de sondages sans nouveauté). Ceci a initialement fait paraître un test
+d'interaction (L) en échec — une capture prise trop tôt ne montrait pas encore le menu
+PNJ — alors que le journal, relu plus tard, montre `pad: uivar[8]=1` (menu PNJ de Warriv
+ouvert) survenant bien après l'action, à l'heure attendue compte tenu du délai. Ne pas
+conclure d'un test négatif sur console via ce canal sans attendre largement plus que le
+délai naïvement attendu.
+
+Résultats obtenus, avec preuve :
+1. **Hooks et schéma actifs** : `ringtag: … pad=oui` et `input: schema v2 (visee
+   assistee) actif` au boot. PASS.
+2. **Projection joueur** : `pad: joueur ecran=(400,284) fine=(4313,5428)` — identique au
+   run Vita3K post-correctif, à l'unité près. PASS.
+3. **Déplacement (stick gauche)** : confirmé par capture d'écran réelle (`L+Start`) — le
+   personnage est visible juste à côté de Warriv avec son infobulle « WARRIV / TALK /
+   CANCEL » après un déplacement stick-droit-tenu de 3 s, exactement la même preuve
+   comportementale que sur Vita3K. PASS sur la direction testée ; les 7 autres directions
+   et le test précis « relâcher arrête en moins d'un pas » reposent sur la couverture PC
+   (92 tests, dont `test_orbit`/`test_scheme_move`) plutôt que sur une capture console
+   dédiée — non re-vérifiés individuellement sur console faute de temps.
+4. **L (interagir)** : `pad: uivar[8]=1` confirme l'ouverture du menu PNJ de Warriv après
+   un appui L maintenu. PASS (preuve journal ; la capture d'écran associée a été prise
+   avant que l'effet ne soit visible, à cause du délai `D2CMDFILE` ci-dessus).
+5. **Croix → attaque au corps-à-corps le plus proche (Blood Moor)** : NON TESTÉ — la
+   sortie du camp n'a pas été atteinte pendant les essais (Vita3K et console). De toute
+   façon **bloqué par construction tant que le bug niveau ci-dessous n'est pas corrigé** :
+   `pad_is_town()` traite tout comme ville quand `niveau=0`, donc `hostile` n'est jamais
+   vrai nulle part.
+6. **Radial → arbre de compétences, inventaire, `scheme=mouse`, comparaison images/s** :
+   non re-testés indépendamment sur console cette session (contrainte de temps face à la
+   latence `D2CMDFILE` ~60 s/action). Couverts par les tests PC (`test_scheme_panel_and_leave`
+   pour le radial/panneaux/arbre) ; `scheme=mouse` emprunte un chemin de code legacy
+   **non modifié** par ce plan (seule une porte de sortie anticipée a été ajoutée avant
+   lui), donc à risque structurellement bas mais pas vérifié empiriquement ici.
+
+### Bug ouvert (non corrigé dans cette snapshot)
+
+**Chaîne de niveau** (`pPath+0x1C → Room1 → +0x10 Room2 → +0x58 Level → +0x1F8
+dwLevelNo`) : les trois pointeurs intermédiaires résolvent (non nuls, vérifié en qemu
+déterministe) mais `lvl=0` au lieu de `1` au camp des Rogues. Un balayage mémoire autour
+des trois pointeurs candidats n'a pas révélé d'offset de repli évident (plusieurs petites
+valeurs plausibles mais dispersées, aucune isolée comme LA bonne). Nécessite un
+désassemblage ciblé (pas fait ici, faute de xref connue vers une fonction qui lit
+`dwLevelNo`). **Conséquence concrète** : `pad_is_town()` retourne vrai partout tant que
+`niveau` reste à 0, donc le ciblage hostile automatique (§5.2) ne s'engage jamais, nulle
+part — la snapshot livre le déplacement, la visée manuelle et l'interaction, mais pas
+encore le ciblage automatique. Tâche de correction dédiée à ouvrir séparément (pas un
+contournement documentaire : le comportement de repli — traiter l'inconnu comme ville,
+donc ne jamais cibler par erreur — est déjà celui prévu par la conception §4 pour ce cas
+d'échec, donc rien ne casse, la fonctionnalité est juste incomplète).
