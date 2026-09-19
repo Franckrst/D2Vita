@@ -342,6 +342,7 @@ static void test_scheme_loot_browse() {
     c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
     CHECK(hasAct(a, pad::A_KEYDOWN, 0x12));
     CHECK(s.lootCursor().has && s.lootCursor().id == 50);
+    CHECK(!s.target().has);   // hostile-target diamond suppressed while browsing loot
 
     // D-pad left: moves to item 51; does NOT also drink a belt potion
     c.buttons = pad::B_R | pad::B_L | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
@@ -367,7 +368,7 @@ static void test_scheme_loot_browse() {
     // Croix: picks up item 50 via the same hover mechanism L already uses (h=6 for items)
     c.buttons = pad::B_R | pad::B_L | pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
     CHECK(hasAct(a, pad::A_MOVE, 480, 294) && hasAct(a, pad::A_LDOWN, 480, 294));
-    CHECK(!hasAct(a, pad::A_KEY, 0x70));                          // did NOT also cast skill 1
+    CHECK(!s.casting());                                          // did NOT also start a cast (any slot)
 
     // D-pad is locked out while the pickup is held
     c.buttons = pad::B_R | pad::B_L | pad::B_CROSS | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
@@ -377,10 +378,21 @@ static void test_scheme_loot_browse() {
     c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
     CHECK(hasAct(a, pad::A_LUP));
 
+    // move to item 51 before Alt ends, so re-entry below can prove it re-derives the
+    // nearest item rather than resuming this stale selection
+    c.buttons = pad::B_R | pad::B_L | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
+    CHECK(s.lootCursor().id == 51);
+    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
+
     // release L (R still held): Alt ends, selection forgotten
     c.buttons = pad::B_R; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
     CHECK(hasAct(a, pad::A_KEYUP, 0x12));
     CHECK(!s.lootCursor().has);
+
+    // re-entering Alt after it fully ended re-derives nearest-to-player (50), rather
+    // than resuming the stale selection (51) from before Alt ended
+    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
+    CHECK(s.lootCursor().id == 50);
 }
 
 static void test_scheme_panel_and_leave() {

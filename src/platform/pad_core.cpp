@@ -365,7 +365,7 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
     // ---- Alt held: browse ground items (D-pad = cursor, Croix = pick up) ----
     if (alt_) {
         int fromIdx = findId(u, n, lootCursorId_);
-        if (fromIdx < 0) { fromIdx = nearest_item(u, n, v); lootCursorId_ = fromIdx >= 0 ? u[fromIdx].id : 0; }
+        if (fromIdx < 0 && !interact_) { fromIdx = nearest_item(u, n, v); lootCursorId_ = fromIdx >= 0 ? u[fromIdx].id : 0; }
         if (fromIdx >= 0 && !interact_) {
             static const Dir kDirs[4] = { D_UP, D_LEFT, D_DOWN, D_RIGHT };   // matches kDpadBits order
             for (int i = 0; i < 4; ++i) if (down & kDpadBits[i]) {
@@ -393,6 +393,7 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
         if (fromIdx >= 0) { lootTgt_.has = true; lootTgt_.id = u[fromIdx].id; lootTgt_.sx = u[fromIdx].sx; lootTgt_.sy = u[fromIdx].sy; }
     } else {
         lootTgt_ = Target{};
+        lootCursorId_ = 0;
         if (lootConfirm_ && interact_) { out.push(A_LUP, cx_, cy_); interact_ = false; lootConfirm_ = false; interId_ = 0; }
     }
 
