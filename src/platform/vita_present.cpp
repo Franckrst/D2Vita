@@ -162,6 +162,7 @@ radial_menu::State g_rm{};            // radial menu: state written by the input
 // Scheme v2 overlay (game coords), written by the input tick, read by the
 // presentation thread (display only): current hostile target + ground aim point.
 volatile int g_ret_has = 0, g_ret_ver = 0, g_ret_x = 0, g_ret_y = 0, g_aim_on = 0, g_aim_x = 0, g_aim_y = 0;
+volatile int g_loot_has = 0, g_loot_x = 0, g_loot_y = 0;   // Phase 2: ground-item browse cursor
 inline void draw_keyboard(uint32_t* fb){ d2kb::draw(g_kb, fb, SCR_W, SCR_H); }
 // --- async present: the scale+flip runs on its OWN Vita core -----------------
 // The guest emulation is single-core; the 960x544 palette scale (~2-5 ms of
@@ -396,7 +397,7 @@ void* alloc_fb(SceUID* uid) {
 // game is verified to hover it, white before), a dot at the ground aim point.
 // Game -> screen uses the same stretch as the presentation (vita_gxm.cpp).
 static void draw_reticle(uint32_t* fb) {
-    if (!g_ret_has && !g_aim_on) return;
+    if (!g_ret_has && !g_aim_on && !g_loot_has) return;
     using radial_menu::draw_detail::blend_px;
     const int gw = g_game_w > 0 ? g_game_w : 800, gh = g_game_h > 0 ? g_game_h : 600;
     if (g_ret_has) {
@@ -412,6 +413,22 @@ static void draw_reticle(uint32_t* fb) {
     if (g_aim_on) {
         const int ax = g_aim_x * SCR_W / gw, ay = g_aim_y * SCR_H / gh;
         for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) blend_px(fb, SCR_W, SCR_H, ax + dx, ay + dy, 255, 255, 255, 200);
+    }
+    if (g_loot_has) {
+        // Cyan corner brackets: deliberately distinct from the gold/white
+        // hostile-target diamond, so the two are never confused at a glance.
+        const int cx = g_loot_x * SCR_W / gw, cy = g_loot_y * SCR_H / gh - 6;
+        const uint8_t r = 80, g = 220, b = 255;
+        for (int d = 0; d <= 6; ++d) {
+            blend_px(fb, SCR_W, SCR_H, cx - 12, cy - 12 + d, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx - 12 + d, cy - 12, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx + 12, cy - 12 + d, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx + 12 - d, cy - 12, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx - 12, cy + 12 - d, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx - 12 + d, cy + 12, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx + 12, cy + 12 - d, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx + 12 - d, cy + 12, r, g, b, 220);
+        }
     }
 }
 
@@ -1687,6 +1704,8 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
     const pad::Target t = g_scheme->target();
     g_ret_has = t.has; g_ret_ver = t.verified; g_ret_x = t.sx; g_ret_y = t.sy;
     g_aim_on = g_scheme->aimActive(); g_aim_x = g_scheme->aimX(); g_aim_y = g_scheme->aimY();
+    const pad::Target lt = g_scheme->lootCursor();
+    g_loot_has = lt.has; g_loot_x = lt.sx; g_loot_y = lt.sy;
 
     bool moved = false;
     touch_tick(!g_scheme->cursorOwned(), &moved);
