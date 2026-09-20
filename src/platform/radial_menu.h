@@ -111,8 +111,7 @@ inline void draw_wedge(uint32_t* fb, int W, int H, const unsigned char* sprite, 
             // presents. The range test below is the very test floor() would
             // have passed (floor(v) < 0 <=> v < 0, and floor(v) >= n <=>
             // v >= n); once it holds the value is non-negative, and there the
-            // plain cast IS floor. Same pixels, no call — see
-            // tools/oracle_radial.sh.
+            // plain cast IS floor. Same pixels, no call.
             const float sx = lxp + ax, sy = lyp + ay;
             if (sx < 0.0f || sx >= fsw || sy < 0.0f || sy >= fsh) continue;
             const unsigned char* p = sprite + ((size_t)(int)sy * sw + (int)sx) * 4;
@@ -145,8 +144,10 @@ constexpr int RM_ATLAS_DIM = 256;      // 256x256 RGBA = 256 Kio, tout tient
 struct AtlasRect { int x, y, w, h; };
 struct Quad { float x[4], y[4]; float u[4], v[4]; };   // coins écran, puis UV atlas
 
-// Gouttière d'un pixel entre les sous-rectangles : même en filtrage POINT,
-// coller deux sprites bord à bord dans un atlas finit toujours par baver.
+// Gouttière d'un pixel entre les sous-rectangles. En filtrage POINT elle ne
+// sert à rien : les UV tombent pile sur les texels. Elle est là pour le jour
+// où on passerait en LINEAR, où un sprite collé au suivant lui emprunterait
+// ses bords.
 inline AtlasRect atlas_wedge(bool glow) {
     return glow ? AtlasRect{1, 109, RM_WEDGE_W, RM_WEDGE_H}
                 : AtlasRect{1,   1, RM_WEDGE_W, RM_WEDGE_H};
