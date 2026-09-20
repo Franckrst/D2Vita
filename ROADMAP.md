@@ -47,6 +47,33 @@ the source of truth for the public repository.
       refuted — a `ForVM` block larger than 16 MiB is refused by the kernel
       (a kernel ceiling, not a project choice); the risk of `std::bad_alloc`
       in real play is still open, with no known zero-cost fix
+- [ ] **The JIT pool is never evicted, and that is fatal**: nothing frees a
+      translated block, so the pool saturates after roughly 20 minutes of
+      play. Once it is full and the kernel refuses a new segment, the first
+      block that has never been translated kills the guest thread outright —
+      there is no interpreter to fall back to. This is what the field
+      reports: 52 of the 62 crash claims received from 0.1.6, across 27
+      consoles. A segment request now steps down (16 → 8 → 4 → 2 → 1 MiB)
+      instead of giving up, the pool's occupancy is on the `alive:` line and
+      announced at 75/90/95 %, and the death is named rather than filed under
+      a generic dynarec fault — but **the real fix is not in**: flushing the
+      translated cache and retrying the translation needs all guest threads
+      quiesced first (`mutex_dyndump` is non-recursive and `FreeRangeDynablock`
+      takes it), so it is a design task with its own qemu + console
+      validation, not a patch.
+- [ ] **`Crash.txt` reports a stack address where the game writes
+      `_ReturnAddress()`**: all six `halt` reports received show it, on every
+      build. The line number pushed as an immediate is correct, so only EAX
+      is wrong at `Game+0x8090` (`mov eax,[esp]`). Mechanism not understood;
+      it degrades every `Crash.txt` we receive.
+- [ ] **Signature `SNALU33A2TNV5UYB` (halt 3544) unresolved**: the game is
+      refused `grey.dat` from `d2data.mpq` 8 s into boot, while the log proves
+      the archive was mounted and that no sector was ever read from it — so
+      the failure is in name resolution, in memory, before any I/O. The two
+      candidates left are a hash table whose CONTENT is wrong without being
+      truncated, and a signature that covers more than one cause. A refused
+      archive open is now named in `boot_progress.txt`, which is the evidence
+      that was missing.
 
 ## Not started
 

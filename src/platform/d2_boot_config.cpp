@@ -40,6 +40,25 @@
 #include <pthread.h>
 
 extern "C" long long d2vita_wall_unix(void);
+// The compiled-in write root: what D2WRITE is set to below when env.txt does
+// not override it, and the fallback when an overridden root cannot be written.
+#ifdef D2VPK_TAG
+#define D2V_WRITE_DEFAULT "ux0:data/d2vita/save_" D2VPK_TAG
+#else
+#define D2V_WRITE_DEFAULT "ux0:data/d2vita/save"
+#endif
+
+// sceIoMkdir creates ONE level: "ux0:data/d2vita/save2" fails outright if any
+// parent is missing, and it returns an error for a directory that already
+// exists. Walk the path and make each component, ignoring both outcomes -- the
+// write probe at the call site is what decides whether the root is usable.
+static void mkdir_p_vita(const char* path) {
+    char buf[224]; snprintf(buf, sizeof buf, "%s", path);
+    for (char* p = buf; *p; ++p)
+        if (*p == '/' && p != buf) { *p = 0; sceIoMkdir(buf, 0777); *p = '/'; }
+    sceIoMkdir(buf, 0777);
+}
+
 const char* d2vita_platform_init() {
     // No clock request = the app runs at the default 333 MHz ARM (power
     // management may drop it further). Clocks are requested (and logged)
@@ -126,10 +145,14 @@ const char* d2vita_platform_init() {
     setenv("GAMEEXE", "1", 1);
     setenv("D2ARGS", "game.exe -3dfx", 1);   // Glide is the default renderer; see the perf block below
     setenv("D2LAYOUT", "compact", 1);
-    setenv("D2ARENA", "11F00000", 1);   // 297 MiB single block: covers the packed
-                                          // 1.14d compact span up to the 0x11900000
+    setenv("D2ARENA", "12700000", 1);   // 295 MiB single block: covers the packed
+                                          // 1.14d compact span up to the 0x11700000
                                           // trap ceiling + 16 MiB membase-rounding
-                                          // slack (~330 MiB real-Vita user budget)
+                                          // slack (~330 MiB real-Vita user budget).
+                                          // Grew with the 8 MiB heap-ceiling raise in
+                                          // apply_compact_layout (rt_boot.cpp) — the two
+                                          // MUST move together or the span overflows the
+                                          // arena and H(va)=va+membase leaves the block.
     // MAXFRAMES / MAXSW deliberately NOT baked: unset = unlimited. A real play
     // session must never self-terminate (the old baked MAXFRAMES=40000 ended
     // every session after ~30-45 min, losing unsaved progress). The test
@@ -1324,13 +1347,52 @@ const char* d2vita_platform_init() {
                  scePowerGetGpuClockFrequency(), scePowerGetGpuXbarClockFrequency());
         d2vita_progress(m);
     }
-#ifdef D2VPK_TAG
-    sceIoMkdir("ux0:data/d2vita/save_" D2VPK_TAG, 0777);
-    sceIoMkdir("ux0:data/d2vita/save_" D2VPK_TAG "/Save", 0777);
-#else
-    sceIoMkdir("ux0:data/d2vita/save", 0777);
-    sceIoMkdir("ux0:data/d2vita/save/Save", 0777);
-#endif
+    // Create the write root that will ACTUALLY be used, whatever it is.
+    //
+    // env.txt has been read above, so a D2WRITE override is already in the
+    // environment by the time we get here. Only the compiled-in literals used
+    // to be created; a root named in env.txt was never created on the console,
+    // because the `mkdir -p` that covers it (tools/rt_boot.cpp) sits behind
+    // #ifndef __vita__ and so only ever ran on the desktop and under qemu.
+    // Every write then failed with ENOENT, Diablo II's CRT reached
+    // _invoke_watson through an fprintf() on a null FILE*, and the process was
+    // killed with 0xC000000D about 11 s into the session -- crash signature
+    // SYUKAFUDE7CNLARF, still live on 0.1.6. docs-site/gains.md recommended
+    // exactly such a root, so the player was following our own documentation.
+    {
+        const char* wr = getenv("D2WRITE");
+        if (!wr || !*wr) wr = D2V_WRITE_DEFAULT;
+        char root[192]; snprintf(root, sizeof root, "%s", wr);
+        char sub[208]; snprintf(sub, sizeof sub, "%s/Save", root);
+        mkdir_p_vita(root);
+        mkdir_p_vita(sub);
+        // Probe it rather than trust the mkdir return: the directory may exist
+        // and still be unwritable (read-only card, full card, bad path).
+        char probe[224]; snprintf(probe, sizeof probe, "%s/.d2vita_write", root);
+        bool ok = false;
+        if (FILE* pf = fopen(probe, "wb")) { ok = (fputc('d', pf) != EOF); fclose(pf);
+                                             sceIoRemove(probe); }
+        if (!ok && strcmp(root, D2V_WRITE_DEFAULT) != 0) {
+            // Named root unusable: fall back to the compiled one and SAY SO,
+            // instead of letting the game die on its first save.
+            char m[288]; snprintf(m, sizeof m,
+                "ecriture: %s INUTILISABLE — repli sur %s (D2WRITE ignore)", root, D2V_WRITE_DEFAULT);
+            d2vita_progress(m);
+            setenv("D2WRITE", D2V_WRITE_DEFAULT, 1);
+            snprintf(root, sizeof root, "%s", D2V_WRITE_DEFAULT);
+            snprintf(sub, sizeof sub, "%s/Save", root);
+            mkdir_p_vita(root);
+            mkdir_p_vita(sub);
+            if (FILE* pf = fopen(probe, "wb")) { fclose(pf); sceIoRemove(probe); ok = true; }
+        }
+        char m[256]; snprintf(m, sizeof m, "ecriture: racine=%s %s", root, ok ? "OK" : "EN ECHEC");
+        d2vita_progress(m);
+        // Tell the crash reporter which root this session ACTUALLY writes to.
+        // Its own record was filled from the baked default before env.txt was
+        // even read, and that record is where the next boot looks for
+        // crash.log and Crash.txt.
+        d2cr::d2cr_session_write_root(root);
+    }
 #ifdef D2VPK_TAG
     d2vita_progress("flavour: " D2VPK_TAG " (A/B par shim)");
 #else
