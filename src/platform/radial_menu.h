@@ -99,14 +99,23 @@ inline void draw_wedge(uint32_t* fb, int W, int H, const unsigned char* sprite, 
     int x0 = (int)floorf(minx), x1 = (int)ceilf(maxx);
     int y0 = (int)floorf(miny), y1 = (int)ceilf(maxy);
     if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0; if (x1 > W) x1 = W; if (y1 > H) y1 = H;
+    const float fsw = (float)sw, fsh = (float)sh;   // hoisted: the inner test runs per pixel
     for (int y = y0; y < y1; ++y) {
         for (int x = x0; x < x1; ++x) {
             const float wx = (float)x + 0.5f - pivot_x, wy = (float)y + 0.5f - pivot_y;
             const float lxp = wx * ct + wy * st;          // R(-theta) = R^T (orthonormal rotation)
             const float lyp = -wx * st + wy * ct;
-            const int ix = (int)floorf(lxp + ax), iy = (int)floorf(lyp + ay);
-            if (ix < 0 || ix >= sw || iy < 0 || iy >= sh) continue;
-            const unsigned char* p = sprite + ((size_t)iy * sw + ix) * 4;
+            // Source pixel WITHOUT floorf(): ARMv7 has no floor instruction,
+            // so floorf() is a library call — and this loop made two of them
+            // per pixel, ~160 000 pixels per frame, on the thread that
+            // presents. The range test below is the very test floor() would
+            // have passed (floor(v) < 0 <=> v < 0, and floor(v) >= n <=>
+            // v >= n); once it holds the value is non-negative, and there the
+            // plain cast IS floor. Same pixels, no call — see
+            // tools/oracle_radial.sh.
+            const float sx = lxp + ax, sy = lyp + ay;
+            if (sx < 0.0f || sx >= fsw || sy < 0.0f || sy >= fsh) continue;
+            const unsigned char* p = sprite + ((size_t)(int)sy * sw + (int)sx) * 4;
             blend_px(fb, W, H, x, y, p[0], p[1], p[2], p[3]);
         }
     }
