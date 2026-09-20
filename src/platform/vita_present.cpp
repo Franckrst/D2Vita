@@ -167,7 +167,7 @@ radial_menu::State g_rm{};            // radial menu: state written by the input
 // several stores (a fresh `has` paired with a stale x/y from the previous
 // target/item showed up on console as an intermittent, sometimes-large
 // jump of the loot cursor).
-struct OverlayPub { int retHas, retVer, retX, retY, aimOn, aimX, aimY, lootHas, lootX, lootY, lootW, lootH; };
+struct OverlayPub { int retHas, retVer, retX, retY, lootHas, lootX, lootY, lootW, lootH; };
 static volatile unsigned g_ovSeq = 0;
 static OverlayPub g_ovPub = {};
 static void overlay_publish(const OverlayPub& p) {
@@ -419,12 +419,13 @@ void* alloc_fb(SceUID* uid) {
 } // namespace
 
 // Scheme v2 overlay: a diamond on the current hostile target (gold once the
-// game is verified to hover it, white before), a dot at the ground aim point,
-// and cyan corner brackets on the ground-item browse cursor (Phase 2).
+// game is verified to hover it, white before) and cyan corner brackets on the
+// ground-item browse cursor (Phase 2). No ground-aim dot: the cast lands where
+// the cursor already is, so the cursor IS that marker.
 // Game -> screen uses the same stretch as the presentation (vita_gxm.cpp).
 static void draw_reticle(uint32_t* fb) {
     const OverlayPub ov = overlay_read();
-    if (!ov.retHas && !ov.aimOn && !ov.lootHas) return;
+    if (!ov.retHas && !ov.lootHas) return;
     using radial_menu::draw_detail::blend_px;
     const int gw = g_game_w > 0 ? g_game_w : 800, gh = g_game_h > 0 ? g_game_h : 600;
     if (ov.retHas) {
@@ -436,10 +437,6 @@ static void draw_reticle(uint32_t* fb) {
             blend_px(fb, SCR_W, SCR_H, cx - 10 + d, cy + d, r, g, b, 220);
             blend_px(fb, SCR_W, SCR_H, cx + 10 - d, cy + d, r, g, b, 220);
         }
-    }
-    if (ov.aimOn) {
-        const int ax = ov.aimX * SCR_W / gw, ay = ov.aimY * SCR_H / gh;
-        for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) blend_px(fb, SCR_W, SCR_H, ax + dx, ay + dy, 255, 255, 255, 200);
     }
     // Corner brackets around the selected item's label: centered on the
     // rect the game itself laid out, sized to it (0 = no label this frame,
@@ -1645,6 +1642,17 @@ void load_controls_txt(){
         else if (!strcasecmp(line,"cone"))     { g_padcfg.coneDeg=(float)atof(v); n++; continue; }
         else if (!strcasecmp(line,"hover_h"))  { g_padcfg.hoverH=atoi(v); n++; continue; }
         else if (!strcasecmp(line,"hud_h"))    { g_padcfg.hudH=atoi(v); n++; continue; }
+        // slot1..slot7 = hostile | ground | corpse -- what that skill slot
+        // aims at. Ground so teleport lands where you point instead of on the
+        // monster; corpse so the necromancer's corpse skills see the dead,
+        // which the hostile filter drops by construction.
+        else if (!strncasecmp(line,"slot",4) && line[4]>='1' && line[4]<='7' && !line[5]) {
+            const int idx = line[4]-'1';
+            if      (!strcasecmp(v,"ground")) g_padcfg.slotKind[idx]=pad::T_GROUND;
+            else if (!strcasecmp(v,"corpse")) g_padcfg.slotKind[idx]=pad::T_CORPSE;
+            else                              g_padcfg.slotKind[idx]=pad::T_HOSTILE;
+            n++; continue;
+        }
         bool layer = !strncasecmp(line,"r+",2);
         uint32_t bit = name_bit(layer?line+2:line);
         Act a; if (!bit || !parse_act(v,&a)) continue;
@@ -1717,10 +1725,14 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
         o.id = q.id; o.type = q.type; o.cls = q.cls;
         pad::world_to_screen(v, q.fx, q.fy, &o.sx, &o.sy);
         if (q.type == 1) {
-            const bool alive = q.mode != 0 && q.mode != 12;
+            const bool alive = q.mode != 0 && q.mode != 12;             // 0 = dying, 12 = dead
             const bool ours  = q.ownerType == 0 && q.ownerId != 0 && q.ownerId == s.playerId;   // ownerType 0 = owned by a PLAYER
             o.hostile  = alive && !town && !ours && !pad_is_merc(q.cls);
             o.interact = alive && town;                                // town NPCs
+            // A corpse is a target in its own right (corpse explosion,
+            // revive, raise skeleton). OUR OWN summons' corpses count too --
+            // the game lets you explode those as readily as any other.
+            o.corpse   = !alive && !town;
         } else if (q.type == 2) o.interact = true;                    // chests, corpses, stashes
         else if (q.type == 4) o.interact = true;                      // items: browsed with Alt, never an L target
         if (q.type == 4) {
@@ -1744,9 +1756,8 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
     pad::Actions a; g_scheme->tick(c, x, v, units, n, a); pad_emit(a);
     g_cx = (float)g_scheme->cx(); g_cy = (float)g_scheme->cy();
     const pad::Target t = g_scheme->target();
-    const bool aimOn = g_scheme->aimActive(); const int aimX = g_scheme->aimX(), aimY = g_scheme->aimY();
     const pad::Target lt = g_scheme->lootCursor();
-    overlay_publish(OverlayPub{ t.has, (int)t.verified, t.sx, t.sy, aimOn, aimX, aimY,
+    overlay_publish(OverlayPub{ t.has, (int)t.verified, t.sx, t.sy,
                                 lt.has, lt.sx, lt.sy, lt.w, lt.h });
 
     bool moved = false;
@@ -1877,7 +1888,10 @@ extern "C" void d2vita_input_tick(void){
     // consommait l'appui : la navigation vers le bas n'atteignait jamais
     // aim_tick — or c'est justement l'axe qui compte, deux objets sur la meme
     // tuile empilant leurs etiquettes verticalement.
-    if ((b&B_DOWN) && !(was&B_DOWN) && (b&B_L) && !(b&B_R)) {
+    // Schema v2 : c'est une PRESSION BREVE sur L seul qui bascule la course
+    // (pad_core, kTapTicks), L maintenu valant Maj « sur place ». Ce raccourci
+    // ne sert donc plus qu'au schema souris (legacy).
+    if (!g_scheme_aim && (b&B_DOWN) && !(was&B_DOWN) && (b&B_L) && !(b&B_R)) {
         d2vita_inject("key", 0x52, 0);
         return;                     // consomme : pas de potion 2 non plus
     }
@@ -1893,7 +1907,13 @@ extern "C" void d2vita_input_tick(void){
     // open, Triangle (without R) reverts to its keyboard-internal role
     // (toggle echo masking, see the g_kb.open block below) — closing stays on
     // Select.
-    if ((b&B_TRI)&&!(was&B_TRI)&&layer&&!g_kb.open){
+    // Schema v2 : L + Droite (R+Triangle y est la compétence 7). Legacy :
+    // R+Triangle, inchange. Dans les deux cas on consomme l'appui, sinon la
+    // Droite partirait aussi en potion 4 de ceinture.
+    const bool kb_open_edge = g_scheme_aim
+        ? ((b&B_RIGHT) && !(was&B_RIGHT) && (b&B_L) && !(b&B_R))
+        : ((b&B_TRI)   && !(was&B_TRI)   && layer);
+    if (kb_open_edge && !g_kb.open){
         if (g_kb_simple < 0){ const char* e=getenv("D2_KBSIMPLE"); g_kb_simple = (e&&*e&&strcmp(e,"0"))?1:0; }
         pad_leave();
         d2kb::open_kb(g_kb, g_kb_simple);

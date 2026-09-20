@@ -11,28 +11,46 @@
 | Entrée Vita | Action Diablo II |
 |---|---|
 | Stick gauche | **Déplacement seul** : le personnage marche dans la direction du stick (rayon selon l'inclinaison), sans jamais attaquer, parler ni ramasser par accident ; relâcher = arrêt net |
-| Stick droit | **Visée** : choisit l'ennemi dans un cône de ±35° ; pour un sort au sol (téléport, météore…), la distance suit l'inclinaison |
-| Croix / Rond / Carré / Triangle | **Compétences 1 à 4**, lancer immédiat sur l'ennemi ciblé (le plus proche si le stick droit est au repos) ; maintenir = répéter |
-| R maintenu + faces | Compétences 5 à 8 |
-| L | **Interagir** : coffre / porte / PNJ le plus proche, sinon attaque de base sur la cible (les objets au sol, c'est Alt + Croix) |
+| Stick droit | **Curseur libre**, comme sur PC : il ne clique rien tout seul, et il atteint le HUD (ceinture, boutons de compétences) |
+| Croix | **Le bouton d'action** : l'objet au sol en cours de parcours, sinon ce que vous visez, sinon un coffre / une porte / un portail / un PNJ à portée, sinon l'ennemi le plus proche |
+| Rond / Carré / Triangle | **Compétences 1 à 3**. Le lancer saute sur l'ennemi dans un cône de ±35° autour du curseur (le plus proche si le curseur est posé sur le personnage), puis rend le curseur aussitôt ; maintenir = répéter |
+| R maintenu + faces | Compétences 4 à 7 |
+| L maintenu | **Sur place** (Maj) : lancer et attaquer sans bouger |
+| L, pression brève | Marche/course (bascule) |
+| L + D-pad → | Clavier virtuel |
 | R puis L (maintenus) | Alt — étiquettes des objets au sol ; D-pad = déplacer le curseur d'objet en objet (vers le plus proche du curseur dans cette direction), Croix = ramasser l'objet sélectionné (repère cyan) |
 | D-pad ↑ / ← / ↓ / → | Potions ceinture 1 / 2 / 3 / 4 |
-| L + D-pad ↓ | Marche/course (bascule) |
 | R + D-pad | Potion au mercenaire |
 | Start | Échap ; R + Start : échange d'armes |
 | Select | Menu radial (voir plus bas) ; R + Select : Espace |
 | Écran tactile | Curseur absolu ; tap bref = clic gauche |
 
-Un losange marque l'ennemi ciblé (doré dès que le jeu confirme le survol) et un
-point le lieu d'impact d'un sort au sol quand le stick droit est poussé.
+Un losange marque l'ennemi ciblé (doré dès que le jeu confirme le survol). La
+visée assistée ne fait qu'emprunter le curseur : un lancer le déplace sur sa
+cible et le remet où vous l'aviez laissé au relâchement, et le clic d'arrêt
+qui termine une marche fait de même. Sans ennemi dans le cône, la compétence
+part exactement là où pointe le curseur — c'est ainsi qu'on vise un sort au
+sol (téléport, météore…). Curseur posé sur les pieds du personnage, elle part
+plutôt dans la direction de votre dernier déplacement.
+
+`aim=0` dans `controls.txt` désactive le saut et laisse un curseur simple.
 
 **Assigner une compétence à un bouton** : ouvrir l'arbre de compétences
-(menu radial), toucher l'icône, presser le bouton voulu (R + bouton pour les
-emplacements 5 à 8). Dépenser un point : L ou tap.
+(menu radial), survoler l'icône, puis faire exactement le geste qui la
+lancera — Rond pour l'emplacement 1, R + Croix pour le 4, etc. **Croix y
+clique** comme partout ailleurs : c'est toujours elle qui dépense un point.
 
 **Panneaux ouverts** (inventaire, coffre, marchand…) : les sticks déplacent le
 curseur, L ou Croix cliquent, Triangle = clic droit, Carré maintenu = Shift
 (déplacement rapide), Rond ferme.
+
+**Ce que vise un emplacement.** Par défaut une compétence cherche un ennemi
+vivant. Deux familles veulent autre chose, et `controls.txt` le dit
+emplacement par emplacement : `ground` ne saute jamais et part là où pointe
+le curseur (téléportation, météore, blizzard — sauter sur le monstre avec
+une téléportation vous met *dessus*), et `corpse` cherche un mort à la place
+(explosion de cadavre, résurrection, relever un squelette, que le filtre
+« ennemi vivant » exclut par construction).
 
 Hors partie (menus, sélection de personnage), l'ancien schéma souris reste
 actif. `scheme=mouse` dans `controls.txt` le rétablit partout (mapping de la
@@ -61,9 +79,11 @@ Ce menu remplace les anciens raccourcis dédiés à chacune de ces actions
 (personnage, compétences, quêtes, automap, inventaire) : un seul geste pour
 les sept, plutôt que sept combinaisons à mémoriser. Le clavier virtuel n'y
 est volontairement pas inclus — trop utilisé pour justifier de passer par un
-menu à chaque fois, il reste sur son propre geste dédié (R + Triangle).
+menu à chaque fois, il reste sur son propre geste dédié (L + D-pad droite ;
+R + Triangle dans le schéma `scheme=mouse` legacy, où sous le schéma de visée
+c'est la compétence 7).
 
-## Clavier virtuel (R + Triangle)
+## Clavier virtuel (L + D-pad droite)
 
 | Entrée | Action |
 |---|---|
@@ -76,7 +96,8 @@ menu à chaque fois, il reste sur son propre geste dédié (R + Triangle).
 
 Le rendu du clavier virtuel lui-même (police, disposition) vient du moteur
 générique winx86 (`src/platform/vita_kb.h`/`vita_kb_font.h`). Le
-déclenchement (R + Triangle), lui, est spécifique à d2vita.
+déclenchement, lui, est spécifique à d2vita : L + D-pad droite sous le schéma
+de visée, R + Triangle sous `scheme=mouse`.
 
 ## Remappage sans rebuild
 
@@ -87,13 +108,17 @@ scheme=aim        # aim (défaut, visée assistée) | mouse (schéma legacy int�
 aim=1              # 0 = pas de choix automatique de cible (schéma aim seulement)
 orbit_min=40       # px (à 600 de haut), rayon d'orbite stick à peine poussé
 orbit_max=110      # px, stick à fond
-range_min=6        # sous-tuiles, sort au sol stick à peine poussé
+range_min=6        # sous-tuiles, sort au sol curseur posé sur le personnage
 range_max=20
-cone=35            # demi-angle du cône de visée, degrés
+cone=35            # demi-angle du cône autour du curseur, degrés
 hover_h=28         # hauteur de survol par défaut, px
-hud_h=60           # bande basse interdite au curseur, px
+hud_h=60           # bande basse interdite aux clics ASSISTÉS, px (le curseur
+                   # que vous pilotez y va, sinon la ceinture serait hors de portée)
+slot1=hostile      # slot1..slot7 : hostile (défaut) | ground | corpse
+slot3=ground       #   ex. téléportation sur le 3, explosion de cadavre sur le 5
+slot5=corpse
 deadzone=0.25
-sens=10            # curseur libre (panneaux)
+sens=10            # vitesse du curseur libre (stick droit en jeu, deux sticks dans les panneaux)
 ```
 
 `D2_PAD=0` (ou `1`) dans `env.txt` a priorité sur `scheme=` — pratique pour

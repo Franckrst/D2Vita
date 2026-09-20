@@ -35,17 +35,31 @@ bool in_unit_box(const Unit& u, int x, int y) {
     return false;
 }
 
-int pick_hostile(const Unit* u, int n, const View& v, const Ctl& c, const Config& cfg, int current) {
+// 24 px: below that the cursor is close enough to the player's own feet that
+// the direction it would give is mostly rounding noise.
+static const float kAimMinPx = 24.f;
+
+bool aim_from_cursor(const View& v, int cx, int cy, float* ax, float* ay) {
     int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
-    float ax = c.rx, ay = c.ry;
-    const float am = std::sqrt(ax * ax + ay * ay);
-    const bool aimed = am > cfg.deadzone;
-    if (aimed) { ax /= am; ay /= am; }
+    const float dx = (float)(cx - psx), dy = (float)(cy - psy);
+    const float m = std::sqrt(dx * dx + dy * dy);
+    if (m < kAimMinPx) return false;
+    *ax = dx / m; *ay = dy / m;
+    return true;
+}
+
+int pick_hostile(const Unit* u, int n, const View& v, float ax, float ay, bool aimed,
+                 const Config& cfg, int current, TargetKind kind) {
+    int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
+    if (aimed) {
+        const float am = std::sqrt(ax * ax + ay * ay);
+        if (am > 1e-6f) { ax /= am; ay /= am; } else aimed = false;
+    }
     const float cosMin = std::cos(cfg.coneDeg * kPi / 180.f);
     const float maxD = aimed ? 500.f : 420.f;
     auto score = [&](int i, float* s) -> bool {
         const Unit& t = u[i];
-        if (!t.hostile) return false;
+        if (!(kind == T_CORPSE ? t.corpse : t.hostile)) return false;
         const float dx = (float)(t.sx - psx), dy = (float)(t.sy - psy);
         const float d = std::sqrt(dx * dx + dy * dy);
         if (d > maxD) return false;
@@ -197,7 +211,43 @@ int nearest_item(const Unit* u, int n, const View& v) {
 // Scheme
 // ---------------------------------------------------------------------------
 static const uint32_t kFaceBits[4] = { B_CROSS, B_CIR, B_SQR, B_TRI };
+// Face button -> skill slot, the one rule everywhere: Circle/Square/Triangle
+// are slots 1-3, R + any face is 4-7, and Cross alone is not a skill at all.
+// -1 = no slot. The skill tree binds with this very mapping, so the gesture
+// that assigns a skill is the gesture that casts it.
+static inline int face_slot(int i, bool layer) { return layer ? i + 3 : i - 1; }
+
+// Shift owners. SH_DPAD is the first of four consecutive bits, one per
+// direction, so a merc potion on Up and another on Left cannot cancel out.
+enum : uint32_t { SH_L = 1u, SH_SQR = 2u, SH_DPAD = 4u };
+// A press shorter than this, with nothing else pressed, is a tap (30 Hz).
+static const int kTapTicks = 10;
 static const uint32_t kDpadBits[4] = { B_UP, B_LEFT, B_DOWN, B_RIGHT };   // belt 1..4, same order as the legacy table
+
+void Scheme::stickDelta(float sx, float sy, const View& v, float* dx, float* dy) const {
+    if (std::fabs(sx) <= cfg_.deadzone && std::fabs(sy) <= cfg_.deadzone) return;
+    const float sc = cfg_.sens * ((float)v.w / 800.f);
+    *dx += sx * std::fabs(sx) * sc;
+    *dy += sy * std::fabs(sy) * sc;
+}
+
+bool Scheme::cursorStep(float dx, float dy, const View& v, int* px, int* py) const {
+    int nx = *px + (int)dx, ny = *py + (int)dy;
+    if (nx < 0) nx = 0;
+    if (nx > v.w - 1) nx = v.w - 1;
+    if (ny < 0) ny = 0;
+    if (ny > v.h - 1) ny = v.h - 1;
+    if (nx == *px && ny == *py) return false;
+    *px = nx; *py = ny;
+    return true;
+}
+
+void Scheme::shiftOwn(uint32_t who, bool on, Actions& out) {
+    const uint32_t before = shiftOwners_;
+    if (on) shiftOwners_ |= who; else shiftOwners_ &= ~who;
+    if (!before && shiftOwners_)      out.push(A_KEYDOWN, 0x10);
+    else if (before && !shiftOwners_) out.push(A_KEYUP, 0x10);
+}
 
 void Scheme::moveTo(int x, int y, Actions& out) {
     if (x != cx_ || y != cy_) { cx_ = x; cy_ = y; out.push(A_MOVE, x, y); }
@@ -227,14 +277,14 @@ void Scheme::releaseAll(Actions& out) {
     if (rmb_)    { out.push(A_RUP, cx_, cy_); rmb_ = false; }
     if (lmb_)    { out.push(A_LUP, cx_, cy_); lmb_ = false; lsClick_ = false; }
     if (alt_)    { out.push(A_KEYUP, 0x12); alt_ = false; }
-    if (shiftSq_){ out.push(A_KEYUP, 0x10); shiftSq_ = false; }
+    if (shiftOwners_) { out.push(A_KEYUP, 0x10); shiftOwners_ = 0; }
     if (esc_)    { out.push(A_KEYUP, 0x1B); esc_ = false; }
     if (wkey_)   { out.push(A_KEYUP, 0x57); wkey_ = false; }
-    for (Held& h : dpad_) if (h.vk) { out.push(A_KEYUP, h.vk); if (h.shift) out.push(A_KEYUP, 0x10); h = Held{}; }
+    for (Held& h : dpad_) if (h.vk) { out.push(A_KEYUP, h.vk); h = Held{}; }
     castSlot_ = -1; castBit_ = 0; castId_ = 0; castVerified_ = false;
     interact_ = false; interId_ = 0; interArm_ = 0;
     lootConfirm_ = false; lootCursorId_ = 0; lootTgt_ = Target{}; lootArm_ = 0;
-    lsOn_ = false; tgt_ = Target{}; tgtId_ = 0; aimActive_ = false;
+    lsOn_ = false; tgt_ = Target{}; tgtId_ = 0;
 }
 
 void Scheme::leave(Actions& out) { releaseAll(out); mode_ = M_NONE; prev_ = 0; }
@@ -262,12 +312,12 @@ void Scheme::commonButtons(const Ctl& c, uint32_t down, uint32_t up, Actions& ou
     for (int i = 0; i < 4; ++i) {
         if (!alt_ && (down & kDpadBits[i])) {   // D-pad navigates the loot cursor while Alt is held, not potions
             dpad_[i].vk = 0x31 + i; dpad_[i].shift = layer;
-            if (layer) out.push(A_KEYDOWN, 0x10);                     // Shift + belt key = potion to the mercenary
+            if (layer) shiftOwn(SH_DPAD << i, true, out);              // Shift + belt key = potion to the mercenary
             out.push(A_KEYDOWN, 0x31 + i);
         }
         if ((up & kDpadBits[i]) && dpad_[i].vk) {
             out.push(A_KEYUP, dpad_[i].vk);
-            if (dpad_[i].shift) out.push(A_KEYUP, 0x10);
+            if (dpad_[i].shift) shiftOwn(SH_DPAD << i, false, out);
             dpad_[i] = Held{};
         }
     }
@@ -280,28 +330,82 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
     const bool layer = (c.buttons & B_R) != 0;
     commonButtons(c, down, up, out);
 
-    // ---- hostile target of the moment (overlay + next cast) ----
-    int ti = -1;
-    if (cfg_.aim) { ti = pick_hostile(u, n, v, c, cfg_, findId(u, n, tgtId_, 1)); tgtId_ = ti >= 0 ? u[ti].id : 0; }
-    {
-        const float am = std::sqrt(c.rx * c.rx + c.ry * c.ry);
-        aimActive_ = !alt_ && am > cfg_.deadzone;
-        if (aimActive_) ground_point(v, c, cfg_, lastDx_, lastDy_, &aimX_, &aimY_);
+    // ---- L: stand still while held, walk/run on a clean tap ----
+    // L stopped being the interaction button when Cross took that over, so it
+    // is free to be the modifier the PC plays with: Shift = act without
+    // moving. R + L is the Alt label layer and is claimed in commonButtons,
+    // which is why `layer` is excluded here.
+    if ((down & B_L) && !layer && !alt_) { shiftOwn(SH_L, true, out); lTicks_ = 1; lTap_ = true; }
+    if ((c.buttons & B_L) && lTicks_ > 0) {
+        ++lTicks_;
+        if (c.buttons & ~(uint32_t)B_L) lTap_ = false;   // it modified something: not a tap
     }
+    if (up & B_L) {
+        shiftOwn(SH_L, false, out);
+        if (lTap_ && lTicks_ <= kTapTicks) out.push(A_KEY, 0x52);   // VK 'R', D2's own run toggle
+        lTicks_ = 0; lTap_ = false;
+    }
+
+    // ---- right stick: the cursor the player aims with ----
+    // Runs before the target pick so a cast pressed this tick already sees the
+    // spot the player is pointing at. Alt browsing and an interaction own the
+    // cursor outright; a cast borrows it, and the stick then steers the point
+    // it will be handed back to.
+    if (!alt_ && !interact_) {
+        float dx = 0.f, dy = 0.f;
+        stickDelta(c.rx, c.ry, v, &dx, &dy);
+        if (castSlot_ >= 0) cursorStep(dx, dy, v, &userX_, &userY_);
+        else {
+            int px = cx_, py = cy_;
+            if (cursorStep(dx, dy, v, &px, &py)) moveTo(px, py, out);
+        }
+    }
+
+    // ---- hostile target of the moment (overlay + next cast) ----
+    // Read the cone off the cursor the PLAYER owns: while a cast holds, cx_
+    // sits on its target, so using it would re-target along a direction the
+    // player may have left several frames ago.
+    float ax = 0.f, ay = 0.f;
+    const bool aimed = castSlot_ >= 0 ? aim_from_cursor(v, userX_, userY_, &ax, &ay)
+                                      : aim_from_cursor(v, cx_, cy_, &ax, &ay);
+    int ti = -1;
+    if (cfg_.aim) { ti = pick_hostile(u, n, v, ax, ay, aimed, cfg_, findId(u, n, tgtId_, 1)); tgtId_ = ti >= 0 ? u[ti].id : 0; }
 
     // ---- cast: faces = slots 1-4, R + faces = 5-8 ----
     if (castSlot_ < 0 && !interact_ && !alt_) {
         for (int i = 0; i < 4; ++i) if (down & kFaceBits[i]) {
-            castSlot_ = i + (layer ? 4 : 0); castBit_ = kFaceBits[i];
+            // Cross alone is the context action, not a skill: slots 1-3 sit on
+            // the other three faces, 4-7 behind R. That costs slot 8 -- the
+            // price of one button that always does the obvious thing.
+            const int slot = face_slot(i, layer);
+            if (slot < 0) break;
+            castSlot_ = slot; castBit_ = kFaceBits[i];
             castAttempt_ = 0; castVerified_ = false;
-            out.push(A_KEY, 0x70 + castSlot_);                          // F1..F8 selects the right skill
+            out.push(A_KEY, 0x70 + castSlot_);                          // F1..F7 selects the right skill
             if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }      // movement suspended while casting
+            userX_ = cx_; userY_ = cy_;                                 // give this back on release
+            // What this slot aims at. The per-frame pick above is the HOSTILE
+            // one (it feeds the diamond); a corpse slot re-picks against the
+            // dead, and a ground slot deliberately snaps to nothing.
+            castKind_ = (TargetKind)cfg_.slotKind[castSlot_];
+            int tgtIdx = ti;
+            if (castKind_ == T_GROUND) tgtIdx = -1;
+            else if (castKind_ == T_CORPSE)
+                tgtIdx = cfg_.aim ? pick_hostile(u, n, v, ax, ay, aimed, cfg_, -1, T_CORPSE) : -1;
+            const int ti2 = tgtIdx;
             int px, py;
-            if (ti >= 0) {
-                castId_ = u[ti].id; castType_ = u[ti].type; castCls_ = u[ti].cls;
+            if (ti2 >= 0) {
+                castId_ = u[ti2].id; castType_ = u[ti2].type; castCls_ = u[ti2].cls;
                 castH_ = hover_.get(castType_, castCls_, cfg_.hoverH);
-                hoverPoint(u[ti], castH_, v, &px, &py);
-            } else { castId_ = 0; ground_point(v, c, cfg_, lastDx_, lastDy_, &px, &py); }
+                hoverPoint(u[ti2], castH_, v, &px, &py);
+            } else if (aimed) {
+                castId_ = 0; px = cx_; py = cy_;                        // no target: exactly where they point
+            } else {
+                // Cursor parked on the player: no direction to read from it,
+                // so a ground cast goes out along the last walking direction
+                // rather than onto our own feet.
+                castId_ = 0; ground_point(v, c, cfg_, lastDx_, lastDy_, &px, &py);
+            }
             cx_ = px; cy_ = py; out.push(A_MOVE, px, py);              // forced move: a new cast always re-places the cursor
             out.push(A_RDOWN, px, py); rmb_ = true;
             break;
@@ -310,11 +414,13 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
         if (!(c.buttons & castBit_)) {
             out.push(A_RUP, cx_, cy_); rmb_ = false;
             castSlot_ = -1; castBit_ = 0; castId_ = 0; castVerified_ = false;
+            moveTo(userX_, userY_, out);                     // the cursor was only borrowed
         } else {
             int px = cx_, py = cy_;
             int ci = findId(u, n, castId_, castType_);
-            if (castId_ && (ci < 0 || !u[ci].hostile)) {               // target died or left: re-pick
-                ci = cfg_.aim ? pick_hostile(u, n, v, c, cfg_, -1) : -1;
+            const bool stillValid = ci >= 0 && (castKind_ == T_CORPSE ? u[ci].corpse : u[ci].hostile);
+            if (castId_ && !stillValid) {                              // target died or left: re-pick
+                ci = cfg_.aim ? pick_hostile(u, n, v, ax, ay, aimed, cfg_, -1, castKind_) : -1;
                 if (ci >= 0) {
                     castId_ = u[ci].id; castType_ = u[ci].type; castCls_ = u[ci].cls;
                     castAttempt_ = 0; castVerified_ = false;
@@ -331,22 +437,30 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
                     }
                 }
                 hoverPoint(u[ci], castH_, v, &px, &py);
-            } else ground_point(v, c, cfg_, lastDx_, lastDy_, &px, &py);
+            } else if (!aimed) ground_point(v, c, cfg_, lastDx_, lastDy_, &px, &py);
             moveTo(px, py, out);
         }
     }
     // overlay target
-    if (castSlot_ >= 0 && castId_) {
+    // A ground slot hits a place, not a unit: the diamond would lie.
+    if (castSlot_ >= 0 && castKind_ == T_GROUND) { tgt_ = Target{}; }
+    else if (castSlot_ >= 0 && castId_) {
         const int ci = findId(u, n, castId_, castType_);
         tgt_ = Target{};
         if (ci >= 0) { tgt_.has = true; tgt_.id = castId_; tgt_.sx = u[ci].sx; tgt_.sy = u[ci].sy; tgt_.verified = castVerified_; }
     } else if (ti >= 0 && !alt_) { tgt_ = Target{}; tgt_.has = true; tgt_.id = u[ti].id; tgt_.sx = u[ti].sx; tgt_.sy = u[ti].sy; }
     else tgt_ = Target{};
 
-    // ---- L: interact (items > objects / town NPCs > the hostile target) ----
-    if ((down & B_L) && !layer && castSlot_ < 0 && !interact_ && !alt_) {
-        int ii = pick_interact(u, n, v, cfg_);
-        if (ii < 0 && ti >= 0) ii = ti;
+    // ---- Cross: the one action button ----
+    // Order: what the player is POINTING at wins, because pointing at a
+    // monster can only mean "hit that one". With the cursor idle we fall back
+    // to whatever is within arm's reach (chest, door, portal, town NPC) and
+    // only then to the nearest enemy -- otherwise a barrel could never be
+    // opened with anything alive on screen.
+    if ((down & B_CROSS) && !layer && castSlot_ < 0 && !interact_ && !alt_) {
+        int ii = (aimed && ti >= 0) ? ti : -1;
+        if (ii < 0) ii = pick_interact(u, n, v, cfg_);
+        if (ii < 0) ii = ti;
         if (ii >= 0) {
             interact_ = true; interId_ = u[ii].id; interType_ = u[ii].type; interCls_ = u[ii].cls;
             interAttempt_ = 0; interArm_ = 1;
@@ -362,7 +476,7 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             cx_ = px; cy_ = py; out.push(A_MOVE, px, py);
         }
     } else if (interact_ && !lootConfirm_) {
-        if (!(c.buttons & B_L)) {
+        if (!(c.buttons & B_CROSS)) {
             if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
             interact_ = false; interId_ = 0; interArm_ = 0;
         } else {
@@ -486,6 +600,10 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
             psy += 6; clamp_point(v, cfg_, &psx, &psy);
             cx_ = psx; cy_ = psy; out.push(A_CLICK, psx, psy);            // click at the feet = stop
+            // The walk borrowed the cursor the same way a cast does, and the
+            // stop click just parked it on our own feet. Hand it back, or
+            // every step taken would wipe where the player was aiming.
+            moveTo(userX_, userY_, out);
         }
     } else if (lsClick_) { out.push(A_LUP, cx_, cy_); lmb_ = false; lsClick_ = false; }   // only ever lift the
                                                                      // stick's OWN click here: lmb_ now also covers
@@ -497,33 +615,33 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
 void Scheme::panelTick(const Ctl& c, const Ctx& x, const View& v, uint32_t down, uint32_t up, Actions& out) {
     const bool layer = (c.buttons & B_R) != 0;
     commonButtons(c, down, up, out);
-    // free cursor: both sticks, relative, quadratic response
+    // free cursor: both sticks drive it here, same step as the world mode
     {
-        const float sc = cfg_.sens * ((float)v.w / 800.f);
         float dx = 0.f, dy = 0.f;
-        if (std::fabs(c.lx) > cfg_.deadzone || std::fabs(c.ly) > cfg_.deadzone) { dx += c.lx * std::fabs(c.lx) * sc; dy += c.ly * std::fabs(c.ly) * sc; }
-        if (std::fabs(c.rx) > cfg_.deadzone || std::fabs(c.ry) > cfg_.deadzone) { dx += c.rx * std::fabs(c.rx) * sc; dy += c.ry * std::fabs(c.ry) * sc; }
-        if (dx != 0.f || dy != 0.f) {
-            int px = cx_ + (int)dx, py = cy_ + (int)dy;
-            if (px < 0) px = 0; if (px > v.w - 1) px = v.w - 1;
-            if (py < 0) py = 0; if (py > v.h - 1) py = v.h - 1;
-            moveTo(px, py, out);
-        }
+        stickDelta(c.lx, c.ly, v, &dx, &dy);
+        stickDelta(c.rx, c.ry, v, &dx, &dy);
+        int px = cx_, py = cy_;
+        if (cursorStep(dx, dy, v, &px, &py)) moveTo(px, py, out);
     }
-    if (x.skillTree) {                                                    // faces = hotkeys on the hovered icon
-        for (int i = 0; i < 4; ++i) if (down & kFaceBits[i]) out.push(A_KEY, 0x70 + i + (layer ? 4 : 0));
+    // Cross is the left click in EVERY panel, the skill tree included: you
+    // still have to click an icon to spend a point on it.
+    if ((down & B_CROSS) && !layer) { out.push(A_LDOWN, cx_, cy_); lmb_ = true; }
+    if ((up & B_CROSS) && lmb_ && !(c.buttons & B_L)) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+    if (x.skillTree) {                                                    // faces = bind the hovered icon
+        for (int i = 0; i < 4; ++i) if (down & kFaceBits[i]) {
+            const int slot = face_slot(i, layer);
+            if (slot >= 0) out.push(A_KEY, 0x70 + slot);
+        }
     } else {
-        if (down & B_CROSS) { out.push(A_LDOWN, cx_, cy_); lmb_ = true; }
-        if ((up & B_CROSS) && lmb_ && !(c.buttons & B_L)) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
         if (down & B_TRI) { out.push(A_RDOWN, cx_, cy_); rmb_ = true; }
         if ((up & B_TRI) && rmb_) { out.push(A_RUP, cx_, cy_); rmb_ = false; }
-        if (down & B_SQR) { out.push(A_KEYDOWN, 0x10); shiftSq_ = true; }
-        if ((up & B_SQR) && shiftSq_) { out.push(A_KEYUP, 0x10); shiftSq_ = false; }
+        if (down & B_SQR) shiftOwn(SH_SQR, true, out);
+        if (up & B_SQR)   shiftOwn(SH_SQR, false, out);
         if (down & B_CIR) out.push(A_KEY, 0x1B);
     }
     if ((down & B_L) && !layer && !alt_) { out.push(A_LDOWN, cx_, cy_); lmb_ = true; }
     if ((up & B_L) && lmb_ && !(c.buttons & B_CROSS)) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
-    tgt_ = Target{}; aimActive_ = false;
+    tgt_ = Target{};
 }
 
 } // namespace pad

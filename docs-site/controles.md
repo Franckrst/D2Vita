@@ -12,29 +12,45 @@
 | Vita input | Diablo II action |
 |---|---|
 | Left stick | **Move only**: the character walks in the stick's direction (radius follows tilt), never attacking, talking or picking anything up by accident; release = hard stop |
-| Right stick | **Aim**: picks the enemy inside a ±35° cone; for a ground-targeted skill (teleport, meteor…), distance follows tilt |
-| Cross / Circle / Square / Triangle | **Skills 1 to 4**, instant cast on the targeted enemy (nearest one if the right stick is idle); hold = repeat |
-| R held + faces | Skills 5 to 8 |
-| L | **Interact**: nearest chest / door / NPC, else a basic attack on the target (ground items are Alt + Cross) |
+| Right stick | **Free cursor**, as on PC: it clicks nothing by itself, and it reaches the HUD (belt, skill buttons) |
+| Cross | **The action button**: the browsed ground item, else whatever you are pointing at, else a chest / door / portal / NPC within reach, else the nearest enemy |
+| Circle / Square / Triangle | **Skills 1 to 3**. The cast snaps to the enemy inside a ±35° cone around the cursor (nearest one if the cursor sits on the character), then hands the cursor straight back; hold = repeat |
+| R held + faces | Skills 4 to 7 |
+| L held | **Stand still** (Shift): cast and attack without moving |
+| L, short press | Toggle run/walk |
+| L + D-pad → | Virtual keyboard |
 | R then L (held) | Alt — ground item labels ; D-pad = move the selection cursor from item to item (nearest to the cursor in that direction), Cross = pick up the selected item (cyan marker) |
 | D-pad ↑ / ← / ↓ / → | Belt potions 1 / 2 / 3 / 4 |
-| L + D-pad ↓ | Toggle run/walk |
 | R + D-pad | Potion to the mercenary |
 | Start | Escape; R + Start: weapon swap |
 | Select | Radial menu (see below); R + Select: Space |
 | Touch screen | Absolute cursor; short tap = left click |
 
 A diamond marks the current hostile target (gold once the game confirms the
-hover) and a dot marks a ground-targeted skill's impact point while the
-right stick is pushed.
+hover). Assisted aiming only ever borrows the cursor: a cast moves it onto
+its target and puts it back where you left it on release, and so does the
+stop click that ends a walk. With no enemy in the cone, a skill is cast
+exactly where the cursor points — which is how a ground-targeted skill
+(teleport, meteor…) is aimed. Point the cursor at the character's own feet
+and it goes out along the direction you last walked in instead.
 
-**Assigning a skill to a button**: open the skill tree (radial menu), tap
-the icon, press the wanted button (R + button for slots 5 to 8). Spending a
-point: L or tap.
+`aim=0` in `controls.txt` turns the snap off and leaves a plain cursor.
+
+**Assigning a skill to a button**: open the skill tree (radial menu), hover
+the icon, then press the very gesture that will cast it — Circle for slot 1,
+R + Cross for slot 4, and so on. **Cross clicks** there as everywhere else,
+so it is still what spends a point.
 
 **Open panels** (inventory, chest, vendor…): both sticks move the cursor, L
 or Cross click, Triangle = right click, Square held = Shift (fast move),
 Circle closes.
+
+**What a slot aims at.** By default a skill looks for a live enemy. Two
+families need something else, and `controls.txt` says so per slot:
+`ground` never snaps and lands where the cursor points (teleport, meteor,
+blizzard — snapping teleport onto a monster puts you *on* it), and `corpse`
+looks for a dead one instead (corpse explosion, revive, raise skeleton,
+which the live-enemy filter excludes by construction).
 
 Out of a game (menus, character select), the old mouse scheme stays active.
 `scheme=mouse` in `controls.txt` restores it everywhere (0.1.6's mapping:
@@ -63,9 +79,11 @@ This menu replaces the old dedicated shortcuts for each of these actions
 (character, skills, quests, automap, inventory): one gesture for all
 seven, instead of seven combinations to remember. The virtual keyboard is
 deliberately not included — used too often to justify going through a menu
-every time, it stays on its own dedicated gesture (R + Triangle).
+every time, it stays on its own dedicated gesture (L + D-pad right; R +
+Triangle in the legacy `scheme=mouse`, where it is skill 7 under the aim
+scheme).
 
-## Virtual keyboard (R + Triangle)
+## Virtual keyboard (L + D-pad right)
 
 | Input | Action |
 |---|---|
@@ -77,8 +95,9 @@ every time, it stays on its own dedicated gesture (R + Triangle).
 | Touch tap on a key | Type it directly |
 
 The virtual keyboard's own rendering (font, layout) comes from the generic
-winx86 engine (`src/platform/vita_kb.h`/`vita_kb_font.h`). The trigger (R +
-Triangle) is d2vita-specific.
+winx86 engine (`src/platform/vita_kb.h`/`vita_kb_font.h`). The trigger is
+d2vita-specific: L + D-pad right under the aim scheme, R + Triangle under
+`scheme=mouse`.
 
 ## Remapping without a rebuild
 
@@ -89,13 +108,17 @@ scheme=aim        # aim (default, aim-assist) | mouse (full legacy scheme)
 aim=1              # 0 = no automatic target selection (aim scheme only)
 orbit_min=40       # px (at 600 lines), orbit radius at a light stick push
 orbit_max=110      # px, full stick
-range_min=6        # subtiles, ground-cast distance at a light stick push
+range_min=6        # subtiles, ground-cast distance when the cursor is parked on the character
 range_max=20
-cone=35            # aim cone half-angle, degrees
+cone=35            # aim cone half-angle around the cursor, degrees
 hover_h=28         # default hover height above a unit's feet, px
-hud_h=60           # bottom band the cursor never enters, px
+hud_h=60           # bottom band ASSISTED clicks never enter, px (the cursor
+                   # you drive does go there, or the belt would be unreachable)
+slot1=hostile      # slot1..slot7: hostile (default) | ground | corpse
+slot3=ground       #   e.g. teleport on slot 3, corpse explosion on slot 5
+slot5=corpse
 deadzone=0.25
-sens=10            # free cursor (panels)
+sens=10            # free cursor speed (right stick in game, both sticks in panels)
 ```
 
 `D2_PAD=0` (or `1`) in `env.txt` overrides `scheme=` — handy for an A/B test
