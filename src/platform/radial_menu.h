@@ -172,12 +172,16 @@ inline void fill_atlas(unsigned char* dst) {
         blit(g_rm_slots[i].icon, RM_ICON_SIZE, RM_ICON_SIZE, atlas_icon(i));
 }
 
+// Rouvert ici plutôt que remonté d'un bloc : ce détail-là sert les quads, pas
+// le blitter CPU, et il vaut mieux le garder contre le code qu'il sert.
+namespace draw_detail {
 inline void uv_from_rect(const AtlasRect& a, Quad& q) {
     const float u0 = (float)a.x / RM_ATLAS_DIM, u1 = (float)(a.x + a.w) / RM_ATLAS_DIM;
     const float v0 = (float)a.y / RM_ATLAS_DIM, v1 = (float)(a.y + a.h) / RM_ATLAS_DIM;
     q.u[0] = u0; q.v[0] = v0;  q.u[1] = u1; q.v[1] = v0;
     q.u[2] = u1; q.v[2] = v1;  q.u[3] = u0; q.v[3] = v1;
 }
+} // namespace draw_detail
 
 // Deux quads par secteur (quartier puis icône), dans le MÊME ordre que le
 // blitter CPU : les quartiers se chevauchent un peu, et avec un mélange alpha
