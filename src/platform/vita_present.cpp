@@ -403,11 +403,6 @@ void d2vita_overlay(uint32_t* fb) {
                      n = 0; t0 = now; }
     if (fps_en) draw_fps(fb, fps10);
     if (g_kb.open) draw_keyboard(fb);
-    // Le menu radial part sur le GPU dès que ce chemin est armé : le blitter
-    // CPU ci-dessous relit le framebuffer CDRAM pour mélanger, et c'est ce qui
-    // faisait tomber le jeu de 24,5 à 8,2 images/s. Repli inchangé sinon
-    // (chemin GDI, .gxp absent, atlas non alloué).
-    if (g_rm.open && !d2gxm_ui_active()) radial_menu::draw(g_rm, fb, SCR_W, SCR_H);
 }
 
 const radial_menu::State* d2vita_radial_state() { return g_rm.open ? &g_rm : nullptr; }
@@ -1698,7 +1693,10 @@ extern "C" void d2vita_input_tick(void){
         const bool selDown=(b&B_SELECT)!=0, selWas=(was&B_SELECT)!=0;
         if (selDown && !selWas) {
             if (layer) { g_sel_mode=SEL_SPACE; d2vita_inject("keydown",0x20,0); }
-            else       { g_sel_mode=SEL_RADIAL; radial_menu::begin(g_rm); }
+            // Le menu n'existe QUE sur le GPU. S'il n'est pas armé (.gxp
+            // absent, atlas non alloué), ne pas l'ouvrir : un menu invisible
+            // qui avale quand même les entrées serait pire que pas de menu.
+            else if (d2gxm_ui_active()) { g_sel_mode=SEL_RADIAL; radial_menu::begin(g_rm); }
         }
         if (g_sel_mode==SEL_RADIAL) {
             g_lmb_stick=false; g_lmb_btn=false; lmb_update();      // release any click in progress

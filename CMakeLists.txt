@@ -53,12 +53,3 @@ foreach(t mpq_grep mpq_probe mpq_hex mpq_extract mpq_put mpq_rm)
   target_link_libraries(${t} StormLib::storm)
 endforeach()
 
-# -- radial_gpu_check : le menu radial dessine-t-il pareil sur GPU et sur CPU ?
-# Le menu est composite par le GPU (14 quads textures), le blitter CPU restant
-# le repli : deux chemins, un seul rendu attendu. Cet outil les compare sur les
-# 9 etats du menu, sur machine de dev, sans console. Il a deja attrape un
-# demi-texel de decalage sur les icones qui, a l'ecran, n'aurait donne qu'un
-# vague "c'est un peu flou". Ne depend de rien : radial_menu.h est autonome.
-add_executable(radial_gpu_check tools/radial_gpu_check.cpp)
-target_include_directories(radial_gpu_check PRIVATE src)
-target_link_libraries(radial_gpu_check m)
