@@ -52,3 +52,9 @@ foreach(t mpq_grep mpq_probe mpq_hex mpq_extract mpq_put mpq_rm)
   add_executable(${t} tools/${t}.cpp)
   target_link_libraries(${t} StormLib::storm)
 endforeach()
+
+# -- Controller scheme v2 core: pure host logic, desktop-testable -------------
+enable_testing()
+add_executable(pad_core_test tests/pad/pad_core_test.cpp src/platform/pad_core.cpp)
+target_include_directories(pad_core_test PRIVATE src)
+add_test(NAME pad_core COMMAND pad_core_test)

@@ -7,30 +7,39 @@
     handed back immediately. It stays continuously active for headless
     testing.
 
-## In game
+## In game ("aim-assist" scheme, default since the manette v2 snapshot)
 
 | Vita input | Diablo II action |
 |---|---|
-| Left stick | **Direct movement** (cursor orbits the character + held left click) |
-| Right stick | Free mouse, no click (aiming, menus, hover) |
-| Touch screen | Absolute cursor; short tap = left click |
-| **L (held)** | **Left click** |
-| **R (held)** | **Right click** (also serves as a combo layer, see below) |
-| Cross | R — toggle walk/run |
-| Circle | Shift (held) — attack in place / forced cast |
-| Square (held) | Alt — show items on the ground |
-| Triangle | W — weapon swap |
+| Left stick | **Move only**: the character walks in the stick's direction (radius follows tilt), never attacking, talking or picking anything up by accident; release = hard stop |
+| Right stick | **Aim**: picks the enemy inside a ±35° cone; for a ground-targeted skill (teleport, meteor…), distance follows tilt |
+| Cross / Circle / Square / Triangle | **Skills 1 to 4**, instant cast on the targeted enemy (nearest one if the right stick is idle); hold = repeat |
+| R held + faces | Skills 5 to 8 |
+| L | **Interact**: nearest chest / door / NPC, else a basic attack on the target (ground items are Alt + Cross) |
+| R then L (held) | Alt — ground item labels ; D-pad = move the selection cursor from item to item (nearest to the cursor in that direction), Cross = pick up the selected item (cyan marker) |
 | D-pad ↑ / ← / ↓ / → | Belt potions 1 / 2 / 3 / 4 |
-| Start | Esc (menu / close) |
-| **Select** | **Radial menu** (see below) |
+| L + D-pad ↓ | Toggle run/walk |
+| R + D-pad | Potion to the mercenary |
+| Start | Escape; R + Start: weapon swap |
+| Select | Radial menu (see below); R + Select: Space |
+| Touch screen | Absolute cursor; short tap = left click |
 
-## R layer (R held + …)
+A diamond marks the current hostile target (gold once the game confirms the
+hover) and a dot marks a ground-targeted skill's impact point while the
+right stick is pushed.
 
-| Combo | Action |
-|---|---|
-| R + Triangle | **Virtual keyboard** (open; close with Select) |
-| R + D-pad | F1 / F2 / F3 / F4 — quick skills |
-| R + Select | Space — close all panels |
+**Assigning a skill to a button**: open the skill tree (radial menu), tap
+the icon, press the wanted button (R + button for slots 5 to 8). Spending a
+point: L or tap.
+
+**Open panels** (inventory, chest, vendor…): both sticks move the cursor, L
+or Cross click, Triangle = right click, Square held = Shift (fast move),
+Circle closes.
+
+Out of a game (menus, character select), the old mouse scheme stays active.
+`scheme=mouse` in `controls.txt` restores it everywhere (0.1.6's mapping:
+L/R = clicks, Cross = walk/run, Circle = Shift, Square = Alt, Triangle = W,
+R + D-pad = F1-F4).
 
 ## Radial menu (Select)
 
@@ -74,6 +83,26 @@ Triangle) is d2vita-specific.
 ## Remapping without a rebuild
 
 File `ux0:data/d2vita/controls.txt`, one line per input:
+
+```
+scheme=aim        # aim (default, aim-assist) | mouse (full legacy scheme)
+aim=1              # 0 = no automatic target selection (aim scheme only)
+orbit_min=40       # px (at 600 lines), orbit radius at a light stick push
+orbit_max=110      # px, full stick
+range_min=6        # subtiles, ground-cast distance at a light stick push
+range_max=20
+cone=35            # aim cone half-angle, degrees
+hover_h=28         # default hover height above a unit's feet, px
+hud_h=60           # bottom band the cursor never enters, px
+deadzone=0.25
+sens=10            # free cursor (panels)
+```
+
+`D2_PAD=0` (or `1`) in `env.txt` overrides `scheme=` — handy for an A/B test
+without touching `controls.txt`.
+
+The following keys, and the `cross=…`/`r+triangle=…` remaps below, only
+apply to the legacy `scheme=mouse`:
 
 ```
 cross=rclick

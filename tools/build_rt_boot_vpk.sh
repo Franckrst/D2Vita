@@ -476,7 +476,12 @@ seg_gap() {   # free virtual bytes between the end of LOAD segment 0 and the sta
   [ -n "${v1:-}" ] || { echo "FATAL: seg_gap: moins de deux segments LOAD lisibles dans $1" >&2; exit 1; }
   echo $(( 16#${v1#0x} - (16#${v0#0x} + 16#${m0#0x}) ))
 }
-MINGAP="${D2VPK_MINGAP:-8192}"
+# 32 KiB, pas 8 : le 20/09 un build avec 10080 octets d'ecart a passe le seuil
+# de 8192, s'est construit sans erreur, et la console a refuse de le lancer
+# (C1-2569-2, aucune ligne de journal ecrite, aucun fichier de plantage). Le
+# meme commit re-lie avec bourrage (42840 octets d'ecart) demarre. La borne
+# basse "N=3048 a tue la v0.1.4" sous-estimait donc le besoin reel.
+MINGAP="${D2VPK_MINGAP:-32768}"
 GAP="$(seg_gap "$OUT/d2vita.elf")"
 echo "== segments 0 -> 1 : $GAP octets libres pour les donnees SCE de vita-elf-create (minimum $MINGAP) =="
 if [ "$GAP" -lt "$MINGAP" ]; then
