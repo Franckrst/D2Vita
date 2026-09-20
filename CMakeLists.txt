@@ -52,3 +52,4 @@ foreach(t mpq_grep mpq_probe mpq_hex mpq_extract mpq_put mpq_rm)
   add_executable(${t} tools/${t}.cpp)
   target_link_libraries(${t} StormLib::storm)
 endforeach()
+

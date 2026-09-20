@@ -5,6 +5,7 @@
 #include "platform/vita_gxm.h"
 #include "platform/vita_present.h"
 #include "platform/vita_gpumem.h"   // engine: console GPU memory
+#include "platform/radial_menu.h"   // incrustation GPU: atlas + quads du menu
 
 #include <cstdio>
 #include <cstdlib>
@@ -237,6 +238,26 @@ const char* kFragmentPalCg =
 "  return float4(rgb.x, rgb.y, rgb.z, uConst.w * uMode.z);\n"
 "}\n";
 
+// ---------------------------------------------------------------------------
+// INCRUSTATION RGBA (menu radial). Le pipeline du jeu est palettisé et tire
+// son alpha d'un uniforme ; une incrustation d'interface a besoin de l'alpha
+// DE SA TEXTURE, par pixel. D'où ce programme, le plus court du fichier : il
+// rend le texel tel quel, et c'est l'étage de mélange (kBlend[1], SRC_ALPHA /
+// ONE_MINUS_SRC_ALPHA) qui fait le reste, dans la mémoire de tuiles du GPU.
+//
+// vCol et vPal ne sont pas lus mais restent DÉCLARÉS : le programme de sommet
+// est partagé, et l'interface sommet -> fragment doit rester complète (même
+// raison que pour vPal dans kFragmentPalCg).
+const char* kFragmentRgbaCg =
+"float4 main(\n"
+"  float2 vTex : TEXCOORD0,\n"
+"  float4 vCol : COLOR0,\n"
+"  float  vPal : TEXCOORD1,\n"
+"  uniform sampler2D uPage : TEXUNIT0) : COLOR\n"
+"{\n"
+"  return tex2D(uPage, vTex);\n"
+"}\n";
+
 // ---- runtime Cg compilation + disk cache ------------------------------------
 // psp2cgc isn't free and isn't in the VitaSDK, so .gxp files can't be produced
 // on the host. The console's own compiler (libshacccg.suprx, module
@@ -441,6 +462,14 @@ SceGxmShaderPatcherId g_vpId = nullptr, g_fpId = nullptr, g_fpFlatId = nullptr;
 SceGxmVertexProgram* g_vp = nullptr;
 SceGxmFragmentProgram* g_fp[4] = { nullptr, nullptr, nullptr, nullptr };
 SceGxmFragmentProgram* g_fpFlat[4] = { nullptr, nullptr, nullptr, nullptr };
+// Incrustation d'interface sur le GPU : un programme (mélange alpha seul) et
+// un atlas RGBA. g_uiOk ne passe à vrai que si TOUT est en place — un menu à
+// moitié armé dessinerait du noir sur le jeu.
+SceGxmFragmentProgram* g_fpUi = nullptr;
+SceGxmShaderPatcherId  g_fpUiId = 0;
+GpuBlock  g_uiTexBlk{};
+SceGxmTexture g_uiTex;
+bool g_uiOk = false;
 bool g_flatOk = false;
 const SceGxmProgramParameter* g_pScale = nullptr;
 const SceGxmProgramParameter* g_pConst = nullptr;
@@ -696,6 +725,8 @@ bool d2gxm_knob() {
     return g_knob;
 }
 bool d2gxm_ready() { return g_ready; }
+// Armee seulement si la scene GXM tourne ET que le shader+atlas sont en place.
+bool d2gxm_ui_active() { return g_ready && g_uiOk; }
 // The INPUT layer (vita_present.cpp, g_game_w/g_game_h) learns the game's
 // resolution via d2vita_present(), which is only called on the GDI path. In
 // Glide the game changes resolution via grSstWinOpen, so without this call
@@ -1147,6 +1178,47 @@ bool d2gxm_init(int gameW, int gameH) {
                           g_flatOk ? "ARME" : "KO", g_shaderOrigin[2]);
             d2vita_progress(m);
         }
+    }
+
+    // ---- INCRUSTATION D'INTERFACE SUR LE GPU (menu radial) -----------------
+    // Son absence n'est PAS une erreur : sans .gxp (console sans libshacccg et
+    // VPK plus ancien), g_uiOk reste faux et le blitter CPU reprend la main,
+    // plus lent mais correct. Ce qui serait une faute, c'est de le laisser à
+    // moitié armé — d'où le ET final sur les trois conditions.
+    {
+        const SceGxmProgram* fui = get_shader("d2_ring_f_rgba", kFragmentRgbaCg, 1, 2);
+        bool ok = false;
+        if (fui) {
+            sceGxmShaderPatcherRegisterProgram(g_patcher, fui, &g_fpUiId);
+            ok = sceGxmShaderPatcherCreateFragmentProgram(g_patcher, g_fpUiId,
+                    SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4, SCE_GXM_MULTISAMPLE_NONE,
+                    &kBlend[1], vprog, &g_fpUi) >= 0;   // [1] = SRC_ALPHA / 1-SRC_ALPHA
+        }
+        if (ok) {
+            const uint32_t bytes = (uint32_t)radial_menu::RM_ATLAS_DIM
+                                 * radial_menu::RM_ATLAS_DIM * 4;
+            if (gpu_alloc_gpu(g_uiTexBlk, bytes, SCE_GXM_MEMORY_ATTRIB_READ, "d2gxm_ui")) {
+                radial_menu::fill_atlas((unsigned char*)g_uiTexBlk.p);
+                ok = sceGxmTextureInitLinear(&g_uiTex, g_uiTexBlk.p,
+                        SCE_GXM_TEXTURE_FORMAT_A8B8G8R8,
+                        (unsigned)radial_menu::RM_ATLAS_DIM,
+                        (unsigned)radial_menu::RM_ATLAS_DIM, 0) >= 0;
+                // POINT, comme le blitter CPU qu'on remplace : filtrer
+                // changerait le rendu du menu en même temps qu'on change sa
+                // façon d'être dessiné, et on ne saurait plus à quoi attribuer
+                // une différence à l'écran.
+                sceGxmTextureSetMinFilter(&g_uiTex, SCE_GXM_TEXTURE_FILTER_POINT);
+                sceGxmTextureSetMagFilter(&g_uiTex, SCE_GXM_TEXTURE_FILTER_POINT);
+                sceGxmTextureSetUAddrMode(&g_uiTex, SCE_GXM_TEXTURE_ADDR_CLAMP);
+                sceGxmTextureSetVAddrMode(&g_uiTex, SCE_GXM_TEXTURE_ADDR_CLAMP);
+            } else ok = false;
+        }
+        g_uiOk = ok;
+        char m[144];
+        std::snprintf(m, sizeof m, "gxm: incrustation menu sur GPU %s (%s) — sinon blitter CPU",
+                      g_uiOk ? "ARMEE" : "KO", g_shaderOrigin[2][0] ? g_shaderOrigin[2] : "absent");
+        d2vita_progress(m);
+        if (!g_uiOk && g_uiTexBlk.p) { gpu_free(g_uiTexBlk); g_uiTexBlk = GpuBlock{}; }
     }
 
     // Vertex/index buffers: ONE SET PER FRAME IN FLIGHT. This is the first
@@ -1648,6 +1720,47 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
         sceGxmDraw(g_ctx, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16,
                    (uint16_t*)g_idxBuf[slot].p + bb.first, bb.count);
         ++g_calls;
+    }
+
+    // ---- MENU RADIAL, SUR LE GPU -------------------------------------------
+    // Dernier dessin de la scène, donc au-dessus de tout, et dans le même
+    // passage : rien à relire, rien à recopier. Les sommets sont écrits APRÈS
+    // ceux du jeu (et après le quad d'effacement, qui en consomme 4/6) dans la
+    // place libre des tampons du slot — exactement le procédé du quad
+    // d'effacement juste au-dessus.
+    if (g_uiOk) {
+        if (const radial_menu::State* rm = d2vita_radial_state()) {
+            radial_menu::Quad q[2 * RM_N];
+            const int nq = radial_menu::build_quads(*rm, SCR_W, SCR_H, q, 2 * RM_N);
+            const uint32_t vb = nv + 4, ib = ni + 6;
+            if (nq > 0 && vb + (uint32_t)nq * 4 <= MAXV && ib + (uint32_t)nq * 6 <= MAXI) {
+                d2gr::Vtx* uv = (d2gr::Vtx*)g_vtxBuf[slot].p + vb;
+                uint16_t*  ui = (uint16_t*)g_idxBuf[slot].p + ib;
+                // build_quads rend des pixels ÉCRAN ; les sommets vivent dans
+                // l'espace de la FENÊTRE DE JEU, que la projection étire de
+                // façon non isotrope (800x600 -> 960x544). Sans cette
+                // conversion la roue deviendrait une ellipse.
+                const float kx = (float)g_gameW / (float)SCR_W;
+                const float ky = (float)g_gameH / (float)SCR_H;
+                for (int k = 0; k < nq; ++k) {
+                    for (int c = 0; c < 4; ++c) {
+                        d2gr::Vtx& v2 = uv[k * 4 + c];
+                        v2.x = q[k].x[c] * kx; v2.y = q[k].y[c] * ky;
+                        v2.u = q[k].u[c];      v2.v = q[k].v[c];
+                        v2.argb = 0xFFFFFFFFu; v2.pal = 0.0f;
+                    }
+                    const uint16_t b0 = (uint16_t)(vb + k * 4);
+                    ui[k*6+0] = b0;              ui[k*6+1] = (uint16_t)(b0 + 1);
+                    ui[k*6+2] = (uint16_t)(b0+2); ui[k*6+3] = b0;
+                    ui[k*6+4] = (uint16_t)(b0+2); ui[k*6+5] = (uint16_t)(b0 + 3);
+                }
+                sceGxmSetFragmentProgram(g_ctx, g_fpUi);
+                sceGxmSetFragmentTexture(g_ctx, 0, &g_uiTex);
+                sceGxmDraw(g_ctx, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16,
+                           (uint16_t*)g_idxBuf[slot].p + ib, (uint32_t)nq * 6);
+                ++g_calls;
+            }
+        }
     }
 
     if (g_asyncMode == 2) {

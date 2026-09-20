@@ -14,6 +14,7 @@ extern "C" int d2_tlswrap_dump(char*, unsigned);
 #include "platform/vita_net.h"
 #include "platform/vita_kb.h"   // full virtual keyboard (layouts, font, drawing)
 #include "platform/radial_menu.h"   // 7-sector radial menu (hold Select + left stick)
+#include "platform/vita_gxm.h"      // d2gxm_ui_active: le menu part-il sur le GPU ?
 #include "platform/vita_host.h"        // engine: log, cores, sleep (CONSOLE-specific)
 #include "runtime/host_clock.h"           // engine: monotonic host clock
 #include "platform/present_scale.h"   // engine: generic scaling (D2_PRESENT_WX86)
@@ -402,8 +403,9 @@ void d2vita_overlay(uint32_t* fb) {
                      n = 0; t0 = now; }
     if (fps_en) draw_fps(fb, fps10);
     if (g_kb.open) draw_keyboard(fb);
-    if (g_rm.open) radial_menu::draw(g_rm, fb, SCR_W, SCR_H);
 }
+
+const radial_menu::State* d2vita_radial_state() { return g_rm.open ? &g_rm : nullptr; }
 
 void d2vita_present_init() {
     if (g_inited) return;
@@ -1700,7 +1702,10 @@ extern "C" void d2vita_input_tick(void){
         const bool selDown=(b&B_SELECT)!=0, selWas=(was&B_SELECT)!=0;
         if (selDown && !selWas) {
             if (layer) { g_sel_mode=SEL_SPACE; d2vita_inject("keydown",0x20,0); }
-            else       { g_sel_mode=SEL_RADIAL; radial_menu::begin(g_rm); }
+            // Le menu n'existe QUE sur le GPU. S'il n'est pas armé (.gxp
+            // absent, atlas non alloué), ne pas l'ouvrir : un menu invisible
+            // qui avale quand même les entrées serait pire que pas de menu.
+            else if (d2gxm_ui_active()) { g_sel_mode=SEL_RADIAL; radial_menu::begin(g_rm); }
         }
         if (g_sel_mode==SEL_RADIAL) {
             g_lmb_stick=false; g_lmb_btn=false; lmb_update();      // release any click in progress
