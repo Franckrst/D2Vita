@@ -84,6 +84,15 @@ void d2cr_after_present();
 // Crash.txt").
 void d2cr_session_game_loaded(uint32_t game_base);
 
+// Called from d2vita_platform_init() once the EFFECTIVE write root is known —
+// after env.txt has been read and after the root has been created and probed.
+// Until then the session record holds the compile-time default, which is wrong
+// for anyone who set D2WRITE (docs-site/gains.md recommends doing exactly
+// that). The record is what the NEXT boot's evidence collector uses to find
+// crash.log and Crash.txt, so a stale value there does not just lose evidence:
+// it uploads another session's crash.log in its place.
+void d2cr_session_write_root(const char* root);
+
 // Called once, right after the scheduler-stopped diagnostic block (both the
 // coop and the native branches — tools/rt_boot.cpp, "scheduler stopped:"):
 // records stop_reason/main_exit into session.txt. This can fire on an
