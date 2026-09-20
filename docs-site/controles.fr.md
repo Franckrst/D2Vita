@@ -17,6 +17,7 @@
 | L | **Interagir** : objet au sol le plus proche, sinon coffre / porte / PNJ, sinon attaque de base sur la cible |
 | R puis L (maintenus) | Alt — étiquettes des objets au sol ; D-pad = déplacer le curseur d'objet en objet (vers le plus proche du curseur dans cette direction), Croix = ramasser l'objet sélectionné (repère cyan) |
 | D-pad ↑ / ← / ↓ / → | Potions ceinture 1 / 2 / 3 / 4 |
+| L + D-pad ↓ | Marche/course (bascule) |
 | R + D-pad | Potion au mercenaire |
 | Start | Échap ; R + Start : échange d'armes |
 | Select | Menu radial (voir plus bas) ; R + Select : Espace |

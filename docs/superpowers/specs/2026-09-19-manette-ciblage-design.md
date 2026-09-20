@@ -79,7 +79,8 @@ et un repli** dans le plan ; aucun de ces points ne bloque la snapshot.
 | Select | Menu radial (inchangé). R + Select : Espace (inchangé). |
 | L + Start | Capture d'écran (inchangé, prioritaire). L + Haut : marqueur de ralentissement (inchangé). |
 | Tactile avant | Curseur absolu + tap = clic (inchangé). |
-| Non mappés par défaut | marche/course (`run`), attaque sur place (`shift`) — disponibles dans `controls.txt`. |
+| L + Bas | Marche/course (toggle, touche `R` — VK 0x52, même cible que l'entrée `run` de `controls.txt`). |
+| Non mappés par défaut | attaque sur place (`shift`) — disponible dans `controls.txt`. |
 
 Une seule compétence à la fois : un deuxième bouton pressé pendant un maintien
 est ignoré. Pendant un lancer ou une interaction maintenue, le déplacement est

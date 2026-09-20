@@ -1822,6 +1822,16 @@ extern "C" void d2vita_input_tick(void){
         }
         return;                     // consomme : ni potion, ni autre effet
     }
+    // ---- L + BAS : marche/course (toggle) ----------------------------------
+    // VK 0x52 ('R') est deja la cible de l'entree "run" du parseur controls.txt
+    // (parse_act ci-dessous) : meme touche D2 native, juste assignee par defaut
+    // ici. Tir simple (tap), pas maintenu : c'est un toggle d'etat cote jeu.
+    // Bas seul = potion 2 (voir g_btn/D-pad plus bas) : meme raison qu'au-dessus,
+    // on intercepte sur le front descendant et on consomme pour ne pas boire.
+    if ((b&B_DOWN) && !(was&B_DOWN) && (b&B_L)) {
+        d2vita_inject("key", 0x52, 0);
+        return;                     // consomme : pas de potion 2 non plus
+    }
     const bool layer=(b&B_R)!=0;
     bool moved=false;
 
