@@ -2116,24 +2116,88 @@ int main(int argc,char**argv){
     // own guest code stumbles on it, deep into boot, with no message either
     // (do_create_file's read-miss is silent by default). Check the whole
     // required set HERE, once, so boot_progress.txt always names precisely
-    // what's absent and exactly where it was expected -- patch_d2.mpq is
-    // deliberately not in this list (recommended, not required; see
-    // docs-site/installation.md).
+    // what's absent and exactly where it was expected.
+    //
+    // patch_d2.mpq IS in this list, since 0.1.7. It used to be left out as
+    // "recommended, not required", and that cost us crash signature
+    // SROUUTFWJYFQOPOP (18 claims, 7 consoles, still live on 0.1.6): two of
+    // the 92 cels of the front-end dialog, ui\FrontEnd\TileableDialog.dc6
+    // among them, exist ONLY in patch_d2.mpq. Without it the archive open
+    // fails, D2Win_LoadCelFile hands back an uninitialised local, and the game
+    // halts in .\SRC\CelCmp.cpp:1521 on the way out of the front end -- with
+    // no message naming the missing file anywhere. "Recommended" was wrong:
+    // D2 does not degrade gracefully without it, so it is named here like any
+    // other required file.
     { static const char* kRequired[] = {
           "Game.exe","d2data.mpq","d2exp.mpq","d2char.mpq","d2sfx.mpq",
-          "d2music.mpq","d2speech.mpq","d2video.mpq",
+          "d2music.mpq","d2speech.mpq","d2video.mpq","patch_d2.mpq",
           "d2xmusic.mpq","d2xtalk.mpq","d2xvideo.mpq", nullptr };
+      // Leftovers of a pre-1.14 install: 1.14 folded these DLLs into Game.exe,
+      // so their presence means the folder is an older install (possibly
+      // patched over). NOT fatal -- the port bridges imports natively and does
+      // not load them -- but naming them in boot_progress.txt means a future
+      // crash report states the install's shape instead of leaving us to infer
+      // it from MPQ table geometry, which is what we had to do for signature
+      // SNALU33A2TNV5UYB and still could not settle.
+      static const char* kPre114[] = {
+          "Fog.dll","Storm.dll","D2Client.dll","D2Common.dll","D2Win.dll",
+          "D2gfx.dll","D2Lang.dll","D2sound.dll","Bnclient.dll", nullptr };
+      // One directory scan, reused by every check below. It also makes the
+      // lookup CASE-INSENSITIVE, which the old ::stat() was not: the game
+      // resolves its own opens through host_path() (case-insensitive), so a
+      // card holding D2DATA.MPQ used to be declared MANQUANT by a preflight
+      // that the game itself would then sail past.
+      std::map<std::string,std::pair<std::string,long>> present;   // lowercase -> (real name, size)
+      if(DIR* d=::opendir(vdir)){
+          while(struct dirent* e=::readdir(d)){
+              std::string nm=e->d_name; if(nm=="."||nm=="..") continue;
+              std::string lo=nm; for(char& ch:lo) ch=(char)std::tolower((unsigned char)ch);
+              struct stat st{}; long rc=::stat((std::string(vdir)+"/"+nm).c_str(),&st);
+              present[lo]=std::make_pair(nm, rc==0? (long)st.st_size : -1L); }
+          ::closedir(d); }
+      // An MPQ that exists but is truncated or is not an MPQ at all passes a
+      // size!=0 test and then fails much later, inside the guest, with no
+      // message. Validate the header geometry: magic, and both tables landing
+      // inside the file. Cheap (32 bytes read per archive) and it names the
+      // file instead of leaving the player with a halt.
+      auto mpq_bad=[&](const std::string& path, long size, std::string& why)->bool{
+          FILE* f=std::fopen(path.c_str(),"rb"); if(!f){ why="illisible"; return true; }
+          unsigned char h[32]; size_t got=std::fread(h,1,sizeof h,f); std::fclose(f);
+          if(got<sizeof h){ why="tronque (moins de 32 octets)"; return true; }
+          auto u16=[&](int o){ return (uint32_t)h[o] | ((uint32_t)h[o+1]<<8); };
+          auto u32=[&](int o){ return (uint32_t)h[o] | ((uint32_t)h[o+1]<<8) |
+                                      ((uint32_t)h[o+2]<<16) | ((uint32_t)h[o+3]<<24); };
+          if(h[0]!='M'||h[1]!='P'||h[2]!='Q'){ why="signature MPQ absente"; return true; }
+          if(h[3]==0x1b) return false;            // user-data header: real header is elsewhere, don't judge
+          if(h[3]!=0x1a){ why="signature MPQ absente"; return true; }
+          if(u16(12)>1) return false;             // format 2+: 64-bit table offsets, not checked here
+          const uint64_t hpos=u32(16), bpos=u32(20), hn=u32(24), bn=u32(28);
+          if(hpos + hn*16ull > (uint64_t)size){ why="table de hash hors fichier (archive tronquee)"; return true; }
+          if(bpos + bn*16ull > (uint64_t)size){ why="table de blocs hors fichier (archive tronquee)"; return true; }
+          return false; };
       int nmiss=0; std::vector<std::string> missingNames;
       for(const char** f=kRequired; *f; ++f){
-          std::string p=std::string(vdir)+"/"+*f;
-          struct stat st{};   // zero-initialized: a stat() that fails without
-                              // touching st must not leave st_size looking
-                              // like a plausible (nonzero) size by accident.
-          long rc=::stat(p.c_str(),&st);
-          if(rc!=0 || st.st_size==0){
-              char m[192]; std::snprintf(m,sizeof m,"install: MANQUANT %s (attendu: %s)",*f,p.c_str());
-              d2vita_progress(m); std::printf("[%s]\n",m); ++nmiss; missingNames.push_back(*f); } }
-      if(nmiss){ char m[96]; std::snprintf(m,sizeof m,"install: %d fichier(s) manquant(s) -- voir ci-dessus",nmiss);
+          std::string lo=*f; for(char& ch:lo) ch=(char)std::tolower((unsigned char)ch);
+          auto it=present.find(lo);
+          if(it==present.end() || it->second.second<=0){
+              char m[192]; std::snprintf(m,sizeof m,"install: MANQUANT %s (attendu: %s/%s)",*f,vdir,*f);
+              d2vita_progress(m); std::printf("[%s]\n",m); ++nmiss; missingNames.push_back(*f); continue; }
+          if(lo.size()>4 && lo.compare(lo.size()-4,4,".mpq")==0){
+              std::string why;
+              if(mpq_bad(std::string(vdir)+"/"+it->second.first, it->second.second, why)){
+                  char m[224]; std::snprintf(m,sizeof m,"install: INVALIDE %s — %s (%ld octets)",
+                                             it->second.first.c_str(), why.c_str(), it->second.second);
+                  d2vita_progress(m); std::printf("[%s]\n",m); ++nmiss;
+                  missingNames.push_back(std::string(*f)+" (invalide)"); } } }
+      { std::string old; int nold=0;
+        for(const char** f=kPre114; *f; ++f){
+            std::string lo=*f; for(char& ch:lo) ch=(char)std::tolower((unsigned char)ch);
+            if(present.count(lo)){ if(nold++) old+=","; old+=*f; } }
+        if(nold){ char m[224]; std::snprintf(m,sizeof m,
+              "install: %d DLL d'avant 1.14 presentes (%s) — non chargees, installation anterieure a 1.14",
+              nold, old.c_str());
+            d2vita_progress(m); std::printf("[%s]\n",m); } }
+      if(nmiss){ char m[96]; std::snprintf(m,sizeof m,"install: %d fichier(s) manquant(s) ou invalide(s) -- voir ci-dessus",nmiss);
           d2vita_progress(m); std::printf("[%s]\n",m); std::fflush(stdout);
           // Real on-screen message, not just a log line a player has to know
           // to go find: shown BEFORE Game.exe is even opened, using the same

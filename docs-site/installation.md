@@ -17,7 +17,7 @@ ux0:data/d2vita/1.14d/
 ├── Game.exe
 ├── d2data.mpq      (required)
 ├── d2exp.mpq       (required, LoD expansion)
-├── patch_d2.mpq    (recommended — 1.14d patch)
+├── patch_d2.mpq    (required — 1.14d patch)
 ├── d2char.mpq
 ├── d2sfx.mpq
 ├── d2music.mpq
