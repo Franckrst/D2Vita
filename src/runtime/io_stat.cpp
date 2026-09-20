@@ -40,6 +40,7 @@
 #include <cstring>
 #include <unistd.h>
 #include <sys/types.h>
+#include <cerrno>
 using namespace d2rt;
 
 static std::map<uint32_t,IoH> g_ioh;
@@ -106,12 +107,39 @@ void io_close(uint32_t h){
         if(w.buf){ std::free(w.buf); g_raUse-=w.cap; --g_raHandles; w.buf=nullptr; w.cap=0; w.len=0; } }
     g_ioh.erase(it);
 }
-// A RAW read from the card: lseek + read, looping until n bytes or EOF.
+// How many times a read that failed outright is replayed (after re-seeking to
+// where it stopped) before the handle is declared broken. EINTR does not count
+// against it: an interrupted read is not a failure.
+#define RA_IO_TRIES 3
+// A RAW read from the card: lseek + read, looping until n bytes, the end of the
+// file, or a real error.
+//
+// The distinction between "the file ends here" and "the card refused" is the
+// whole point of this function. It used to break out of the loop on `r<=0`,
+// which folded a failed read into an end of file, dropped errno, and never
+// retried; ReadFile then reported the truncated result to the guest as a
+// SUCCESS. Storm compares bytes-read against bytes-asked, turns that into
+// FALSE, and D2 halts in .\SRC\Archive.cpp -- its own retry never gets to run
+// because our TRUE short-circuits it. That is crash signatures
+// SURNYOFH4UCT7WEE and SJ742Y7S6VEXVGOZ, both still live on 0.1.6.
 static uint32_t ra_raw(IoH& f, long off, void* dst, uint32_t n){
     uint64_t t0=rt_now_us();
     uint32_t got=0;
-    if(::lseek(f.fd,off,SEEK_SET)==(off_t)off){
-        while(got<n){ ssize_t r=::read(f.fd,(uint8_t*)dst+got,n-got); if(r<=0) break; got+=(uint32_t)r; } }
+    if(::lseek(f.fd,off,SEEK_SET)!=(off_t)off){ f.err = errno? errno : EIO; }
+    else {
+        int tries=0;
+        while(got<n){
+            errno=0;
+            ssize_t r=::read(f.fd,(uint8_t*)dst+got,n-got);
+            if(r>0){ got+=(uint32_t)r; tries=0; continue; }
+            if(r==0) break;                       // genuine end of file, not an error
+            if(errno==EINTR) continue;            // interrupted, not a failure
+            const long resume = off+(long)got;    // bounded retry, from where it stopped
+            if(++tries<RA_IO_TRIES && ::lseek(f.fd,resume,SEEK_SET)==(off_t)resume) continue;
+            f.err = errno? errno : EIO;
+            break;
+        }
+    }
     uint64_t dt=rt_now_us()-t0;
     g_ioW.cardN++; g_ioW.cardB+=got; g_ioW.cardUs+=dt; g_ioT.cardN++; g_ioT.cardB+=got; g_ioT.cardUs+=dt;
     auto fc=g_ioF.find(f.nm); if(fc!=g_ioF.end()){ fc->second.cardN++; fc->second.cardB+=got; }
@@ -121,6 +149,7 @@ static uint32_t ra_raw(IoH& f, long off, void* dst, uint32_t n){
 // the number of bytes copied into dst; `fromRam` = everything came from the buffer.
 uint32_t ra_read(IoH& f, long off, void* dst, uint32_t n, bool& fromRam){
     fromRam=true; uint32_t done=0;
+    f.err=0;                        // per-call: only THIS read's failure travels
     while(done<n){
         long o=off+done;
         // --- 1. serve from ANY of the windows -----------------------------
