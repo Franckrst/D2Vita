@@ -167,7 +167,14 @@ private:
     // overlay
     uint32_t tgtId_ = 0; Target tgt_;
     // ground-item browsing (Alt held: D-pad moves the cursor, Croix confirms)
+    // lootArm_ > 0: the cursor has been moved onto the label and we are waiting
+    // for the GAME to register that it hovers the item before pressing the
+    // button. Clicking in the same breath makes the game act on whatever it
+    // hovered last (usually nothing), which it reads as "walk to that spot" --
+    // console, 20/09: the label turned blue and the character walked off.
+    // lootDown_: the button is actually down, so release must lift it.
     uint32_t lootCursorId_ = 0; bool lootConfirm_ = false; Target lootTgt_;
+    int      lootArm_ = 0; bool lootDown_ = false;
     bool     aimActive_ = false; int aimX_ = 0, aimY_ = 0;
     HoverTable hover_;
 };

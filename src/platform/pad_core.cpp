@@ -234,7 +234,7 @@ void Scheme::releaseAll(Actions& out) {
     for (Held& h : dpad_) if (h.vk) { out.push(A_KEYUP, h.vk); if (h.shift) out.push(A_KEYUP, 0x10); h = Held{}; }
     castSlot_ = -1; castBit_ = 0; castId_ = 0; castVerified_ = false;
     interact_ = false; interNoop_ = false; interId_ = 0; interVerified_ = false;
-    lootConfirm_ = false; lootCursorId_ = 0; lootTgt_ = Target{};
+    lootConfirm_ = false; lootCursorId_ = 0; lootTgt_ = Target{}; lootArm_ = 0; lootDown_ = false;
     lsOn_ = false; tgt_ = Target{}; tgtId_ = 0; aimActive_ = false;
 }
 
@@ -391,24 +391,34 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             }
         }
         if ((down & B_CROSS) && !interact_ && fromIdx >= 0) {
-            interact_ = true; lootConfirm_ = true;
+            interact_ = true; lootConfirm_ = true; lootArm_ = 1; lootDown_ = false;
             interId_ = u[fromIdx].id; interType_ = u[fromIdx].type; interCls_ = u[fromIdx].cls;
             interH_ = 6;                                              // items: fixed hover height, same as L
             if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
-            // Click the item's NAME (Alt label), same spot the marker below
-            // highlights — not the feet/tile, which is what actually lets the
-            // pick-up land on the one selected when several share a tile.
-            Unit lu = u[fromIdx]; if (lu.hasLabel) { lu.sx = lu.lx; lu.sy = lu.ly; }
-            int px, py; hoverPoint(lu, interH_, v, &px, &py);
+            // Move ONLY. The button waits for the game to hover the item --
+            // see lootArm_ in the header. Aim at the item's NAME (Alt label),
+            // the same spot the marker highlights, not the feet/tile: that is
+            // what picks the right one when several share a tile.
+            int px, py; hoverPoint(u[fromIdx], interH_, v, &px, &py);
             cx_ = px; cy_ = py; out.push(A_MOVE, px, py);
-            out.push(A_LDOWN, px, py);
         } else if (interact_ && lootConfirm_) {
-            if (!(c.buttons & B_CROSS)) { out.push(A_LUP, cx_, cy_); interact_ = false; lootConfirm_ = false; interId_ = 0; }
-            else {
+            if (!(c.buttons & B_CROSS)) {
+                if (lootDown_) out.push(A_LUP, cx_, cy_);
+                interact_ = false; lootConfirm_ = false; interId_ = 0; lootArm_ = 0; lootDown_ = false;
+            } else {
                 const int ii = findId(u, n, interId_);
                 if (ii >= 0) {
-                    Unit lu = u[ii]; if (lu.hasLabel) { lu.sx = lu.lx; lu.sy = lu.ly; }
-                    int px, py; hoverPoint(lu, interH_, v, &px, &py); moveTo(px, py, out);
+                    int px, py; hoverPoint(u[ii], interH_, v, &px, &py); moveTo(px, py, out);
+                }
+                if (lootArm_ > 0) {
+                    // Press as soon as the game reports it hovers THIS item.
+                    // The fallback press (5 ticks ~ a few frames) keeps Croix
+                    // from doing nothing at all if that report never comes --
+                    // the label path may not publish through the globals the
+                    // sprite-hover path does.
+                    const bool hovered = x.selValid && x.selId == interId_;
+                    if (hovered || lootArm_ >= 5) { out.push(A_LDOWN, cx_, cy_); lootDown_ = true; lootArm_ = 0; }
+                    else ++lootArm_;
                 }
             }
         }
@@ -422,7 +432,10 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
     } else {
         lootTgt_ = Target{};
         lootCursorId_ = 0;
-        if (lootConfirm_ && interact_) { out.push(A_LUP, cx_, cy_); interact_ = false; lootConfirm_ = false; interId_ = 0; }
+        if (lootConfirm_ && interact_) {
+            if (lootDown_) out.push(A_LUP, cx_, cy_);          // never lift a button we never pressed
+            interact_ = false; lootConfirm_ = false; interId_ = 0; lootArm_ = 0; lootDown_ = false;
+        }
     }
 
     // ---- left stick: move-only orbit, hard stop on release ----

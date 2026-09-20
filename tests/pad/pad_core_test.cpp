@@ -381,10 +381,19 @@ static void test_scheme_loot_browse() {
     CHECK(!s.aimActive());
     c.rx = 0.f;
 
-    // Croix: picks up item 50 via the same hover mechanism L already uses (h=6 for items)
+    // Croix: MOVES onto the item, and deliberately does NOT press yet. Clicking
+    // in the same breath made the game act on whatever it hovered last, which
+    // it reads as "walk there" -- console 20/09: the label lit up and the
+    // character walked off without picking anything up.
     c.buttons = pad::B_R | pad::B_L | pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
-    CHECK(hasAct(a, pad::A_MOVE, 480, 294) && hasAct(a, pad::A_LDOWN, 480, 294));
+    CHECK(hasAct(a, pad::A_MOVE, 480, 294) && !hasAct(a, pad::A_LDOWN));
     CHECK(!s.casting());                                          // did NOT also start a cast (any slot)
+
+    // next tick, the game reports it hovers item 50: NOW the button goes down
+    x.selValid = 1; x.selId = 50; x.selType = 4;
+    c.buttons = pad::B_R | pad::B_L | pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
+    CHECK(hasAct(a, pad::A_LDOWN, 480, 294));
+    x.selValid = 0; x.selId = 0; x.selType = 0;
 
     // D-pad is locked out while the pickup is held
     c.buttons = pad::B_R | pad::B_L | pad::B_CROSS | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
