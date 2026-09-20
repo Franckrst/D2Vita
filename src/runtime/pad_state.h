@@ -1,5 +1,5 @@
 // src/runtime/pad_state.h — per-frame guest snapshot for the controller
-// scheme v2 (docs/superpowers/specs/2026-09-19-manette-ciblage-design.md).
+// scheme v2 (see docs-site/controles.md for the mapping it feeds).
 // WRITTEN by the unit/camera hooks in phase_hooks.cpp (game render thread),
 // READ by the input tick (same thread: the tick runs from the message pump).
 // Double-buffered: frame_begin() publishes the unit list collected during the
@@ -17,7 +17,6 @@ struct Unit {
     uint32_t id, type, cls, mode;
     int32_t  fx, fy;                 // 16.16 fine world position (what GetUnitX/Y return)
     uint32_t ownerType, ownerId;     // UnitAny+0x94 / +0x98 (type 1 only, else 0)
-    uint32_t monFlags;               // MonsterData+0x16 byte (type 1 only, else 0)
 };
 
 // One ground-item name label, COPIED from the array the game itself keeps at

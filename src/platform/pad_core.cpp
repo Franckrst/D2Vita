@@ -207,9 +207,12 @@ void Scheme::moveTo(int x, int y, Actions& out) {
     if (x != cx_ || y != cy_) { cx_ = x; cy_ = y; out.push(A_MOVE, x, y); }
 }
 
-int Scheme::findId(const Unit* u, int n, uint32_t id) const {
+// D2 unit ids are unique per TYPE, not across types: a monster and an item can
+// both be id 50. Matching on the id alone made the loot marker jump onto a
+// monster, and Croix then clicked it -- an attack instead of a pick-up.
+int Scheme::findId(const Unit* u, int n, uint32_t id, uint32_t type) const {
     if (!id) return -1;
-    for (int i = 0; i < n; ++i) if (u[i].id == id) return i;
+    for (int i = 0; i < n; ++i) if (u[i].id == id && u[i].type == type) return i;
     return -1;
 }
 
@@ -226,15 +229,15 @@ void Scheme::hoverPoint(const Unit& t, int h, const View& v, int* px, int* py) c
 
 void Scheme::releaseAll(Actions& out) {
     if (rmb_)    { out.push(A_RUP, cx_, cy_); rmb_ = false; }
-    if (lmb_)    { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+    if (lmb_)    { out.push(A_LUP, cx_, cy_); lmb_ = false; lsClick_ = false; }
     if (alt_)    { out.push(A_KEYUP, 0x12); alt_ = false; }
     if (shiftSq_){ out.push(A_KEYUP, 0x10); shiftSq_ = false; }
     if (esc_)    { out.push(A_KEYUP, 0x1B); esc_ = false; }
     if (wkey_)   { out.push(A_KEYUP, 0x57); wkey_ = false; }
     for (Held& h : dpad_) if (h.vk) { out.push(A_KEYUP, h.vk); if (h.shift) out.push(A_KEYUP, 0x10); h = Held{}; }
     castSlot_ = -1; castBit_ = 0; castId_ = 0; castVerified_ = false;
-    interact_ = false; interNoop_ = false; interId_ = 0; interVerified_ = false;
-    lootConfirm_ = false; lootCursorId_ = 0; lootTgt_ = Target{}; lootArm_ = 0; lootDown_ = false;
+    interact_ = false; interId_ = 0; interVerified_ = false;
+    lootConfirm_ = false; lootCursorId_ = 0; lootTgt_ = Target{}; lootArm_ = 0;
     lsOn_ = false; tgt_ = Target{}; tgtId_ = 0; aimActive_ = false;
 }
 
@@ -283,7 +286,7 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
 
     // ---- hostile target of the moment (overlay + next cast) ----
     int ti = -1;
-    if (cfg_.aim) { ti = pick_hostile(u, n, v, c, cfg_, findId(u, n, tgtId_)); tgtId_ = ti >= 0 ? u[ti].id : 0; }
+    if (cfg_.aim) { ti = pick_hostile(u, n, v, c, cfg_, findId(u, n, tgtId_, 1)); tgtId_ = ti >= 0 ? u[ti].id : 0; }
     {
         const float am = std::sqrt(c.rx * c.rx + c.ry * c.ry);
         aimActive_ = !alt_ && am > cfg_.deadzone;
@@ -313,7 +316,7 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             castSlot_ = -1; castBit_ = 0; castId_ = 0; castVerified_ = false;
         } else {
             int px = cx_, py = cy_;
-            int ci = findId(u, n, castId_);
+            int ci = findId(u, n, castId_, castType_);
             if (castId_ && (ci < 0 || !u[ci].hostile)) {               // target died or left: re-pick
                 ci = cfg_.aim ? pick_hostile(u, n, v, c, cfg_, -1) : -1;
                 if (ci >= 0) {
@@ -338,7 +341,7 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
     }
     // overlay target
     if (castSlot_ >= 0 && castId_) {
-        const int ci = findId(u, n, castId_);
+        const int ci = findId(u, n, castId_, castType_);
         tgt_ = Target{};
         if (ci >= 0) { tgt_.has = true; tgt_.id = castId_; tgt_.sx = u[ci].sx; tgt_.sy = u[ci].sy; tgt_.verified = castVerified_; }
     } else if (ti >= 0 && !alt_) { tgt_ = Target{}; tgt_.has = true; tgt_.id = u[ti].id; tgt_.sx = u[ti].sx; tgt_.sy = u[ti].sy; }
@@ -355,12 +358,12 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
             int px, py; hoverPoint(u[ii], interH_, v, &px, &py);
             cx_ = px; cy_ = py; out.push(A_MOVE, px, py);              // forced move, same reason as the cast
-            out.push(A_LDOWN, px, py);
-        } else interNoop_ = true;
+            out.push(A_LDOWN, px, py); lmb_ = true;                    // lmb_: releaseAll is the only guaranteed lift
+        }
     } else if (interact_ && !lootConfirm_) {
-        if (!(c.buttons & B_L)) { out.push(A_LUP, cx_, cy_); interact_ = false; interId_ = 0; }
+        if (!(c.buttons & B_L)) { out.push(A_LUP, cx_, cy_); lmb_ = false; interact_ = false; interId_ = 0; }
         else {
-            const int ii = findId(u, n, interId_);
+            const int ii = findId(u, n, interId_, interType_);
             if (ii >= 0) {
                 if (!interVerified_) {
                     if (x.selValid && x.selId == interId_ && x.selType == interType_) {
@@ -376,11 +379,10 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             }
         }
     }
-    if ((up & B_L) && interNoop_) interNoop_ = false;
 
     // ---- Alt held: browse ground items (D-pad = cursor, Croix = pick up) ----
     if (alt_) {
-        int fromIdx = findId(u, n, lootCursorId_);
+        int fromIdx = findId(u, n, lootCursorId_, 4);
         if (fromIdx < 0 && !interact_) { fromIdx = nearest_item(u, n, v); lootCursorId_ = fromIdx >= 0 ? u[fromIdx].id : 0; }
         if (fromIdx >= 0 && !interact_) {
             static const Dir kDirs[4] = { D_UP, D_LEFT, D_DOWN, D_RIGHT };   // matches kDpadBits order
@@ -391,7 +393,7 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             }
         }
         if ((down & B_CROSS) && !interact_ && fromIdx >= 0) {
-            interact_ = true; lootConfirm_ = true; lootArm_ = 1; lootDown_ = false;
+            interact_ = true; lootConfirm_ = true; lootArm_ = 1;
             interId_ = u[fromIdx].id; interType_ = u[fromIdx].type; interCls_ = u[fromIdx].cls;
             interH_ = 6;                                              // items: fixed hover height, same as L
             if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
@@ -403,22 +405,33 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             cx_ = px; cy_ = py; out.push(A_MOVE, px, py);
         } else if (interact_ && lootConfirm_) {
             if (!(c.buttons & B_CROSS)) {
-                if (lootDown_) out.push(A_LUP, cx_, cy_);
-                interact_ = false; lootConfirm_ = false; interId_ = 0; lootArm_ = 0; lootDown_ = false;
+                if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+                interact_ = false; lootConfirm_ = false; interId_ = 0; lootArm_ = 0;
             } else {
-                const int ii = findId(u, n, interId_);
-                if (ii >= 0) {
+                const int ii = findId(u, n, interId_, interType_);
+                if (ii < 0) lootArm_ = 0;          // item gone before the press: firing the
+                                                   // fallback at its last known spot would be
+                                                   // read as "walk there", the very thing the
+                                                   // two-step press exists to avoid
+                else {
                     int px, py; hoverPoint(u[ii], interH_, v, &px, &py); moveTo(px, py, out);
-                }
-                if (lootArm_ > 0) {
-                    // Press as soon as the game reports it hovers THIS item.
-                    // The fallback press (5 ticks ~ a few frames) keeps Croix
-                    // from doing nothing at all if that report never comes --
-                    // the label path may not publish through the globals the
-                    // sprite-hover path does.
-                    const bool hovered = x.selValid && x.selId == interId_;
-                    if (hovered || lootArm_ >= 5) { out.push(A_LDOWN, cx_, cy_); lootDown_ = true; lootArm_ = 0; }
-                    else ++lootArm_;
+                    if (lootArm_ > 0) {
+                        // The game only writes the label hover as a side effect of
+                        // RENDERING a frame (Game+0xc0810 runs from the UI draw
+                        // pass), and the click acts on the hover from the frame
+                        // before -- so moving the cursor and pressing in the same
+                        // breath makes it act on nothing, which it sends as "walk
+                        // to that spot". Wait for the report.
+                        //
+                        // Never press without one: a click with no hover is that
+                        // walk order, and the character wanders off instead of
+                        // picking anything up. After a few frames, a hover on
+                        // ANOTHER item still counts -- it is the one under the
+                        // cursor, which is the one the player sees highlighted.
+                        if (!x.selValid || x.selType != interType_) ++lootArm_;
+                        else if (x.selId == interId_ || lootArm_ >= 5) { out.push(A_LDOWN, cx_, cy_); lmb_ = true; lootArm_ = 0; }
+                        else ++lootArm_;
+                    }
                 }
             }
         }
@@ -433,8 +446,8 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
         lootTgt_ = Target{};
         lootCursorId_ = 0;
         if (lootConfirm_ && interact_) {
-            if (lootDown_) out.push(A_LUP, cx_, cy_);          // never lift a button we never pressed
-            interact_ = false; lootConfirm_ = false; interId_ = 0; lootArm_ = 0; lootDown_ = false;
+            if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }   // never lift a button we never pressed
+            interact_ = false; lootConfirm_ = false; interId_ = 0; lootArm_ = 0;
         }
     }
 
@@ -446,14 +459,17 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
         if (on) {
             int px, py; orbit_point(v, c, cfg_, u, n, &px, &py);
             moveTo(px, py, out);
-            if (!lmb_) { out.push(A_LDOWN, px, py); lmb_ = true; }
+            if (!lmb_) { out.push(A_LDOWN, px, py); lmb_ = true; lsClick_ = true; }
         } else if (lsOn_) {
-            if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+            if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; lsClick_ = false; }
             int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
             psy += 6; clamp_point(v, cfg_, &psx, &psy);
             cx_ = psx; cy_ = psy; out.push(A_CLICK, psx, psy);            // click at the feet = stop
         }
-    } else if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }        // suspended while casting / interacting
+    } else if (lsClick_) { out.push(A_LUP, cx_, cy_); lmb_ = false; lsClick_ = false; }   // only ever lift the
+                                                                     // stick's OWN click here: lmb_ now also covers
+                                                                     // the interact/pickup press, which this branch
+                                                                     // runs alongside and must not cancel
     lsOn_ = on;
 }
 

@@ -461,8 +461,6 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
                         if(type==2||type==4||type==5){ pu.fx=x; pu.fy=y; } else { pu.fx=(int32_t)r8; pu.fy=(int32_t)rc; }
                         if(type==1){
                             pu.ownerType=c.read_u32(u+0x94); pu.ownerId=c.read_u32(u+0x98);
-                            const uint32_t md=c.read_u32(u+0x14);
-                            if(md) pu.monFlags=(c.read_u32(md+0x14)>>16)&0xffu;   // byte at MonsterData+0x16
                         }
                         padst::add_unit(pu);
                     }
@@ -618,7 +616,6 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
             }
         }
         // (e) pad only: ground-item name labels for the loot D-pad cursor
-        // (docs/superpowers/specs/2026-09-19-manette-butin-design.md).
         //
         // NO HOOK. The labels are read straight out of the game's own array
         // in the camera hook above (see padst::Label) -- Game+0xc0810 fills

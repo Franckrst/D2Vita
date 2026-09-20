@@ -51,13 +51,13 @@ static void test_clamp_and_box() {
 }
 
 static pad::Unit mkMon(uint32_t id, int sx, int sy, bool hostile = true) {
-    pad::Unit u; u.id = id; u.type = 1; u.cls = 10; u.mode = 1; u.sx = sx; u.sy = sy; u.hostile = hostile; return u;
+    pad::Unit u; u.id = id; u.type = 1; u.cls = 10; u.sx = sx; u.sy = sy; u.hostile = hostile; return u;
 }
 
 static void test_pick_hostile() {
     pad::View v = mkView(); pad::Config cfg; pad::Ctl c;
     pad::Unit u[4] = { mkMon(1, 600, 300), mkMon(2, 450, 300), mkMon(3, 400, 100, false), mkMon(4, 400, 320) };
-    u[3].mode = 12;  u[3].hostile = false;   // corpse flagged by the glue
+    u[3].hostile = false;                    // corpse, flagged by the glue
     // idle stick: nearest hostile
     CHECK(pad::pick_hostile(u, 4, v, c, cfg, -1) == 1);
     // aimed to the right: the far right one wins over the near one? no: both in cone, near wins
@@ -172,7 +172,7 @@ static void test_nav_direction() {
 
     // non-item units are never candidates, even when nearer than the real item
     pad::Unit withMon[3] = { mkItem(40, 400, 300), mkItem(41, 500, 300) };
-    withMon[2] = mkItem(42, 450, 300); withMon[2].type = 1; withMon[2].mode = 1; withMon[2].hostile = true;
+    withMon[2] = mkItem(42, 450, 300); withMon[2].type = 1; withMon[2].hostile = true;
     CHECK(pad::nav_direction(withMon, 3, 0, pad::D_RIGHT) == 1);   // finds item 41, not the closer monster
 
     // a target at exactly 45 degrees qualifies for BOTH adjacent directions
@@ -215,11 +215,11 @@ static void test_nearest_item() {
 
     // non-item units are ignored
     pad::Unit withMon[2]; withMon[0] = mkItem(73, 500, 500);
-    withMon[1].id = 74; withMon[1].type = 1; withMon[1].sx = 401; withMon[1].sy = 301; withMon[1].mode = 1;
+    withMon[1].id = 74; withMon[1].type = 1; withMon[1].sx = 401; withMon[1].sy = 301;
     CHECK(pad::nearest_item(withMon, 2, v) == 0);
 
     // no items at all
-    pad::Unit mon[1]; mon[0].id = 75; mon[0].type = 1; mon[0].sx = 400; mon[0].sy = 300; mon[0].mode = 1;
+    pad::Unit mon[1]; mon[0].id = 75; mon[0].type = 1; mon[0].sx = 400; mon[0].sy = 300;
     CHECK(pad::nearest_item(mon, 1, v) == -1);
     CHECK(pad::nearest_item(nullptr, 0, v) == -1);
 }
@@ -235,7 +235,7 @@ static int actIndex(const pad::Actions& a, pad::ActKind k) {
 
 static void test_scheme_cast() {
     pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; x.playerId = 99;
+    pad::Ctx x; x.inGame = true;
     pad::Unit u[1] = { mkMon(5, 500, 300) };
     pad::Ctl c; pad::Actions a;
     s.tick(c, x, v, u, 1, a);                                   // settle, nothing pressed
@@ -276,7 +276,7 @@ static void test_scheme_cast() {
 
 static void test_scheme_move() {
     pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; x.playerId = 99;
+    pad::Ctx x; x.inGame = true;
     pad::Ctl c; pad::Actions a;
     c.lx = 1.f; s.tick(c, x, v, nullptr, 0, a);
     CHECK(hasAct(a, pad::A_MOVE, 400 + cfg.orbitMax, 300));
@@ -303,7 +303,7 @@ static void test_scheme_move() {
 
 static void test_scheme_interact_and_keys() {
     pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; x.playerId = 99;
+    pad::Ctx x; x.inGame = true;
     pad::Unit u[2] = { mkMon(5, 500, 300) };
     u[1].id = 8; u[1].type = 4; u[1].sx = 430; u[1].sy = 310; u[1].interact = true;
     pad::Ctl c; pad::Actions a;
@@ -345,11 +345,11 @@ static void test_scheme_interact_and_keys() {
 
 static void test_scheme_loot_browse() {
     pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; x.playerId = 99;
+    pad::Ctx x; x.inGame = true;
     pad::Unit u[3];
     u[0] = mkItem(50, 480, 300);                                 // dist 80 from player (400,300): nearest
     u[1] = mkItem(51, 300, 300);                                 // dist 100: farther, to the LEFT of u[0]
-    u[2].id = 52; u[2].type = 1; u[2].sx = 470; u[2].sy = 300; u[2].mode = 1; u[2].hostile = true;
+    u[2].id = 52; u[2].type = 1; u[2].sx = 470; u[2].sy = 300; u[2].hostile = true;
     // ^ monster: closer to u[1] (dist 170) than u[0] is (dist 180) -- must never be selected
     pad::Ctl c; pad::Actions a;
 
@@ -428,9 +428,98 @@ static void test_scheme_loot_browse() {
     CHECK(s.lootCursor().id == 50);
 }
 
+// Every A_LDOWN must have a lift on EVERY exit, not just the button's own
+// release. Console-visible failure: hold L on a town NPC, the dialogue opens,
+// the mode switches to PANEL -- and the left button stays down forever, so
+// every later cursor move is a drag.
+static void test_left_button_always_released() {
+    pad::View v = mkView();
+    pad::Unit u[1] = { mkItem(50, 400, 300) };
+    auto countUp = [](const pad::Actions& a) {
+        int k = 0; for (int i = 0; i < a.n; ++i) if (a.v[i].k == pad::A_LUP) ++k; return k; };
+
+    // A: L-interact held, then a panel opens
+    { pad::Config cfg; pad::Scheme s(cfg); pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+      c.buttons = pad::B_L; s.tick(c, x, v, u, 1, a);
+      CHECK(hasAct(a, pad::A_LDOWN));
+      x.panelOpen = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+      CHECK(countUp(a) == 1); }
+
+    // B: L-interact held, then the game is left
+    { pad::Config cfg; pad::Scheme s(cfg); pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+      c.buttons = pad::B_L; s.tick(c, x, v, u, 1, a);
+      CHECK(hasAct(a, pad::A_LDOWN));
+      a = pad::Actions{}; s.leave(a);
+      CHECK(countUp(a) == 1); }
+
+    // C: Alt pickup pressed, then a panel opens
+    { pad::Config cfg; pad::Scheme s(cfg); pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+      c.buttons = pad::B_R; s.tick(c, x, v, u, 1, a);
+      c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+      c.buttons = pad::B_R | pad::B_L | pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+      x.selValid = 1; x.selId = 50; x.selType = 4;
+      a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+      CHECK(hasAct(a, pad::A_LDOWN));
+      x.panelOpen = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+      CHECK(countUp(a) == 1); }
+}
+
+// D2 unit ids are unique per type only: a monster and an item can share one.
+// Matching on the id alone made the loot marker jump onto the monster, and
+// Croix then clicked it -- an attack, never a pick-up.
+static void test_id_collision_across_types() {
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[2] = { mkMon(50, 300, 250), mkItem(50, 480, 300) };   // same id, monster listed FIRST
+    c.buttons = pad::B_R; s.tick(c, x, v, u, 2, a);
+    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    CHECK(s.lootCursor().has && s.lootCursor().sx == 480);
+    a = pad::Actions{}; s.tick(c, x, v, u, 2, a);                     // held: must stay on the ITEM
+    CHECK(s.lootCursor().sx == 480 && s.lootCursor().sy == 300);
+}
+
+// The item disappears before the press (someone else grabbed it, it scrolled
+// off): the delayed press must be cancelled, not fired at the last known spot
+// -- the game would read that as "walk there", which is what the two-step
+// press exists to avoid in the first place.
+static void test_pickup_cancelled_when_item_vanishes() {
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1] = { mkItem(50, 480, 300) };
+    c.buttons = pad::B_R; s.tick(c, x, v, u, 1, a);
+    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    c.buttons = pad::B_R | pad::B_L | pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(!hasAct(a, pad::A_LDOWN));                                  // move only, as designed
+    for (int i = 0; i < 8; ++i) {                                     // item gone, well past the 5-tick fallback
+        a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+        CHECK(!hasAct(a, pad::A_LDOWN));
+    }
+}
+
+// A click with no hover at all is a walk order: the character wanders off
+// instead of picking anything up. The press must never fire on the timeout
+// alone -- only once the game reports it hovers an item.
+static void test_pickup_never_presses_without_hover() {
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1] = { mkItem(50, 480, 300) };
+    c.buttons = pad::B_R; s.tick(c, x, v, u, 1, a);
+    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    c.buttons = pad::B_R | pad::B_L | pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    for (int i = 0; i < 12; ++i) {                    // the game never reports a hover
+        a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+        CHECK(!hasAct(a, pad::A_LDOWN));
+    }
+    // it hovers a DIFFERENT item (our id went stale): that one is under the
+    // cursor and highlighted, so after the grace ticks the press goes through
+    x.selValid = 1; x.selId = 77; x.selType = 4;
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_LDOWN));
+}
+
 static void test_scheme_panel_and_leave() {
     pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; x.playerId = 99;
+    pad::Ctx x; x.inGame = true;
     pad::Unit u[1] = { mkMon(5, 500, 300) };
     pad::Ctl c; pad::Actions a;
     // a cast is held when a panel opens: it is released on the mode change
@@ -482,6 +571,10 @@ int main() {
     test_scheme_move();
     test_scheme_interact_and_keys();
     test_scheme_loot_browse();
+    test_left_button_always_released();
+    test_id_collision_across_types();
+    test_pickup_cancelled_when_item_vanishes();
+    test_pickup_never_presses_without_hover();
     test_scheme_panel_and_leave();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

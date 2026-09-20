@@ -3,8 +3,8 @@
 // (tests/pad/pad_core_test.cpp). vita_present.cpp feeds it the controller
 // state and the per-frame guest snapshot (runtime/pad_state.h) and emits the
 // returned actions through d2vita_inject. All coordinates are GAME pixels
-// (800x600 or 640x480), +y down. Design: docs/superpowers/specs/
-// 2026-09-19-manette-ciblage-design.md
+// (800x600 or 640x480), +y down. The mapping this drives is documented
+// in docs-site/controles.md.
 #pragma once
 #include <cstdint>
 
@@ -24,7 +24,10 @@ struct Config {
     int   rangeMin = 6,  rangeMax = 20;    // subtiles: ground-cast distance vs stick tilt
     float coneDeg  = 35.f;                 // half-angle of the right-stick aim cone
     int   hoverH   = 28;                   // default hover height above a unit's feet, px
-    int   hudH     = 60;                   // bottom band the cursor never enters, px
+    // Bottom band the cursor never enters. Must stay > 49: the game drops a
+    // click command outright, with no packet sent, when the cursor sits in
+    // the last 49 px at the moment the command resolves (Game+0x61700).
+    int   hudH     = 60;
     bool  aim      = true;                 // automatic hostile target selection
     float sens     = 10.f;                 // free-cursor speed in panels
 };
@@ -35,7 +38,7 @@ struct View { int w = 800, h = 600; int32_t playerFx = 0, playerFy = 0, viewX = 
 
 // A drawn unit as the core sees it: already projected to game pixels.
 struct Unit {
-    uint32_t id = 0, type = 0, cls = 0, mode = 0;
+    uint32_t id = 0, type = 0, cls = 0;
     int sx = 0, sy = 0;             // feet anchor on screen
     bool hostile = false;           // can be a skill target
     bool interact = false;          // can be an L target (item, object, NPC)
@@ -55,7 +58,6 @@ struct Unit {
 struct Ctx {
     bool inGame = false, panelOpen = false, skillTree = false;
     uint32_t selValid = 0, selId = 0, selType = 0;   // unit the GAME hovers (previous frame)
-    uint32_t playerId = 0;
 };
 
 enum ActKind { A_MOVE, A_LDOWN, A_LUP, A_RDOWN, A_RUP, A_CLICK, A_KEYDOWN, A_KEYUP, A_KEY };
@@ -144,21 +146,24 @@ private:
     void panelTick(const Ctl& c, const Ctx& x, const View& v, uint32_t down, uint32_t up, Actions& out);
     void commonButtons(const Ctl& c, uint32_t down, uint32_t up, Actions& out);
     void releaseAll(Actions& out);
-    int  findId(const Unit* u, int n, uint32_t id) const;
+    int  findId(const Unit* u, int n, uint32_t id, uint32_t type) const;
     void hoverPoint(const Unit& t, int h, const View& v, int* px, int* py) const;
 
     Config   cfg_;
     Mode     mode_ = M_NONE;
     uint32_t prev_ = 0;
     int      cx_ = 400, cy_ = 300;
-    bool     lsOn_ = false, lmb_ = false, rmb_ = false;
+    // lmb_: the left button is down, whoever pressed it -- releaseAll lifts it
+    // on every exit. lsClick_: it is down because of the LEFT STICK, the one
+    // case the movement block may cancel on its own.
+    bool     lsOn_ = false, lmb_ = false, lsClick_ = false, rmb_ = false;
     float    lastDx_ = 0.f, lastDy_ = 1.f;
     // cast in progress
     int      castSlot_ = -1; uint32_t castBit_ = 0;
     uint32_t castId_ = 0, castType_ = 0, castCls_ = 0;
     int      castAttempt_ = 0, castH_ = 0; bool castVerified_ = false;
     // interaction in progress
-    bool     interact_ = false, interNoop_ = false;
+    bool     interact_ = false;
     uint32_t interId_ = 0, interType_ = 0, interCls_ = 0;
     int      interAttempt_ = 0, interH_ = 0; bool interVerified_ = false;
     // modifiers / keys held
@@ -172,9 +177,10 @@ private:
     // button. Clicking in the same breath makes the game act on whatever it
     // hovered last (usually nothing), which it reads as "walk to that spot" --
     // console, 20/09: the label turned blue and the character walked off.
-    // lootDown_: the button is actually down, so release must lift it.
+    // The press itself sets lmb_, like every other A_LDOWN here, so releaseAll
+    // lifts it on any exit (panel opening, leaving the game).
     uint32_t lootCursorId_ = 0; bool lootConfirm_ = false; Target lootTgt_;
-    int      lootArm_ = 0; bool lootDown_ = false;
+    int      lootArm_ = 0;
     bool     aimActive_ = false; int aimX_ = 0, aimY_ = 0;
     HoverTable hover_;
 };

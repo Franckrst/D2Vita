@@ -188,7 +188,6 @@ static OverlayPub overlay_read() {
     } while ((s0 & 1u) || s0 != s1);
     return p;
 }
-volatile int g_shot_diag = 0;   // L+Start screenshot: dump a position snapshot synchronized to that exact frame
 inline void draw_keyboard(uint32_t* fb){ d2kb::draw(g_kb, fb, SCR_W, SCR_H); }
 // --- async present: the scale+flip runs on its OWN Vita core -----------------
 // The guest emulation is single-core; the 960x544 palette scale (~2-5 ms of
@@ -1563,7 +1562,7 @@ Act g_engaged[sizeof g_btn / sizeof *g_btn];
 enum { SEL_IDLE=0, SEL_SPACE, SEL_RADIAL };
 int g_sel_mode = SEL_IDLE;
 
-// ---- scheme v2 ("aim") — docs/superpowers/specs/2026-09-19-manette-ciblage-design.md
+// ---- scheme v2 ("aim") — mapping documented in docs-site/controles.md
 bool         g_scheme_aim = true;          // controls.txt scheme=aim|mouse ; env D2_PAD=0 forces mouse
 pad::Config  g_padcfg;
 pad::Scheme* g_scheme = nullptr;           // built at first use (after controls.txt)
@@ -1702,7 +1701,7 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
 
     pad::View v; v.w = g_game_w; v.h = g_game_h;
     v.playerFx = s.playerFx; v.playerFy = s.playerFy; v.viewX = s.viewX; v.viewY = s.viewY;
-    pad::Ctx x; x.inGame = true; x.playerId = s.playerId;
+    pad::Ctx x; x.inGame = true;
     static const int panels[] = { 1, 2, 4, 8, 9, 0x0C, 0x14, 0x19, 0x1A, 0x21, 0x24 };
     for (int p : panels) if (s.uiVars[p]) x.panelOpen = true;
     x.skillTree = s.uiVars[4] != 0;
@@ -1715,11 +1714,11 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
         if (q.type == 0 && q.id == s.playerId) continue;              // never box/target ourselves
         if (q.type == 3 || q.type == 5) continue;                     // missiles, tiles
         pad::Unit& o = units[n]; o = pad::Unit{};
-        o.id = q.id; o.type = q.type; o.cls = q.cls; o.mode = q.mode;
+        o.id = q.id; o.type = q.type; o.cls = q.cls;
         pad::world_to_screen(v, q.fx, q.fy, &o.sx, &o.sy);
         if (q.type == 1) {
             const bool alive = q.mode != 0 && q.mode != 12;
-            const bool ours  = q.ownerId != 0 && q.ownerId == s.playerId;
+            const bool ours  = q.ownerType == 0 && q.ownerId != 0 && q.ownerId == s.playerId;   // ownerType 0 = owned by a PLAYER
             o.hostile  = alive && !town && !ours && !pad_is_merc(q.cls);
             o.interact = alive && town;                                // town NPCs
         } else if (q.type == 4 || q.type == 2) o.interact = true;     // items, objects
@@ -1754,59 +1753,24 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
     if (moved) { d2vita_inject("move", (int)g_cx, (int)g_cy); g_scheme->setCursor((int)g_cx, (int)g_cy); }
 
     if (g_padlog) {                                                    // capped diagnostics (boot_progress.txt)
-        static int lines = 0; static uint32_t lastTgt = 0, lastLvl = 0xffffffffu; static uint32_t lastUi[38] = {0};
-        static int projN = 0;
+        // Kept because each one reproduces a class of bug we can expect again.
+        // The investigation-specific dumps that used to live here are gone with
+        // the questions they answered: the player's fine position (pPath+0/+4),
+        // the level number (Level+0x1C0), and the ground-label geometry, which
+        // is no longer computed at all -- the game's own table is read instead.
+        static int lines = 0; static uint32_t lastTgt = 0; static uint32_t lastUi[38] = {0};
         char m[160];
         if (lines < 2000) {
-            if (projN < 60) { int psx, psy; pad::world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
-                snprintf(m, sizeof m, "pad: joueur ecran=(%d,%d) view=(%d,%d) fine=(%d,%d) unites=%d", psx, psy, v.viewX, v.viewY, v.playerFx >> 16, v.playerFy >> 16, n);
-                d2vita_progress(m); ++projN; ++lines; }
-            if (s.levelNo != lastLvl) { lastLvl = s.levelNo; snprintf(m, sizeof m, "pad: niveau=%u ville=%d", s.levelNo, (int)town); d2vita_progress(m); ++lines; }
+            // UiVar indices are magic numbers in panels[]: this is the only way
+            // to find the one behind "panel X is not detected".
             for (int i = 0; i < 38 && lines < 2000; i++) if (s.uiVars[i] != lastUi[i]) { lastUi[i] = s.uiVars[i];
                 snprintf(m, sizeof m, "pad: uivar[%d]=%u", i, s.uiVars[i]); d2vita_progress(m); ++lines; }
+            // The only window onto the HoverTable's learn/verify loop.
             if (t.id != lastTgt) { lastTgt = t.id;
                 int ti = -1; for (int i = 0; i < n; i++) if (units[i].id == t.id) ti = i;
                 snprintf(m, sizeof m, "pad: cible id=%u type=%u cls=%u ecran=(%d,%d) verif=%d sel=(%u,%u,%u)", t.id,
                          ti >= 0 ? units[ti].type : 0u, ti >= 0 ? units[ti].cls : 0u, t.sx, t.sy, (int)t.verified, s.selValid, s.selId, s.selType);
                 d2vita_progress(m); ++lines; }
-            static uint32_t lastLootId = 0xffffffffu; static int lastLootHas = -1;
-            if (lt.id != lastLootId || (int)lt.has != lastLootHas) {
-                lastLootId = lt.id; lastLootHas = (int)lt.has;
-                int nItems = 0; int32_t selfx = 0, selfy = 0; bool selFound = false;
-                int selHasLabel = 0, selSx = 0, selSy = 0, selLx = 0, selLy = 0;
-                for (int i = 0; i < s.nUnits; i++) if (s.units[i].type == 4) {
-                    ++nItems;
-                    if (lt.has && s.units[i].id == lt.id) { selfx = s.units[i].fx; selfy = s.units[i].fy; selFound = true; }
-                }
-                for (int i = 0; i < n; i++) if (lt.has && units[i].type == 4 && units[i].id == lt.id) {
-                    selHasLabel = (int)units[i].hasLabel; selSx = units[i].sx; selSy = units[i].sy;
-                    selLx = units[i].lx; selLy = units[i].ly; }
-                snprintf(m, sizeof m, "pad: butin has=%d id=%u ecran=(%d,%d) taille=%dx%d objets=%d unites=%d trouve=%d sous-tuile=(%d,%d) etiquette=%d tuile=(%d,%d) label=(%d,%d) etiquettes-frame=%d",
-                         (int)lt.has, lt.id, lt.sx, lt.sy, lt.w, lt.h, nItems, n, (int)selFound, selfx >> 16, selfy >> 16,
-                         selHasLabel, selSx, selSy, selLx, selLy, s.nLabels);
-                d2vita_progress(m); ++lines; }
-            if (g_shot_diag) {                       // synchronized to the exact L+Start frame
-                g_shot_diag = 0;
-                int psx, psy; pad::world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
-                snprintf(m, sizeof m, "pad: sync-shot joueur ecran=(%d,%d) view=(%d,%d) fine=(%d,%d)",
-                         psx, psy, v.viewX, v.viewY, v.playerFx >> 16, v.playerFy >> 16);
-                d2vita_progress(m); ++lines;
-                for (int i = 0; i < s.nUnits && lines < 2000; i++) if (s.units[i].type == 4) {
-                    const padst::Unit& q = s.units[i];
-                    int isx, isy; pad::world_to_screen(v, q.fx, q.fy, &isx, &isy);
-                    int hasLbl = 0, lx = 0, ly = 0, lw = 0;
-                    for (int j = 0; j < n; j++) if (units[j].type == 4 && units[j].id == q.id) {
-                        hasLbl = (int)units[j].hasLabel; lx = units[j].lx; ly = units[j].ly; lw = units[j].lw; break; }
-                    snprintf(m, sizeof m, "pad: sync-shot objet id=%u cls=%u selectionne=%d ecran=(%d,%d) fine=(%d,%d) etiquette=%d label=(%d,%d) largeur=%d",
-                             q.id, q.cls, (lt.has && q.id == lt.id) ? 1 : 0, isx, isy, q.fx >> 16, q.fy >> 16, hasLbl, lx, ly, lw);
-                    d2vita_progress(m); ++lines;
-                }
-                for (int j = 0; j < s.nLabels && lines < 2000; j++) {
-                    snprintf(m, sizeof m, "pad: sync-shot etiquette[%d] id=%u rect=(%d,%d)-(%d,%d)", j,
-                             s.labels[j].unitId, s.labels[j].x1, s.labels[j].y1, s.labels[j].x2, s.labels[j].y2);
-                    d2vita_progress(m); ++lines;
-                }
-            }
         }
     }
     return true;
@@ -1907,7 +1871,12 @@ extern "C" void d2vita_input_tick(void){
     // ici. Tir simple (tap), pas maintenu : c'est un toggle d'etat cote jeu.
     // Bas seul = potion 2 (voir g_btn/D-pad plus bas) : meme raison qu'au-dessus,
     // on intercepte sur le front descendant et on consomme pour ne pas boire.
-    if ((b&B_DOWN) && !(was&B_DOWN) && (b&B_L)) {
+    // !(b&B_R) : R+L maintenus = mode Alt, ou le D-pad promene le curseur de
+    // butin d'un objet a l'autre. Sans ce test, R+L+Bas basculait la course et
+    // consommait l'appui : la navigation vers le bas n'atteignait jamais
+    // aim_tick — or c'est justement l'axe qui compte, deux objets sur la meme
+    // tuile empilant leurs etiquettes verticalement.
+    if ((b&B_DOWN) && !(was&B_DOWN) && (b&B_L) && !(b&B_R)) {
         d2vita_inject("key", 0x52, 0);
         return;                     // consomme : pas de potion 2 non plus
     }
@@ -1916,7 +1885,7 @@ extern "C" void d2vita_input_tick(void){
 
     // L + Start = on-demand screenshot (ux0:data/d2vita/shot_<frame>.bmp) —
     // for capturing a rendering defect the test bench can't reproduce on its own.
-    if ((b&B_START)&&!(was&B_START)&&(b&B_L)){ g_shot_diag = 1; if(d2gxm_shot_request) d2gxm_shot_request(); return; }
+    if ((b&B_START)&&!(was&B_START)&&(b&B_L)){ if(d2gxm_shot_request) d2gxm_shot_request(); return; }   // L+Start: screenshot
     // R+Triangle OPENS the virtual keyboard (the radial menu's own
     // "keyboard" sector maps to "character"/C instead). Triangle ALONE stays
     // W (weapon swap, generic table below). Only handles the OPEN edge: once
