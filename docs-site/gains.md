@@ -98,3 +98,11 @@ D2_SON=1
 this block is a copy, not the other way around. `D2_NOCAP` is deliberately
 not in it — it's a bench tool that disengages the game's internal frame
 limiters, not a setting to keep for real play.)
+
+`D2WRITE` names the directory the game writes into — saves, `crash.log`,
+D2's own daily log. Up to 0.1.6 a directory named here was **not** created
+on the console: every write then failed, and the game's C runtime killed
+the process about 11 s into the session, with no message pointing at the
+directory. Since 0.1.7 the boot creates the named root (and its `Save`
+subfolder), probes that it is writable, and falls back to
+`ux0:data/d2vita/save` with a line in `boot_progress.txt` when it is not.
