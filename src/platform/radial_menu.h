@@ -130,6 +130,101 @@ inline void draw_icon(uint32_t* fb, int W, int H, const unsigned char* icon, int
 }
 } // namespace draw_detail
 
+// ---- GPU path: atlas + quads ------------------------------------------------
+// Le blitter CPU ci-dessus coûte ~81 ms par image sur console (mesuré au
+// journal : 244 -> 82 images par fenêtre de 10 s), dont ~57 ms rien qu'à
+// RELIRE le framebuffer pour mélanger. Ce framebuffer est en CDRAM, et le CPU
+// y lit à ~814 ns le pixel. Le GPU, lui, mélange dans sa mémoire de tuiles
+// pour rien.
+//
+// Ce qui suit ne connaît pas sceGxm : ça produit des COORDONNÉES et des
+// pixels, rien d'autre. Le branchement GXM vit dans vita_gxm.cpp, et le
+// blitter CPU reste le repli quand le .gxp n'est pas disponible.
+constexpr int RM_ATLAS_DIM = 256;      // 256x256 RGBA = 256 Kio, tout tient
+
+struct AtlasRect { int x, y, w, h; };
+struct Quad { float x[4], y[4]; float u[4], v[4]; };   // coins écran, puis UV atlas
+
+// Gouttière d'un pixel entre les sous-rectangles : même en filtrage POINT,
+// coller deux sprites bord à bord dans un atlas finit toujours par baver.
+inline AtlasRect atlas_wedge(bool glow) {
+    return glow ? AtlasRect{1, 109, RM_WEDGE_W, RM_WEDGE_H}
+                : AtlasRect{1,   1, RM_WEDGE_W, RM_WEDGE_H};
+}
+inline AtlasRect atlas_icon(int i) {
+    const int col = i / 5, row = i % 5;
+    return AtlasRect{133 + col * 50, 1 + row * 50, RM_ICON_SIZE, RM_ICON_SIZE};
+}
+
+// Remplit un atlas RM_ATLAS_DIM² en A8B8G8R8 (octets R,G,B,A — exactement
+// l'ordre des tableaux générés, donc une recopie ligne à ligne suffit).
+inline void fill_atlas(unsigned char* dst) {
+    for (int i = 0; i < RM_ATLAS_DIM * RM_ATLAS_DIM * 4; ++i) dst[i] = 0;
+    auto blit = [&](const unsigned char* src, int sw, int sh, const AtlasRect& a) {
+        for (int y = 0; y < sh; ++y)
+            for (int x = 0; x < sw * 4; ++x)
+                dst[((size_t)(a.y + y) * RM_ATLAS_DIM + a.x) * 4 + x] = src[((size_t)y * sw) * 4 + x];
+    };
+    blit(g_rm_wedge_normal, RM_WEDGE_W, RM_WEDGE_H, atlas_wedge(false));
+    blit(g_rm_wedge_glow,   RM_WEDGE_W, RM_WEDGE_H, atlas_wedge(true));
+    for (int i = 0; i < RM_N; ++i)
+        blit(g_rm_slots[i].icon, RM_ICON_SIZE, RM_ICON_SIZE, atlas_icon(i));
+}
+
+inline void uv_from_rect(const AtlasRect& a, Quad& q) {
+    const float u0 = (float)a.x / RM_ATLAS_DIM, u1 = (float)(a.x + a.w) / RM_ATLAS_DIM;
+    const float v0 = (float)a.y / RM_ATLAS_DIM, v1 = (float)(a.y + a.h) / RM_ATLAS_DIM;
+    q.u[0] = u0; q.v[0] = v0;  q.u[1] = u1; q.v[1] = v0;
+    q.u[2] = u1; q.v[2] = v1;  q.u[3] = u0; q.v[3] = v1;
+}
+
+// Deux quads par secteur (quartier puis icône), dans le MÊME ordre que le
+// blitter CPU : les quartiers se chevauchent un peu, et avec un mélange alpha
+// l'ordre de soumission est l'ordre de composition.
+// Coordonnées en pixels ÉCRAN ; c'est l'appelant qui les convertit dans
+// l'espace de la fenêtre de jeu (la projection GXM n'est pas isotrope).
+inline int build_quads(const State& s, int scr_w, int scr_h, Quad* q, int maxq) {
+    using namespace draw_detail;
+    if (!q || maxq < 2 * RM_N) return 0;
+    const float cx = scr_w * 0.5f, cy = scr_h * 0.5f;
+    const float ax = 0.5f * RM_WEDGE_W, ay = RM_TIP_FRAC * RM_WEDGE_H;
+    const float sxs[4] = { 0.f, (float)RM_WEDGE_W, (float)RM_WEDGE_W, 0.f };
+    const float sys[4] = { 0.f, 0.f, (float)RM_WEDGE_H, (float)RM_WEDGE_H };
+    int n = 0;
+    for (int i = 0; i < RM_N; ++i) {
+        const float theta = i * (360.0f / RM_N);
+        const float rad = theta * (3.14159265358979f / 180.0f);
+        const float ct = cosf(rad), st = sinf(rad);
+        float dx, dy; kit_rotate(theta, 0.0f, -(float)RM_HOLE_RADIUS, &dx, &dy);
+        const float px = cx + dx, py = cy + dy;
+        // Même transformation que draw_wedge : monde = pivot + R(theta)*(local - a)
+        for (int c = 0; c < 4; ++c) {
+            const float lx = sxs[c] - ax, ly = sys[c] - ay;
+            q[n].x[c] = px + (lx * ct - ly * st);
+            q[n].y[c] = py + (lx * st + ly * ct);
+        }
+        uv_from_rect(atlas_wedge(s.active && (i == s.sel)), q[n]);
+        ++n;
+        float idx, idy;
+        kit_rotate(theta, (RM_ICON_CX - 0.5f) * RM_WEDGE_W,
+                          (RM_ICON_CY - RM_TIP_FRAC) * RM_WEDGE_H, &idx, &idy);
+        // Coin ARRONDI À L'ENTIER, comme draw_icon : l'icône est droite et
+        // dessinée au 1:1, donc un quad posé sur une frontière fractionnaire
+        // décale d'un demi-texel et redessine tous ses contours. Aligné, chaque
+        // pixel écran retombe exactement sur le texel que le CPU aurait pris.
+        const float ix0 = floorf(px + idx - RM_ICON_SIZE * 0.5f);
+        const float iy0 = floorf(py + idy - RM_ICON_SIZE * 0.5f);
+        const float ix1 = ix0 + RM_ICON_SIZE, iy1 = iy0 + RM_ICON_SIZE;
+        q[n].x[0] = ix0; q[n].y[0] = iy0;
+        q[n].x[1] = ix1; q[n].y[1] = iy0;
+        q[n].x[2] = ix1; q[n].y[2] = iy1;
+        q[n].x[3] = ix0; q[n].y[3] = iy1;
+        uv_from_rect(atlas_icon(i), q[n]);
+        ++n;
+    }
+    return n;
+}
+
 // Draws nothing if the menu is closed (same rule as d2kb).
 inline void draw(const State& s, uint32_t* fb, int scr_w, int scr_h) {
     using namespace draw_detail;

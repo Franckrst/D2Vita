@@ -55,6 +55,11 @@ uint64_t d2gxm_busy_from();
 void d2gxm_drain();
 // Counter line for the 10 s window. Returns the number of bytes written.
 int  d2gxm_counters(char* out, unsigned n);
+// Vrai quand l'incrustation GPU (menu radial) est armée : shader présent ET
+// atlas alloué. Le blitter CPU de radial_menu.h ne doit alors PAS dessiner,
+// sinon le menu serait composé deux fois et le coût qu'on vient de supprimer
+// reviendrait par la porte de derrière.
+bool d2gxm_ui_active();
 void d2gxm_shutdown();
 
 #define D2GXM_PALETTES 16
@@ -74,6 +79,7 @@ static inline bool d2gxm_async() { return false; }
 static inline uint64_t d2gxm_busy_from() { return ~(uint64_t)0; }
 static inline void d2gxm_drain() {}
 static inline int  d2gxm_counters(char*, unsigned) { return 0; }
+static inline bool d2gxm_ui_active() { return false; }
 static inline void d2gxm_shutdown() {}
 #define D2GXM_PALETTES 16
 

@@ -14,6 +14,7 @@ extern "C" int d2_tlswrap_dump(char*, unsigned);
 #include "platform/vita_net.h"
 #include "platform/vita_kb.h"   // full virtual keyboard (layouts, font, drawing)
 #include "platform/radial_menu.h"   // 7-sector radial menu (hold Select + left stick)
+#include "platform/vita_gxm.h"      // d2gxm_ui_active: le menu part-il sur le GPU ?
 #include "platform/vita_host.h"        // engine: log, cores, sleep (CONSOLE-specific)
 #include "runtime/host_clock.h"           // engine: monotonic host clock
 #include "platform/present_scale.h"   // engine: generic scaling (D2_PRESENT_WX86)
@@ -402,8 +403,14 @@ void d2vita_overlay(uint32_t* fb) {
                      n = 0; t0 = now; }
     if (fps_en) draw_fps(fb, fps10);
     if (g_kb.open) draw_keyboard(fb);
-    if (g_rm.open) radial_menu::draw(g_rm, fb, SCR_W, SCR_H);
+    // Le menu radial part sur le GPU dès que ce chemin est armé : le blitter
+    // CPU ci-dessous relit le framebuffer CDRAM pour mélanger, et c'est ce qui
+    // faisait tomber le jeu de 24,5 à 8,2 images/s. Repli inchangé sinon
+    // (chemin GDI, .gxp absent, atlas non alloué).
+    if (g_rm.open && !d2gxm_ui_active()) radial_menu::draw(g_rm, fb, SCR_W, SCR_H);
 }
+
+const radial_menu::State* d2vita_radial_state() { return g_rm.open ? &g_rm : nullptr; }
 
 void d2vita_present_init() {
     if (g_inited) return;

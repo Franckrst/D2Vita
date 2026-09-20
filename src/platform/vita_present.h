@@ -28,6 +28,12 @@ void d2vita_present(const uint8_t* pixels, int w, int h, int bpp,
 // already-filled 960x544 buffer. Needed on the sceGxm path, where the GPU
 // wrote the frame and d2vita_present is never called (Glide emits no BitBlt).
 void d2vita_overlay(uint32_t* fb);
+// État du menu radial, pour que le chemin sceGxm le dessine SUR LE GPU au lieu
+// de le mélanger pixel par pixel dans la CDRAM (~81 ms par image, mesuré au
+// journal console). Renvoie null quand le menu est fermé. Le blitter CPU de
+// radial_menu.h reste le repli quand le chemin GPU n'est pas armé.
+namespace radial_menu { struct State; }
+const radial_menu::State* d2vita_radial_state();
 // Bake the runtime config (env + argv) before boot; returns the data dir.
 const char* d2vita_platform_init();
 // Append a milestone line to ux0:data/d2vita/boot_progress.txt (durable: the
