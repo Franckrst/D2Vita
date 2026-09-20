@@ -39,6 +39,17 @@ struct Unit {
     int sx = 0, sy = 0;             // feet anchor on screen
     bool hostile = false;           // can be a skill target
     bool interact = false;          // can be an L target (item, object, NPC)
+    // This unit's Alt name label, when the game drew one for it this frame:
+    // lx/ly = the CENTER of the label's rectangle, lw/lh its size. Copied
+    // from the game's OWN label array and keyed by unit id, so it is exact
+    // and never guessed (see padst::Label). Ground items only. The center
+    // matters twice over: the D-pad navigates by what the player actually
+    // SEES (the name, which the game may have shifted to keep it from
+    // overlapping another label), and parking the cursor there makes the
+    // game hover that item natively — which is what makes the pickup click
+    // land. Defaults to false/0: any caller that never sets this (including
+    // every existing PC test) keeps using sx/sy untouched.
+    bool hasLabel = false; int lx = 0, ly = 0, lw = 0, lh = 0;
 };
 
 struct Ctx {
@@ -55,7 +66,9 @@ struct Actions {
     void push(ActKind k, int a = 0, int b = 0) { if (n < MAX) v[n++] = Action{k, a, b}; }
 };
 
-struct Target { bool has = false, verified = false; uint32_t id = 0; int sx = 0, sy = 0; };
+// w/h: the label rectangle's size, loot cursor only (0 = draw the old
+// fixed-size marker — the hostile-target diamond never sets these).
+struct Target { bool has = false, verified = false; uint32_t id = 0; int sx = 0, sy = 0, w = 0, h = 0; };
 
 // ---- pure helpers -----------------------------------------------------------
 // sx = (fx - fy)*16/65536 - viewX ; sy = (fx + fy)*8/65536 - viewY  (fx/fy 16.16 fine)

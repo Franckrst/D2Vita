@@ -153,13 +153,23 @@ void ground_point(const View& v, const Ctl& c, const Config& cfg, float fbx, flo
     clamp_point(v, cfg, px, py);
 }
 
+// Screen position navigation/selection should actually use: the Alt name
+// label when the game drew one this frame (so items sharing a ground tile,
+// stacked as separate label lines, are distinguishable and reachable), the
+// feet anchor otherwise.
+static inline void selPos(const Unit& u, int* x, int* y) {
+    if (u.hasLabel) { *x = u.lx; *y = u.ly; } else { *x = u.sx; *y = u.sy; }
+}
+
 int nav_direction(const Unit* u, int n, int fromIdx, Dir d) {
     if (!u || fromIdx < 0 || fromIdx >= n) return -1;
     const Unit& from = u[fromIdx];
+    int fx, fy; selPos(from, &fx, &fy);
     int best = -1; float bd = 0.f;
     for (int i = 0; i < n; ++i) {
         if (i == fromIdx || u[i].type != 4) continue;
-        const float dx = (float)(u[i].sx - from.sx), dy = (float)(u[i].sy - from.sy);
+        int ix, iy; selPos(u[i], &ix, &iy);
+        const float dx = (float)(ix - fx), dy = (float)(iy - fy);
         bool ok = false;
         switch (d) {
             case D_RIGHT: ok = dx > 0.f && std::fabs(dx) >= std::fabs(dy); break;
@@ -204,6 +214,12 @@ int Scheme::findId(const Unit* u, int n, uint32_t id) const {
 }
 
 void Scheme::hoverPoint(const Unit& t, int h, const View& v, int* px, int* py) const {
+    // A ground item whose name label is on screen: aim at the CENTER of that
+    // label. The game hit-tests the mouse against exactly that rectangle to
+    // pick the hovered unit (.\UI\showitems.cpp), so this both makes it
+    // highlight the label in its own style and makes the click land on the
+    // right item -- no height to guess, and no HoverTable attempt sequence.
+    if (t.hasLabel) { *px = t.lx; *py = t.ly; clamp_point(v, cfg_, px, py); return; }
     *px = t.sx; *py = t.sy - h;
     clamp_point(v, cfg_, px, py);
 }
@@ -379,18 +395,30 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             interId_ = u[fromIdx].id; interType_ = u[fromIdx].type; interCls_ = u[fromIdx].cls;
             interH_ = 6;                                              // items: fixed hover height, same as L
             if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
-            int px, py; hoverPoint(u[fromIdx], interH_, v, &px, &py);
+            // Click the item's NAME (Alt label), same spot the marker below
+            // highlights — not the feet/tile, which is what actually lets the
+            // pick-up land on the one selected when several share a tile.
+            Unit lu = u[fromIdx]; if (lu.hasLabel) { lu.sx = lu.lx; lu.sy = lu.ly; }
+            int px, py; hoverPoint(lu, interH_, v, &px, &py);
             cx_ = px; cy_ = py; out.push(A_MOVE, px, py);
             out.push(A_LDOWN, px, py);
         } else if (interact_ && lootConfirm_) {
             if (!(c.buttons & B_CROSS)) { out.push(A_LUP, cx_, cy_); interact_ = false; lootConfirm_ = false; interId_ = 0; }
             else {
                 const int ii = findId(u, n, interId_);
-                if (ii >= 0) { int px, py; hoverPoint(u[ii], interH_, v, &px, &py); moveTo(px, py, out); }
+                if (ii >= 0) {
+                    Unit lu = u[ii]; if (lu.hasLabel) { lu.sx = lu.lx; lu.sy = lu.ly; }
+                    int px, py; hoverPoint(lu, interH_, v, &px, &py); moveTo(px, py, out);
+                }
             }
         }
         lootTgt_ = Target{};
-        if (fromIdx >= 0) { lootTgt_.has = true; lootTgt_.id = u[fromIdx].id; lootTgt_.sx = u[fromIdx].sx; lootTgt_.sy = u[fromIdx].sy; }
+        if (fromIdx >= 0) {
+            lootTgt_.has = true; lootTgt_.id = u[fromIdx].id;
+            selPos(u[fromIdx], &lootTgt_.sx, &lootTgt_.sy);            // marker frames the label, not the tile
+            lootTgt_.w = u[fromIdx].hasLabel ? u[fromIdx].lw : 0;
+            lootTgt_.h = u[fromIdx].hasLabel ? u[fromIdx].lh : 0;
+        }
     } else {
         lootTgt_ = Target{};
         lootCursorId_ = 0;

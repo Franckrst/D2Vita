@@ -184,6 +184,22 @@ static void test_nav_direction() {
     // tie in distance: lower id wins, regardless of array order
     pad::Unit tie[3] = { mkItem(60, 400, 300), mkItem(41, 500, 250), mkItem(40, 500, 350) };
     CHECK(pad::nav_direction(tie, 3, 0, pad::D_RIGHT) == 2);   // index 2 = id 40, the lower id
+
+    // two items on the SAME ground tile (identical sx,sy): without a label
+    // position neither dx nor dy is ever nonzero, so no direction is
+    // "dominant" and the D-pad can never reach the second one at all.
+    pad::Unit sameTile[2] = { mkItem(70, 400, 300), mkItem(71, 400, 300) };
+    CHECK(pad::nav_direction(sameTile, 2, 0, pad::D_UP)   == -1);
+    CHECK(pad::nav_direction(sameTile, 2, 0, pad::D_DOWN) == -1);
+
+    // the game draws their Alt labels stacked (same x, one above the other):
+    // once hasLabel/lx/ly are set, navigation follows the labels, not the
+    // shared tile — reachable both ways, symmetric with each as the origin.
+    pad::Unit labelled[2] = { mkItem(70, 400, 300), mkItem(71, 400, 300) };
+    labelled[0].hasLabel = true; labelled[0].lx = 400; labelled[0].ly = 260;   // name line (topmost)
+    labelled[1].hasLabel = true; labelled[1].lx = 400; labelled[1].ly = 280;   // affix line, below it
+    CHECK(pad::nav_direction(labelled, 2, 0, pad::D_DOWN) == 1);
+    CHECK(pad::nav_direction(labelled, 2, 1, pad::D_UP)   == 0);
 }
 
 static void test_nearest_item() {

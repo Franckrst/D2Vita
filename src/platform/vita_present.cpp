@@ -159,10 +159,36 @@ void draw_fps(uint32_t* fb, int fps10) {           // fps*10 (one decimal)
 d2kb::State g_kb;
 int g_kb_simple = -1;                 // read once, on first open
 radial_menu::State g_rm{};            // radial menu: state written by the input tick, read by presentation
-// Scheme v2 overlay (game coords), written by the input tick, read by the
-// presentation thread (display only): current hostile target + ground aim point.
-volatile int g_ret_has = 0, g_ret_ver = 0, g_ret_x = 0, g_ret_y = 0, g_aim_on = 0, g_aim_x = 0, g_aim_y = 0;
-volatile int g_loot_has = 0, g_loot_x = 0, g_loot_y = 0;   // Phase 2: ground-item browse cursor
+// Scheme v2 overlay (game coords): hostile target diamond, ground aim dot,
+// loot cursor brackets (Phase 2). Published once per tick by the input
+// thread; consumed by draw_reticle on the GXM DISPLAY thread (see
+// display_cb in vita_gxm.cpp — runs on sceGxm's display thread, not the
+// game thread). A seqlock avoids tearing the read across the writer's
+// several stores (a fresh `has` paired with a stale x/y from the previous
+// target/item showed up on console as an intermittent, sometimes-large
+// jump of the loot cursor).
+struct OverlayPub { int retHas, retVer, retX, retY, aimOn, aimX, aimY, lootHas, lootX, lootY, lootW, lootH; };
+static volatile unsigned g_ovSeq = 0;
+static OverlayPub g_ovPub = {};
+static void overlay_publish(const OverlayPub& p) {
+    g_ovSeq = g_ovSeq + 1;                          // odd: write in progress
+    __sync_synchronize();
+    g_ovPub = p;
+    __sync_synchronize();
+    g_ovSeq = g_ovSeq + 1;                          // even: stable
+}
+static OverlayPub overlay_read() {
+    OverlayPub p{}; unsigned s0, s1;
+    do {
+        s0 = g_ovSeq;
+        __sync_synchronize();
+        p = g_ovPub;
+        __sync_synchronize();
+        s1 = g_ovSeq;
+    } while ((s0 & 1u) || s0 != s1);
+    return p;
+}
+volatile int g_shot_diag = 0;   // L+Start screenshot: dump a position snapshot synchronized to that exact frame
 inline void draw_keyboard(uint32_t* fb){ d2kb::draw(g_kb, fb, SCR_W, SCR_H); }
 // --- async present: the scale+flip runs on its OWN Vita core -----------------
 // The guest emulation is single-core; the 960x544 palette scale (~2-5 ms of
@@ -398,12 +424,13 @@ void* alloc_fb(SceUID* uid) {
 // and cyan corner brackets on the ground-item browse cursor (Phase 2).
 // Game -> screen uses the same stretch as the presentation (vita_gxm.cpp).
 static void draw_reticle(uint32_t* fb) {
-    if (!g_ret_has && !g_aim_on && !g_loot_has) return;
+    const OverlayPub ov = overlay_read();
+    if (!ov.retHas && !ov.aimOn && !ov.lootHas) return;
     using radial_menu::draw_detail::blend_px;
     const int gw = g_game_w > 0 ? g_game_w : 800, gh = g_game_h > 0 ? g_game_h : 600;
-    if (g_ret_has) {
-        const int cx = g_ret_x * SCR_W / gw, cy = g_ret_y * SCR_H / gh - 8;
-        const uint8_t r = g_ret_ver ? 255 : 240, g = g_ret_ver ? 200 : 240, b = g_ret_ver ? 60 : 240;
+    if (ov.retHas) {
+        const int cx = ov.retX * SCR_W / gw, cy = ov.retY * SCR_H / gh - 8;
+        const uint8_t r = ov.retVer ? 255 : 240, g = ov.retVer ? 200 : 240, b = ov.retVer ? 60 : 240;
         for (int d = 0; d <= 10; ++d) {
             blend_px(fb, SCR_W, SCR_H, cx - 10 + d, cy - d, r, g, b, 220);
             blend_px(fb, SCR_W, SCR_H, cx + 10 - d, cy - d, r, g, b, 220);
@@ -411,26 +438,29 @@ static void draw_reticle(uint32_t* fb) {
             blend_px(fb, SCR_W, SCR_H, cx + 10 - d, cy + d, r, g, b, 220);
         }
     }
-    if (g_aim_on) {
-        const int ax = g_aim_x * SCR_W / gw, ay = g_aim_y * SCR_H / gh;
+    if (ov.aimOn) {
+        const int ax = ov.aimX * SCR_W / gw, ay = ov.aimY * SCR_H / gh;
         for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) blend_px(fb, SCR_W, SCR_H, ax + dx, ay + dy, 255, 255, 255, 200);
     }
-    if (g_loot_has) {
-        // Cyan corner brackets: deliberately distinct from the gold/white
-        // hostile-target diamond, so the two are never confused at a glance.
-        const int cx = g_loot_x * SCR_W / gw, cy = g_loot_y * SCR_H / gh - 6;
-        const uint8_t r = 80, g = 220, b = 255;
+    // Corner brackets around the selected item's label: centered on the
+    // rect the game itself laid out, sized to it (0 = no label this frame,
+    // fall back to a fixed marker on the item's own tile).
+    auto bracket = [&](int lootX, int lootY, int lootW, int lootH, uint8_t r, uint8_t g, uint8_t b) {
+        const int cx = lootX * SCR_W / gw, cy = lootY * SCR_H / gh;
+        const int hw = lootW > 0 ? (lootW * SCR_W / gw) / 2 + 3 : 12;
+        const int hh = lootH > 0 ? (lootH * SCR_H / gh) / 2 + 3 : 12;
         for (int d = 0; d <= 6; ++d) {
-            blend_px(fb, SCR_W, SCR_H, cx - 12, cy - 12 + d, r, g, b, 220);
-            blend_px(fb, SCR_W, SCR_H, cx - 12 + d, cy - 12, r, g, b, 220);
-            blend_px(fb, SCR_W, SCR_H, cx + 12, cy - 12 + d, r, g, b, 220);
-            blend_px(fb, SCR_W, SCR_H, cx + 12 - d, cy - 12, r, g, b, 220);
-            blend_px(fb, SCR_W, SCR_H, cx - 12, cy + 12 - d, r, g, b, 220);
-            blend_px(fb, SCR_W, SCR_H, cx - 12 + d, cy + 12, r, g, b, 220);
-            blend_px(fb, SCR_W, SCR_H, cx + 12, cy + 12 - d, r, g, b, 220);
-            blend_px(fb, SCR_W, SCR_H, cx + 12 - d, cy + 12, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx - hw, cy - hh + d, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx - hw + d, cy - hh, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx + hw, cy - hh + d, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx + hw - d, cy - hh, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx - hw, cy + hh - d, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx - hw + d, cy + hh, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx + hw, cy + hh - d, r, g, b, 220);
+            blend_px(fb, SCR_W, SCR_H, cx + hw - d, cy + hh, r, g, b, 220);
         }
-    }
+    };
+    if (ov.lootHas) bracket(ov.lootX, ov.lootY, ov.lootW, ov.lootH, 80, 220, 255);   // cyan
 }
 
 // Overlays for the sceGxm path: the GPU has already written the frame, so
@@ -1563,7 +1593,7 @@ void pad_leave(){
         pad::Actions a; g_scheme->leave(a); pad_emit(a); g_scheme_active = false;
         g_cx = (float)g_scheme->cx(); g_cy = (float)g_scheme->cy();
     }
-    g_ret_has = 0; g_aim_on = 0; g_loot_has = 0;
+    overlay_publish(OverlayPub{});
 }
 bool pad_is_town(uint32_t lvl){ return lvl == 0 || lvl == 1 || lvl == 40 || lvl == 75 || lvl == 103 || lvl == 109; }
 bool pad_is_merc(uint32_t cls){ return cls == 271 || cls == 338 || cls == 359 || cls == 560; }
@@ -1693,6 +1723,17 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
             o.hostile  = alive && !town && !ours && !pad_is_merc(q.cls);
             o.interact = alive && town;                                // town NPCs
         } else if (q.type == 4 || q.type == 2) o.interact = true;     // items, objects
+        if (q.type == 4) {
+            // Exact label rect, keyed by unit id -- no proximity, no geometry.
+            for (int j = 0; j < s.nLabels; j++) {
+                if (s.labels[j].unitId != q.id) continue;
+                const padst::Label& L = s.labels[j];
+                o.hasLabel = true;
+                o.lx = (L.x1 + L.x2) / 2; o.ly = (L.y1 + L.y2) / 2;
+                o.lw = L.x2 - L.x1;       o.lh = L.y2 - L.y1;
+                break;
+            }
+        }
         ++n;
     }
     pad::Ctl c;
@@ -1703,10 +1744,10 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
     pad::Actions a; g_scheme->tick(c, x, v, units, n, a); pad_emit(a);
     g_cx = (float)g_scheme->cx(); g_cy = (float)g_scheme->cy();
     const pad::Target t = g_scheme->target();
-    g_ret_has = t.has; g_ret_ver = t.verified; g_ret_x = t.sx; g_ret_y = t.sy;
-    g_aim_on = g_scheme->aimActive(); g_aim_x = g_scheme->aimX(); g_aim_y = g_scheme->aimY();
+    const bool aimOn = g_scheme->aimActive(); const int aimX = g_scheme->aimX(), aimY = g_scheme->aimY();
     const pad::Target lt = g_scheme->lootCursor();
-    g_loot_has = lt.has; g_loot_x = lt.sx; g_loot_y = lt.sy;
+    overlay_publish(OverlayPub{ t.has, (int)t.verified, t.sx, t.sy, aimOn, aimX, aimY,
+                                lt.has, lt.sx, lt.sy, lt.w, lt.h });
 
     bool moved = false;
     touch_tick(!g_scheme->cursorOwned(), &moved);
@@ -1728,6 +1769,44 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
                 snprintf(m, sizeof m, "pad: cible id=%u type=%u cls=%u ecran=(%d,%d) verif=%d sel=(%u,%u,%u)", t.id,
                          ti >= 0 ? units[ti].type : 0u, ti >= 0 ? units[ti].cls : 0u, t.sx, t.sy, (int)t.verified, s.selValid, s.selId, s.selType);
                 d2vita_progress(m); ++lines; }
+            static uint32_t lastLootId = 0xffffffffu; static int lastLootHas = -1;
+            if (lt.id != lastLootId || (int)lt.has != lastLootHas) {
+                lastLootId = lt.id; lastLootHas = (int)lt.has;
+                int nItems = 0; int32_t selfx = 0, selfy = 0; bool selFound = false;
+                int selHasLabel = 0, selSx = 0, selSy = 0, selLx = 0, selLy = 0;
+                for (int i = 0; i < s.nUnits; i++) if (s.units[i].type == 4) {
+                    ++nItems;
+                    if (lt.has && s.units[i].id == lt.id) { selfx = s.units[i].fx; selfy = s.units[i].fy; selFound = true; }
+                }
+                for (int i = 0; i < n; i++) if (lt.has && units[i].type == 4 && units[i].id == lt.id) {
+                    selHasLabel = (int)units[i].hasLabel; selSx = units[i].sx; selSy = units[i].sy;
+                    selLx = units[i].lx; selLy = units[i].ly; }
+                snprintf(m, sizeof m, "pad: butin has=%d id=%u ecran=(%d,%d) taille=%dx%d objets=%d unites=%d trouve=%d sous-tuile=(%d,%d) etiquette=%d tuile=(%d,%d) label=(%d,%d) etiquettes-frame=%d",
+                         (int)lt.has, lt.id, lt.sx, lt.sy, lt.w, lt.h, nItems, n, (int)selFound, selfx >> 16, selfy >> 16,
+                         selHasLabel, selSx, selSy, selLx, selLy, s.nLabels);
+                d2vita_progress(m); ++lines; }
+            if (g_shot_diag) {                       // synchronized to the exact L+Start frame
+                g_shot_diag = 0;
+                int psx, psy; pad::world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
+                snprintf(m, sizeof m, "pad: sync-shot joueur ecran=(%d,%d) view=(%d,%d) fine=(%d,%d)",
+                         psx, psy, v.viewX, v.viewY, v.playerFx >> 16, v.playerFy >> 16);
+                d2vita_progress(m); ++lines;
+                for (int i = 0; i < s.nUnits && lines < 2000; i++) if (s.units[i].type == 4) {
+                    const padst::Unit& q = s.units[i];
+                    int isx, isy; pad::world_to_screen(v, q.fx, q.fy, &isx, &isy);
+                    int hasLbl = 0, lx = 0, ly = 0, lw = 0;
+                    for (int j = 0; j < n; j++) if (units[j].type == 4 && units[j].id == q.id) {
+                        hasLbl = (int)units[j].hasLabel; lx = units[j].lx; ly = units[j].ly; lw = units[j].lw; break; }
+                    snprintf(m, sizeof m, "pad: sync-shot objet id=%u cls=%u selectionne=%d ecran=(%d,%d) fine=(%d,%d) etiquette=%d label=(%d,%d) largeur=%d",
+                             q.id, q.cls, (lt.has && q.id == lt.id) ? 1 : 0, isx, isy, q.fx >> 16, q.fy >> 16, hasLbl, lx, ly, lw);
+                    d2vita_progress(m); ++lines;
+                }
+                for (int j = 0; j < s.nLabels && lines < 2000; j++) {
+                    snprintf(m, sizeof m, "pad: sync-shot etiquette[%d] id=%u rect=(%d,%d)-(%d,%d)", j,
+                             s.labels[j].unitId, s.labels[j].x1, s.labels[j].y1, s.labels[j].x2, s.labels[j].y2);
+                    d2vita_progress(m); ++lines;
+                }
+            }
         }
     }
     return true;
@@ -1837,7 +1916,7 @@ extern "C" void d2vita_input_tick(void){
 
     // L + Start = on-demand screenshot (ux0:data/d2vita/shot_<frame>.bmp) —
     // for capturing a rendering defect the test bench can't reproduce on its own.
-    if ((b&B_START)&&!(was&B_START)&&(b&B_L)){ if(d2gxm_shot_request) d2gxm_shot_request(); return; }
+    if ((b&B_START)&&!(was&B_START)&&(b&B_L)){ g_shot_diag = 1; if(d2gxm_shot_request) d2gxm_shot_request(); return; }
     // R+Triangle OPENS the virtual keyboard (the radial menu's own
     // "keyboard" sector maps to "character"/C instead). Triangle ALONE stays
     // W (weapon swap, generic table below). Only handles the OPEN edge: once
