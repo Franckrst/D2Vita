@@ -12,7 +12,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <cmath>
 
 #include "platform/radial_menu.h"

@@ -1036,7 +1036,6 @@ bool d2gxm_init(int gameW, int gameH) {
         get_shader("d2_ring_f_flat",  kFragmentFlatCg,  1, 2);
         get_shader("d2_ring_f_pal",   kFragmentPalCg,   1, 2);
         get_shader("d2_ring_f_clear", kFragmentClearCg, 1, 2);
-        get_shader("d2_ring_f_rgba",  kFragmentRgbaCg,  1, 2);
         d2vita_progress("gxm: D2_GXMSHADERGEN — variantes ecrites dans ux0:data/d2vita/shaders");
     }
 
