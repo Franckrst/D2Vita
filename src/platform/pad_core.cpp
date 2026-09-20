@@ -68,17 +68,13 @@ int pick_hostile(const Unit* u, int n, const View& v, const Ctl& c, const Config
 int pick_interact(const Unit* u, int n, const View& v, const Config& /*cfg*/) {
     int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
     int best = -1; float bd = 0.f;
-    for (int pass = 0; pass < 2 && best < 0; ++pass) {          // pass 0: items ; pass 1: the rest
-        const float maxD = pass == 0 ? 220.f : 160.f;
-        for (int i = 0; i < n; ++i) {
-            const Unit& t = u[i];
-            if (!t.interact) continue;
-            if ((pass == 0) != (t.type == 4)) continue;
-            const float dx = (float)(t.sx - psx), dy = (float)(t.sy - psy);
-            const float d = std::sqrt(dx * dx + dy * dy);
-            if (d > maxD) continue;
-            if (best < 0 || d < bd) { best = i; bd = d; }
-        }
+    for (int i = 0; i < n; ++i) {
+        const Unit& t = u[i];
+        if (!t.interact || t.type == 4) continue;      // ground items belong to Alt + Cross
+        const float dx = (float)(t.sx - psx), dy = (float)(t.sy - psy);
+        const float d = std::sqrt(dx * dx + dy * dy);
+        if (d > 220.f) continue;
+        if (best < 0 || d < bd) { best = i; bd = d; }
     }
     return best;
 }
@@ -236,7 +232,7 @@ void Scheme::releaseAll(Actions& out) {
     if (wkey_)   { out.push(A_KEYUP, 0x57); wkey_ = false; }
     for (Held& h : dpad_) if (h.vk) { out.push(A_KEYUP, h.vk); if (h.shift) out.push(A_KEYUP, 0x10); h = Held{}; }
     castSlot_ = -1; castBit_ = 0; castId_ = 0; castVerified_ = false;
-    interact_ = false; interId_ = 0; interVerified_ = false;
+    interact_ = false; interId_ = 0; interArm_ = 0;
     lootConfirm_ = false; lootCursorId_ = 0; lootTgt_ = Target{}; lootArm_ = 0;
     lsOn_ = false; tgt_ = Target{}; tgtId_ = 0; aimActive_ = false;
 }
@@ -353,29 +349,54 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
         if (ii < 0 && ti >= 0) ii = ti;
         if (ii >= 0) {
             interact_ = true; interId_ = u[ii].id; interType_ = u[ii].type; interCls_ = u[ii].cls;
-            interAttempt_ = 0; interVerified_ = false;
+            interAttempt_ = 0; interArm_ = 1;
             interH_ = interType_ == 4 ? 6 : hover_.get(interType_, interCls_, interType_ == 2 ? 20 : cfg_.hoverH);
-            if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+            if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; lsClick_ = false; }
+            // Move ONLY, then press once the game reports the hover -- same rule
+            // as the Alt pickup, and for the same reason: a click acts on the
+            // hover computed during the PREVIOUS rendered frame, so pressing in
+            // this same breath makes the game act on nothing, which it sends as
+            // "walk to that spot" instead of interacting. Tapping L repeatedly
+            // was the worst case: the release cleared the hover each time.
             int px, py; hoverPoint(u[ii], interH_, v, &px, &py);
-            cx_ = px; cy_ = py; out.push(A_MOVE, px, py);              // forced move, same reason as the cast
-            out.push(A_LDOWN, px, py); lmb_ = true;                    // lmb_: releaseAll is the only guaranteed lift
+            cx_ = px; cy_ = py; out.push(A_MOVE, px, py);
         }
     } else if (interact_ && !lootConfirm_) {
-        if (!(c.buttons & B_L)) { out.push(A_LUP, cx_, cy_); lmb_ = false; interact_ = false; interId_ = 0; }
-        else {
+        if (!(c.buttons & B_L)) {
+            if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+            interact_ = false; interId_ = 0; interArm_ = 0;
+        } else {
             const int ii = findId(u, n, interId_, interType_);
-            if (ii >= 0) {
-                if (!interVerified_) {
-                    if (x.selValid && x.selId == interId_ && x.selType == interType_) {
-                        interVerified_ = true;
-                        if (interType_ != 4) hover_.learn(interType_, interCls_, interH_);
-                    } else if (interAttempt_ < 4 && interType_ != 4) {
-                        ++interAttempt_;
+            if (ii < 0) interArm_ = 0;                        // gone: pressing now would be a walk order
+            else {
+                int px, py; hoverPoint(u[ii], interH_, v, &px, &py);
+                moveTo(px, py, out);
+                const bool hovered = x.selValid && x.selId == interId_ && x.selType == interType_;
+                // The button is down ONLY while the game confirms it hovers
+                // this unit. A click with no hover is not a weaker click, it
+                // is a different order -- "walk to that point" -- so holding L
+                // on a moving monster had the character chasing tiles: console
+                // 20/09 measured the hover valid on just 20 of 237 held ticks.
+                // Lifting on loss also re-arms the game's own per-frame hover
+                // scan, which is what can re-acquire the unit.
+                if (hovered && !lmb_)      { out.push(A_LDOWN, px, py); lmb_ = true; }
+                else if (!hovered && lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+                if (hovered) {
+                    if (interType_ != 4) hover_.learn(interType_, interCls_, interH_);
+                    interArm_ = 0;                                // settled on a height that works
+                } else if (interArm_ > 0) {
+                    ++interArm_;
+                    // Sprites are hit-tested against the cursor itself, so no
+                    // hover means the height is wrong -- and on a unit that
+                    // MOVES, a height that worked a moment ago can stop
+                    // working. Keep cycling rather than giving up after four
+                    // tries, one candidate every 3 ticks since each needs a
+                    // rendered frame before the game can answer.
+                    if (interType_ != 4 && interArm_ % 3 == 0) {
+                        interAttempt_ = interAttempt_ >= 4 ? 1 : interAttempt_ + 1;
                         interH_ = HoverTable::try_seq(interAttempt_, hover_.get(interType_, interCls_, interType_ == 2 ? 20 : cfg_.hoverH));
                     }
                 }
-                int px, py; hoverPoint(u[ii], interH_, v, &px, &py);
-                moveTo(px, py, out);
             }
         }
     }

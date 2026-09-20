@@ -458,7 +458,17 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
                     if(padOn){
                         padst::Unit pu; std::memset(&pu,0,sizeof pu);
                         pu.id=id; pu.type=type; pu.mode=mode; pu.cls=c.read_u32(u+4);
-                        if(type==2||type==4||type==5){ pu.fx=x; pu.fy=y; } else { pu.fx=(int32_t)r8; pu.fy=(int32_t)rc; }
+                        // DYNAMIC units (player, monsters): pPath+0/+4, the same
+                        // two words the camera hook reads for the player -- a
+                        // dynamic Path packs xOffset/xPos and yOffset/yPos as the
+                        // low and high halves of those dwords, so each one IS the
+                        // 16.16 fine coordinate. +8/+0xC are NOT: console log
+                        // 20/09 projected every monster to ~(4201,-90266) while
+                        // the player sat at (400,284), which left pick_hostile
+                        // with no candidate in range -- L could not attack
+                        // anything outside town. The ringtag payload below has
+                        // always used x/y here; only this consumer drifted.
+                        pu.fx=x; pu.fy=y;
                         if(type==1){
                             pu.ownerType=c.read_u32(u+0x94); pu.ownerId=c.read_u32(u+0x98);
                         }

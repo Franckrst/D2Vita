@@ -85,8 +85,10 @@ bool in_unit_box(const Unit& u, int x, int y);
 // `current` = index of the current target in `u` (or -1); kept while it
 // qualifies and its score <= 1.25*best + 20 (hysteresis). Returns -1 if none.
 int  pick_hostile(const Unit* u, int n, const View& v, const Ctl& c, const Config& cfg, int current);
-// L target: nearest item (type 4) <= 220 px, else nearest other interactable
-// (object / town NPC) <= 160 px. Returns -1 if none.
+// L target: nearest interactable chest / door / town NPC <= 220 px. Ground
+// items are deliberately NOT candidates -- Alt + Cross already browses and
+// picks them up, and having both made L a second, blurrier way to do it.
+// Returns -1 if none.
 int  pick_interact(const Unit* u, int n, const View& v, const Config& cfg);
 
 // Learned hover height per (type, class): where the cursor must sit for the
@@ -165,7 +167,9 @@ private:
     // interaction in progress
     bool     interact_ = false;
     uint32_t interId_ = 0, interType_ = 0, interCls_ = 0;
-    int      interAttempt_ = 0, interH_ = 0; bool interVerified_ = false;
+    // interArm_ > 0: the cursor is on the target and we are waiting for the
+    // game to report the hover before pressing (see the L block).
+    int      interAttempt_ = 0, interH_ = 0, interArm_ = 0;
     // modifiers / keys held
     bool     alt_ = false, shiftSq_ = false, esc_ = false, wkey_ = false;
     Held     dpad_[4];

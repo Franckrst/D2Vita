@@ -15,7 +15,7 @@
 | Right stick | **Aim**: picks the enemy inside a ±35° cone; for a ground-targeted skill (teleport, meteor…), distance follows tilt |
 | Cross / Circle / Square / Triangle | **Skills 1 to 4**, instant cast on the targeted enemy (nearest one if the right stick is idle); hold = repeat |
 | R held + faces | Skills 5 to 8 |
-| L | **Interact**: nearest item on the ground, else chest / door / NPC, else a basic attack on the target |
+| L | **Interact**: nearest chest / door / NPC, else a basic attack on the target (ground items are Alt + Cross) |
 | R then L (held) | Alt — ground item labels ; D-pad = move the selection cursor from item to item (nearest to the cursor in that direction), Cross = pick up the selected item (cyan marker) |
 | D-pad ↑ / ← / ↓ / → | Belt potions 1 / 2 / 3 / 4 |
 | L + D-pad ↓ | Toggle run/walk |

@@ -1721,7 +1721,8 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
             const bool ours  = q.ownerType == 0 && q.ownerId != 0 && q.ownerId == s.playerId;   // ownerType 0 = owned by a PLAYER
             o.hostile  = alive && !town && !ours && !pad_is_merc(q.cls);
             o.interact = alive && town;                                // town NPCs
-        } else if (q.type == 4 || q.type == 2) o.interact = true;     // items, objects
+        } else if (q.type == 2) o.interact = true;                    // chests, corpses, stashes
+        else if (q.type == 4) o.interact = true;                      // items: browsed with Alt, never an L target
         if (q.type == 4) {
             // Exact label rect, keyed by unit id -- no proximity, no geometry.
             for (int j = 0; j < s.nLabels; j++) {

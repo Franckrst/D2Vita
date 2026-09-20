@@ -87,10 +87,12 @@ static void test_pick_interact() {
     u[0].id = 1; u[0].type = 2; u[0].sx = 420; u[0].sy = 300; u[0].interact = true;    // chest, 20 px
     u[1].id = 2; u[1].type = 4; u[1].sx = 560; u[1].sy = 300; u[1].interact = true;    // item, 160 px
     u[2].id = 3; u[2].type = 4; u[2].sx = 700; u[2].sy = 300; u[2].interact = true;    // item, 300 px (too far)
-    CHECK(pad::pick_interact(u, 3, v, cfg) == 1);        // items first, within 220
-    u[1].sx = 700;                                         // both items too far -> the chest
+    CHECK(pad::pick_interact(u, 3, v, cfg) == 0);        // items are never L candidates: the chest wins
+    u[1].sx = 420; u[1].sy = 300;                          // an item right on top of the chest changes nothing
     CHECK(pad::pick_interact(u, 3, v, cfg) == 0);
-    u[0].sx = 600;                                         // chest at 200 px: beyond 160 -> nothing
+    u[0].sx = 600;                                         // chest at 200 px: still in reach
+    CHECK(pad::pick_interact(u, 3, v, cfg) == 0);
+    u[0].sx = 650;                                         // 250 px: beyond 220 -> nothing
     CHECK(pad::pick_interact(u, 3, v, cfg) == -1);
 }
 
@@ -305,10 +307,14 @@ static void test_scheme_interact_and_keys() {
     pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true;
     pad::Unit u[2] = { mkMon(5, 500, 300) };
-    u[1].id = 8; u[1].type = 4; u[1].sx = 430; u[1].sy = 310; u[1].interact = true;
+    u[1].id = 8; u[1].type = 2; u[1].cls = 7; u[1].sx = 430; u[1].sy = 310; u[1].interact = true;
     pad::Ctl c; pad::Actions a;
-    c.buttons = pad::B_L; s.tick(c, x, v, u, 2, a);                  // L: the item wins over the monster
-    CHECK(hasAct(a, pad::A_MOVE, 430, 304) && hasAct(a, pad::A_LDOWN, 430, 304));
+    c.buttons = pad::B_L; s.tick(c, x, v, u, 2, a);                  // L: the chest wins over the monster
+    CHECK(hasAct(a, pad::A_MOVE, 430, 290) && !hasAct(a, pad::A_LDOWN));   // move first, press next tick
+    x.selValid = 1; x.selId = 8; x.selType = 2;
+    a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    CHECK(hasAct(a, pad::A_LDOWN, 430, 290));
+    x.selValid = 0; x.selId = 0; x.selType = 0;
     c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     CHECK(hasAct(a, pad::A_LUP));
     // L with nothing around and no target: no click at all
@@ -435,19 +441,25 @@ static void test_scheme_loot_browse() {
 static void test_left_button_always_released() {
     pad::View v = mkView();
     pad::Unit u[1] = { mkItem(50, 400, 300) };
+    pad::Unit chest[1]; chest[0].id = 51; chest[0].type = 2; chest[0].cls = 7;
+    chest[0].sx = 400; chest[0].sy = 300; chest[0].interact = true;
     auto countUp = [](const pad::Actions& a) {
         int k = 0; for (int i = 0; i < a.n; ++i) if (a.v[i].k == pad::A_LUP) ++k; return k; };
 
-    // A: L-interact held, then a panel opens
+    // A: L-interact pressed and held, then a panel opens
     { pad::Config cfg; pad::Scheme s(cfg); pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-      c.buttons = pad::B_L; s.tick(c, x, v, u, 1, a);
+      c.buttons = pad::B_L; s.tick(c, x, v, chest, 1, a);
+      x.selValid = 1; x.selId = 51; x.selType = 2;
+      a = pad::Actions{}; s.tick(c, x, v, chest, 1, a);
       CHECK(hasAct(a, pad::A_LDOWN));
-      x.panelOpen = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+      x.panelOpen = true; a = pad::Actions{}; s.tick(c, x, v, chest, 1, a);
       CHECK(countUp(a) == 1); }
 
-    // B: L-interact held, then the game is left
+    // B: L-interact pressed and held, then the game is left
     { pad::Config cfg; pad::Scheme s(cfg); pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-      c.buttons = pad::B_L; s.tick(c, x, v, u, 1, a);
+      c.buttons = pad::B_L; s.tick(c, x, v, chest, 1, a);
+      x.selValid = 1; x.selId = 51; x.selType = 2;
+      a = pad::Actions{}; s.tick(c, x, v, chest, 1, a);
       CHECK(hasAct(a, pad::A_LDOWN));
       a = pad::Actions{}; s.leave(a);
       CHECK(countUp(a) == 1); }
@@ -517,6 +529,61 @@ static void test_pickup_never_presses_without_hover() {
     CHECK(hasAct(a, pad::A_LDOWN));
 }
 
+// A chest or NPC is hit-tested against the cursor's own position, so the
+// cursor height matters -- and each candidate height needs a RENDERED frame
+// before the game can answer. Escalating every tick burned all four
+// candidates before a single frame had been drawn. The button goes down
+// after one tick either way: it is HELD, and the game re-reads the hover on
+// every frame while it is, so it corrects itself as soon as a height lands.
+static void test_interact_height_retry_paces_itself() {
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1]; u[0].id = 60; u[0].type = 2; u[0].cls = 7;      // a chest
+    u[0].sx = 400; u[0].sy = 300; u[0].interact = true;
+    c.buttons = pad::B_L; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_MOVE, 400, 280) && !hasAct(a, pad::A_LDOWN));   // move first, default height 20
+    int moves = 0, downs = 0;
+    for (int i = 0; i < 9; ++i) {                                   // still not hovered: keep hunting heights
+        a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+        if (hasAct(a, pad::A_MOVE)) ++moves;
+        if (hasAct(a, pad::A_LDOWN)) ++downs;
+    }
+    CHECK(downs == 0);                                              // never presses without a hover
+    CHECK(moves >= 1 && moves <= 4);                                // paced, not one per tick
+    // it finally reports the hover: the working height is learned and kept
+    x.selValid = 1; x.selId = 60; x.selType = 2;
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    const int settled = s.cy();
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(s.cy() == settled && !hasAct(a, pad::A_MOVE));            // stops moving once it sticks
+}
+
+// Holding L on a MOVING unit: the button follows the game's hover, going down
+// when it confirms the unit and lifting when it loses it -- never issuing the
+// hover-less click, which the game reads as "walk to that point".
+static void test_hold_follows_the_hover() {
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1] = { mkMon(70, 460, 300) };
+    c.buttons = pad::B_L; s.tick(c, x, v, u, 1, a);                 // no interactable: falls back to the target
+    x.selValid = 1; x.selId = 70; x.selType = 1;
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_LDOWN));
+    x.selValid = 0;                                                 // the game loses it (cursor off the sprite)
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_LUP));
+    for (int i = 0; i < 4; ++i) {                                   // still lost: no click on empty ground
+        a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+        CHECK(!hasAct(a, pad::A_LDOWN));
+    }
+    x.selValid = 1;                                                 // re-acquired: press again
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_LDOWN));
+    // and the cursor tracked the unit as it moved
+    u[0].sx = 520; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_MOVE) && s.cx() == 520);
+}
+
 static void test_scheme_panel_and_leave() {
     pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true;
@@ -575,6 +642,8 @@ int main() {
     test_id_collision_across_types();
     test_pickup_cancelled_when_item_vanishes();
     test_pickup_never_presses_without_hover();
+    test_interact_height_retry_paces_itself();
+    test_hold_follows_the_hover();
     test_scheme_panel_and_leave();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
