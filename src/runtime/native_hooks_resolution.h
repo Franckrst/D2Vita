@@ -1,32 +1,29 @@
-// native_hooks_resolution.h -- résolution de jeu native (960x544 par défaut),
-// obtenue SANS écrire un seul octet de l'image invitée.
+// native_hooks_resolution.h -- le jeu dessine a la resolution de l'ecran
+// (960x544), sans qu'un seul octet de l'image invitee soit modifie.
 //
-// Le jeu ne connaît que 640x480 et 800x600 ; sur Vita l'écran fait 960x544.
-// Tant que la fenêtre de jeu vaut 800x600, la projection doit choisir entre
-// étirer (image 32 % trop large) et border (bandes de 117 px, voir D2_ASPECT
-// dans vita_gxm.cpp). Faire dessiner le JEU en 960x544 supprime le choix : un
-// texel = un pixel, plein écran, aucun filtre.
+// D2 ne connait que 640x480 et 800x600. Tant que sa fenetre vaut 800x600, la
+// projection doit choisir entre etirer (image 32 % trop large) et border
+// (bandes de 117 px). Le faire dessiner en 960x544 supprime le choix : un
+// texel = un pixel, plein ecran, aucun filtre.
 //
-// Mécanique : quatre crochets `alternate` (donc posés à la TRADUCTION, jamais
-// en mémoire invitée) plus des écritures de GLOBALS `.data` — c'est-à-dire
-// exactement ce que le jeu écrit lui-même. L'invariant « 0 octet de .text
-// modifié » de pristine_audit reste vrai, ce qui garde ce chemin hors de
-// portée d'un MEM_CHECK ou d'un PAGE_CHECK.
+// Quatre crochets `alternate` -- donc poses a la TRADUCTION, jamais en memoire
+// invitee -- plus des ecritures de globals `.data`, c'est-a-dire exactement ce
+// que le jeu ecrit lui-meme. L'invariant « 0 octet de .text modifie » de
+// pristine_audit reste vrai.
 //
-// ARMEMENT : D2_RES=960x544 (ou D2_RES=1 pour la taille de l'écran). ABSENT
-// PAR DÉFAUT. Le champ de vision élargi est un avantage en jeu : à réserver
-// au solo et au serveur privé, jamais au Battle.net officiel.
+// ACTIF PAR DEFAUT. D2_RES=0 revient au 800x600 du jeu (et donc aux bandes,
+// cf. D2_ASPECT dans vita_gxm.cpp) ; D2_RES=LxH force une autre taille.
+//
+// Le champ de vision elargi est un avantage en jeu : a reserver au solo et au
+// serveur prive.
 #pragma once
-#include <cstdint>
 namespace d2rt { class Cpu; class Bridge; }
-using d2rt::Cpu; using d2rt::Bridge;
 
-void native_hooks_resolution_install(Cpu* cpu, Bridge& br);
+void native_hooks_resolution_install(d2rt::Cpu* cpu, d2rt::Bridge& br);
 
-// Consultés par le glide3x maison (src/glide_ring/gx_host.cpp) : quand
-// l'override est armé, grSstWinOpen ouvre cette taille quel que soit l'index
-// de mode que le jeu demande — c'est le modèle D2DX, et c'est légitime ici
-// puisque nous SOMMES le pilote Glide.
+// Consultes par le glide3x maison (src/glide_ring/gx_host.cpp) : grSstWinOpen
+// ouvre cette taille quel que soit l'index de mode demande par le jeu -- c'est
+// le modele D2DX, legitime ici puisque nous SOMMES le pilote Glide.
 extern "C" int d2res_active(void);
 extern "C" int d2res_w(void);
 extern "C" int d2res_h(void);

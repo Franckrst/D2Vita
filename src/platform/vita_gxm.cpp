@@ -401,26 +401,20 @@ bool g_knobRead = false, g_knob = false, g_ready = false, g_failed = false;
 int  g_gameW = 800, g_gameH = 600;
 
 // ---- PROJECTION FENÊTRE DE JEU -> ÉCRAN ------------------------------------
-// Il n'existe AUCUNE image intermédiaire : les sprites sont rastérisés
-// directement dans le framebuffer de l'écran, et c'est cette projection seule
-// qui décide de leur forme.
-//   D2_ASPECT=4:3 (DÉFAUT) : échelle ISOTROPE, image centrée, bandes sur les
-//     côtés. À 800x600 dans 960x544 : s=0,9067, image 725x544, bandes 117 px.
-//   D2_ASPECT=etire : l'ancien comportement, la fenêtre remplit l'écran avec
-//     l'étirement non isotrope de la StretchBlt du chemin GDI — x1,200 en X et
-//     x0,907 en Y, soit une image 32 % trop large. Gardé pour l'A/B.
-// Tout le fichier passe par ces valeurs et par scr2g*(), jamais par un rapport
-// g_gameW/SCR_W écrit à la main.
+// Il n'existe aucune image intermédiaire : les sprites sont rastérisés
+// directement dans le framebuffer, et cette projection seule décide de leur
+// forme.
+//   D2_ASPECT=4:3 (défaut) : échelle isotrope, image centrée, bandes sur les
+//     côtés. Ne sert que si le jeu ne dessine pas déjà à la taille de l'écran
+//     (voir native_hooks_resolution.h).
+//   D2_ASPECT=etire : l'ancien comportement, étirement non isotrope.
 //
-// Le sens INVERSE est stocké (g_projI*) au lieu d'être calculé par division :
-// en mode "etire" l'offset vaut 0, donc scr2gx() se réduit à `x * g_projIx`,
-// c'est-à-dire LITTÉRALEMENT l'ancien `x * kx` — même expression, mêmes bits.
-// Ce n'est pas de la coquetterie : (x*W)/S et x*(W/S) diffèrent sur 432 des
-// 1506 abscisses entières de l'écran, mesuré. Une ré-écriture "équivalente"
-// aurait déplacé des sommets d'UI sans que rien ne le signale.
-// Images ou le budget de sommets a sature (et ou l'on a donc rogne pour garder
-// la place du quad d'effacement). Non nul = des lots du jeu sont perdus, ce
-// qui merite d'etre su.
+// Le sens inverse est STOCKÉ (g_projI*) au lieu d'être redivisé : en mode
+// étiré l'offset vaut 0, donc scr2gx() se réduit à `x * g_projIx`, exactement
+// l'ancien `x * kx`. (x*W)/S et x*(W/S) diffèrent sur 432 des 1506 abscisses
+// de l'écran — une réécriture « équivalente » aurait déplacé des sommets
+// d'interface sans que rien ne le signale.
+// Images où le budget de sommets a saturé : non nul = des lots du jeu perdus.
 unsigned long long g_vtxSat = 0;
 int   g_aspect  = 1;                      // 0 = étiré, 1 = isotrope
 float g_projSx  = 1.f, g_projSy = 1.f;    // pixels écran par pixel de jeu
@@ -462,14 +456,11 @@ inline float scr2gx(float x) { return (x - g_projOx) * g_projIx; }
 inline float scr2gy(float y) { return (y - g_projOy) * g_projIy; }
 
 // ---- DÉCOUPE : la fenêtre de jeu, en pixels écran ---------------------------
-// D2 émet des tuiles qui DÉBORDENT de sa propre fenêtre et compte sur le
-// `grClipWindow` de Glide pour les couper. Ce port ignorait la découpe, et ça
-// n'avait jamais eu d'importance : en étirement, ce qui dépassait tombait hors
-// écran et le viewport le jetait. Avec des bandes, ce même débord atterrit
-// DEDANS — il remplit les bandes de tuiles partielles, et sa limite extérieure
-// suit le réseau isométrique, d'où des dents de scie.
-// On honore donc la découpe. En mode étiré le rectangle vaut tout l'écran, ce
-// qui rend l'appel inopérant : l'ancien comportement est intact.
+// D2 émet des tuiles qui DÉBORDENT de sa fenêtre et compte sur le
+// `grClipWindow` de Glide pour les couper ; ce port l'ignorait. Sans bandes ça
+// ne se voyait pas (le débord tombait hors écran), avec des bandes il atterrit
+// dedans et sa limite suit le réseau isométrique : dents de scie.
+// Sans bandes le rectangle vaut tout l'écran et l'appel est inopérant.
 struct ClipRect { unsigned x0, y0, x1, y1; };   // bornes INCLUSES, comme sceGxm
 ClipRect game_clip() {
     float a = g_projOx, b = g_projOy;
@@ -1637,7 +1628,9 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
     // conséquence tant que le jeu couvrait tout l'écran, mais avec des bandes
     // (D2_ASPECT=4:3) celles-ci gardaient alors l'image précédente. Rogner 4
     // sommets d'une image qui deborde deja est sans commune mesure.
-    // 4 sommets pour le quad d'effacement + 16 pour les quatre bandes.
+    // 4 sommets pour le quad d'effacement + 16 pour les bandes : sans cette
+    // réserve le quad n'était dessiné que si `nv+4 <= MAXV`, donc sauté EN
+    // SILENCE sur une image saturée.
     if (nv > MAXV - 20) {
         if (++g_vtxSat == 1ull)
             d2vita_progress("gxm: budget de sommets SATURE — des lots du jeu sont perdus");
@@ -1694,27 +1687,6 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
     void* vu = nullptr;
     sceGxmReserveVertexDefaultUniformBuffer(g_ctx, &vu);
     if (vu) sceGxmSetUniformDataF(vu, g_pScale, 0, 4, scale);
-    // Ce que la projection FAIT, pas ce qu'on croit qu'elle fait : les valeurs
-    // reellement envoyees au nuanceur, plus l'etendue des sommets du jeu. Une
-    // fois, et re-arme des que la fenetre change.
-    { static int lastW = -1, lastH = -1; static int nfull = 0;
-      // Les images de changement de fenetre n'ont AUCUN sommet : y lire
-      // l'etendue ne mesurait rien. On logue aussi les deux premieres images
-      // reellement peuplees, qui sont les seules a dire si D2 deborde.
-      if (g_gameW != lastW || g_gameH != lastH || (nv > 0 && nfull < 2)) {
-        if (nv > 0) ++nfull;
-        lastW = g_gameW; lastH = g_gameH;
-        float xmin = 1e30f, xmax = -1e30f;
-        const uint32_t nprobe = nv < 4096u ? nv : 4096u;
-        for (uint32_t k = 0; k < nprobe; ++k) { const float x = v[k].x; if (x < xmin) xmin = x; if (x > xmax) xmax = x; }
-        char m[200]; std::snprintf(m, sizeof m,
-            "gxm/proj: aspect=%d jeu=%dx%d ecran=%dx%d s=%.4f,%.4f o=%.1f,%.1f "
-            "| uScale=%.6f,%.6f,%.4f,%.4f | sommets x=%.0f..%.0f -> ecran %.0f..%.0f",
-            g_aspect, g_gameW, g_gameH, SCR_W, SCR_H, g_projSx, g_projSy, g_projOx, g_projOy,
-            scale[0], scale[1], scale[2], scale[3], xmin, xmax,
-            (xmin * scale[0] + scale[2] + 1.0f) * 0.5f * SCR_W,
-            (xmax * scale[0] + scale[2] + 1.0f) * 0.5f * SCR_W);
-        d2vita_progress(m); } }
 
     sceGxmSetVertexStream(g_ctx, 0, g_vtxBuf[slot].p);
 
@@ -1799,9 +1771,8 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
         const bool flatClear = (g_clearMode == 1) && g_fpClear && g_pConstC;
         d2gr::Vtx* cv = (d2gr::Vtx*)g_vtxBuf[slot].p + nv;    // after the game's own vertices
         uint16_t* ci = (uint16_t*)g_idxBuf[slot].p + ni;
-        // La place est desormais RESERVEE plus haut, donc ce test passe
-        // toujours. On le garde en garde-fou, mais bruyant : s'il echouait,
-        // les bandes garderaient l'image precedente sans rien dire.
+        // La place est réservée plus haut : ce test passe toujours. Gardé en
+        // garde-fou bruyant plutôt qu'en silence.
         if (nv + 4 > MAXV || ni + 6 > MAXI) {
             static bool dit = false;
             if (!dit) { dit = true; d2vita_progress("gxm: quad d'effacement SAUTE — les bandes vont trainer"); }
@@ -1856,11 +1827,9 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
         }
     }
 
-    // DÉCOUPE à la fenêtre de jeu, pour les lots du JEU seulement. Le quad
-    // d'effacement ci-dessus devait couvrir tout l'écran (bandes comprises) ;
-    // à partir d'ici, tout ce que D2 fait déborder de sa fenêtre est coupé,
-    // comme le ferait son grClipWindow. Remis à l'écran entier avant les
-    // incrustations, qui vivent en pixels écran.
+    // Découpe à la fenêtre de jeu, pour les lots du JEU seulement : le quad
+    // d'effacement devait couvrir tout l'écran, les incrustations vivent en
+    // pixels écran.
     { const ClipRect r = game_clip();
       sceGxmSetRegionClip(g_ctx, SCE_GXM_REGION_CLIP_OUTSIDE, r.x0, r.y0, r.x1, r.y1); }
 
@@ -1945,14 +1914,11 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
     uint32_t uiVb = nv + 4, uiIb = ni + 6;
 
     // ---- LES BANDES, REPEINTES APRÈS LE JEU --------------------------------
-    // sceGxmSetRegionClip ne coupe qu'à la TUILE de 32 px près : mesuré sur
-    // console, une découpe demandée à 117..842 agit en 96..863. Il laisse donc
-    // passer une lisière de 21 px du débord de D2, et comme ce débord suit le
-    // réseau isométrique, ça se voit en petits triangles. La découpe reste
-    // utile (elle enlève l'essentiel du travail inutile), mais l'exactitude au
-    // pixel vient d'ici : quatre quads noirs sur les bandes, dessinés APRÈS le
-    // jeu et AVANT les incrustations. En mode étiré les bandes sont vides et
-    // rien n'est dessiné.
+    // sceGxmSetRegionClip ne coupe qu'à la TUILE DE 32 PX près : mesuré sur
+    // console, une découpe demandée à 117..842 agit en 96..863, laissant passer
+    // 21 px de débord — soit des triangles visibles sur les bords. La découpe
+    // reste utile (elle enlève le gros du travail inutile) mais l'exactitude au
+    // pixel vient d'ici. Sans bandes, rien n'est dessiné.
     if (g_aspect != 0 && uiVb + 16 <= MAXV && uiIb + 24 <= MAXI) {
         const float gx0 = scr2gx(0.f),            gx1 = scr2gx((float)SCR_W);
         const float gy0 = scr2gy(0.f),            gy1 = scr2gy((float)SCR_H);
