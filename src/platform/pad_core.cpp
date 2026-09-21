@@ -743,9 +743,14 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
     const float lm = std::sqrt(c.lx * c.lx + c.ly * c.ly);
     const bool on = lsOn_ ? (lm > cfg_.deadzone) : (lm > cfg_.deadzone + 0.05f);
     if (on) { lastDx_ = c.lx / lm; lastDy_ = c.ly / lm; }
+    walk_ = Walk{};
+    walk_.pushed = on; walk_.nUnits = n;
+    walk_.gated = (castSlot_ >= 0 || interact_ || alt_);
     if (castSlot_ < 0 && !interact_ && !alt_) {
         if (on) {
             int px, py; orbit_point(v, c, cfg_, u, n, &px, &py);
+            walk_.clicked = true; walk_.px = px; walk_.py = py;
+            for (int i = 0; i < n; ++i) if (in_unit_box(u[i], px, py)) { walk_.onUnit = true; break; }
             moveTo(px, py, out);
             if (!lmb_) { out.push(A_LDOWN, px, py); lmb_ = true; lsClick_ = true; }
         } else if (lsOn_) {

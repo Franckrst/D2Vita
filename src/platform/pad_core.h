@@ -188,6 +188,17 @@ public:
     void setCursor(int x, int y) { cx_ = x; cy_ = y; userX_ = x; userY_ = y; }
     bool casting() const { return castSlot_ >= 0; }
     bool interacting() const { return interact_; }
+    // Why the left stick did or did not produce a walk this tick. Two wrong
+    // diagnoses of "stuck in a melee" were reasoned out and both missed; this
+    // reports the state instead of inferring it.
+    struct Walk {
+        bool pushed = false;     // stick beyond the dead zone
+        bool gated = false;      // a cast / interaction / Alt owned the tick
+        bool clicked = false;    // a walk click was actually issued
+        bool onUnit = false;     // ... and it landed inside a unit's box
+        int  px = 0, py = 0, nUnits = 0;
+    };
+    Walk walk() const { return walk_; }
 
 private:
     enum Mode { M_NONE, M_WORLD, M_PANEL };
@@ -239,6 +250,7 @@ private:
     // interArm_ > 0: the cursor is on the target and we are waiting for the
     // game to report the hover before pressing (see the L block).
     int      interAttempt_ = 0, interH_ = 0, interArm_ = 0;
+    Walk     walk_;
     Reject   rej_;                     // units the game would not hover
     // Passive learning: the cursor is sitting inside a unit's box and the game
     // reports no hover for it. After a few frames that is a statement, not a

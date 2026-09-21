@@ -1831,6 +1831,21 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
             // to find the one behind "panel X is not detected".
             for (int i = 0; i < 38 && lines < 2000; i++) if (s.uiVars[i] != lastUi[i]) { lastUi[i] = s.uiVars[i];
                 snprintf(m, sizeof m, "pad: uivar[%d]=%u", i, s.uiVars[i]); d2vita_progress(m); ++lines; }
+            // One line a second while the left stick is pushed: did the walk
+            // click go out at all, and did it land on a monster? A left click
+            // on a monster is ATTACK, not move, which is the leading theory
+            // for "stuck in a group" -- but it is a theory, so measure it.
+            {
+                const pad::Scheme::Walk wk = g_scheme->walk();
+                static uint64_t lastWalkLog = 0;
+                const uint64_t now = d2vita_now_us();
+                if (wk.pushed && now - lastWalkLog > 1000000ull && lines < 2000) {
+                    lastWalkLog = now;
+                    snprintf(m, sizeof m, "pad: marche ferme=%d clic=%d sur_unite=%d pt=(%d,%d) unites=%d",
+                             (int)wk.gated, (int)wk.clicked, (int)wk.onUnit, wk.px, wk.py, wk.nUnits);
+                    d2vita_progress(m); ++lines;
+                }
+            }
             // Every distinct (mode) a type-0 unit is seen in: which one a
             // player corpse actually uses, and whether it keeps the player's
             // unit id, is the thing that decides whether Cross can ever
