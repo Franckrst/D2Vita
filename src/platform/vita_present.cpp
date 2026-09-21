@@ -1740,7 +1740,14 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
             const bool alive = q.mode != 0 && q.mode != 12;             // 0 = dying, 12 = dead
             const bool ours  = q.ownerType == 0 && q.ownerId != 0 && q.ownerId == s.playerId;   // ownerType 0 = owned by a PLAYER
             o.hostile  = alive && !town && !ours && !pad_is_merc(q.cls);
-            o.interact = alive && town;                                // town NPCs
+            // Town NPCs, filtered by the same targetable bit. The console log
+            // of 21/09 split Lut Gholein's type-1 units cleanly in two:
+            // classes 175/199/201/202/331 carry bit 1 (real, clickable NPCs)
+            // and 195/196/203 do not (decorative passers-by). Offering the
+            // latter is what made some townspeople impossible to click.
+            // NOT applied to `hostile` above: no combat evidence yet, and
+            // being wrong about a monster costs the whole fight.
+            o.interact = alive && town && (q.flags & 0x00200002u) == 0x00000002u;
             // A corpse is a target in its own right (corpse explosion,
             // revive, raise skeleton). OUR OWN summons' corpses count too --
             // the game lets you explode those as readily as any other.

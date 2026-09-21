@@ -3,6 +3,7 @@
 #include "platform/pad_core.h"
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 
 static int g_fail = 0, g_pass = 0;
 #define CHECK(cond) do { if (cond) ++g_pass; else { ++g_fail; std::printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); } } while (0)
@@ -1162,6 +1163,32 @@ static void test_scenery_offered_by_proximity_is_written_off_fast() {
     CHECK(!s.interacting());                              // and the whole class is gone, both of them
 }
 
+static void test_walking_out_of_a_crowd_finds_clear_ground() {
+    // Console, 21/09: "in a group of monsters, impossible to get out with the
+    // stick, my barbarian keeps launching attacks". The walk click landed ON a
+    // monster, and D2 reads a left click on a monster as ATTACK, not move --
+    // so the stick stopped being a way out. Plug every point the search used
+    // to consider and require it to find clear ground regardless.
+    pad::View v = mkView(); pad::Config cfg; pad::Ctl c; c.lx = 1.f;
+    static const float kAng[7] = { 0.f, 20.f, -20.f, 40.f, -40.f, 60.f, -60.f };
+    pad::Unit u[32]; int n = 0;
+    for (int shrink = 0; shrink < 3; ++shrink) {
+        const float rr = (float)cfg.orbitMax - shrink * 20.f;
+        for (int k = 0; k < 7 && n < 32; ++k) {
+            const float a = kAng[k] * 3.14159265f / 180.f;
+            u[n] = mkMon((uint32_t)(n + 1),
+                         400 + (int)(std::cos(a) * rr), 300 + (int)(std::sin(a) * rr));
+            ++n;
+        }
+    }
+    int px, py;
+    CHECK(pad::orbit_point(v, c, cfg, u, n, &px, &py));
+    bool blocked = false;
+    for (int i = 0; i < n; ++i) if (pad::in_unit_box(u[i], px, py)) blocked = true;
+    CHECK(!blocked);                                  // a way out exists and it was found
+    CHECK(px > 400);                                  // and it still goes where the stick points
+}
+
 int main() {
     test_projection();
     test_clamp_and_box();
@@ -1217,6 +1244,7 @@ int main() {
     test_scenery_the_game_never_hovers_is_learned_by_class();
     test_a_hovered_object_is_never_learned_as_scenery();
     test_scenery_offered_by_proximity_is_written_off_fast();
+    test_walking_out_of_a_crowd_finds_clear_ground();
     test_left_stick_switches_target_while_cross_is_held();
     test_interact_reach_is_configurable();
     test_offscreen_units_are_not_targets();

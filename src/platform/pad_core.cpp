@@ -170,9 +170,18 @@ bool orbit_point(const View& v, const Ctl& c, const Config& cfg, const Unit* u, 
     const float r = (cfg.orbitMin + t * (cfg.orbitMax - cfg.orbitMin)) * sc;
     int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
     static const float dAng[7] = { 0.f, 20.f, -20.f, 40.f, -40.f, 60.f, -60.f };
-    for (int shrink = 0; shrink < 3; ++shrink) {
-        const float rr = r - shrink * 20.f * sc;
-        if (rr < 16.f * sc) break;
+    // Radii to try, in order of preference: the intended one, a little
+    // shorter, then progressively FURTHER OUT. Shrinking alone was not enough
+    // in a melee -- every ring inside the crowd is occupied, and the old
+    // last-resort point then sat on a monster, which D2 reads as "attack"
+    // rather than "move": console, 21/09, "in a group of monsters, impossible
+    // to get out with the stick, my barbarian keeps launching attacks". A
+    // point PAST the crowd is an ordinary walk order, and it is the only thing
+    // that keeps the stick a way out.
+    static const float dR[8] = { 0.f, -20.f, -40.f, 30.f, 60.f, 90.f, 130.f, 180.f };
+    for (int j = 0; j < 8; ++j) {
+        const float rr = r + dR[j] * sc;
+        if (rr < 16.f * sc) continue;
         for (int k = 0; k < 7; ++k) {
             const float a = dAng[k] * kPi / 180.f, ca = std::cos(a), sa = std::sin(a);
             const float dx = lx * ca - ly * sa, dy = lx * sa + ly * ca;
@@ -183,7 +192,11 @@ bool orbit_point(const View& v, const Ctl& c, const Config& cfg, const Unit* u, 
             if (!hit) { *px = x; *py = y; return true; }
         }
     }
-    *px = psx + (int)std::lround(lx * r); *py = psy + (int)std::lround(ly * r);
+    // Occupied all the way out: aim as far along the stick as the screen
+    // allows. Still better than the near point, which is certainly on the
+    // monster standing in our face.
+    const float rFar = r + 180.f * sc;
+    *px = psx + (int)std::lround(lx * rFar); *py = psy + (int)std::lround(ly * rFar);
     clamp_point(v, cfg, px, py);
     return true;
 }
