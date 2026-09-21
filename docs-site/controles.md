@@ -68,7 +68,8 @@ still opens it at any time. `D2_KBAUTO=0` in `ux0:data/d2vita/env.txt` turns
 the automatic opening off. The runtime reads the game's own "focused control"
 state to know this (read-only, the control's header only — never the text).
 Each transition is logged in `boot_progress.txt` as `clavier: focus champ ON`
-or `clavier: focus champ OFF`. In-game chat is not covered yet (phase 2).
+or `clavier: focus champ OFF` (capped at 64 lines per session). In-game chat
+is not covered yet (phase 2).
 
 | Input | Action |
 |---|---|

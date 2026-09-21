@@ -67,7 +67,8 @@ n'importe quel écran. `D2_KBAUTO=0` dans `ux0:data/d2vita/env.txt` coupe
 l'ouverture automatique. Le runtime lit pour cela l'état « contrôle
 focalisé » du jeu lui-même (lecture seule, l'en-tête du contrôle seulement —
 jamais le texte). Chaque transition est journalisée dans
-`boot_progress.txt` en `clavier: focus champ ON/OFF`. Le chat en jeu n'est
+`boot_progress.txt` en `clavier: focus champ ON/OFF` (plafonné à 64 lignes
+par session). Le chat en jeu n'est
 pas encore couvert (phase 2).
 
 | Entrée | Action |
