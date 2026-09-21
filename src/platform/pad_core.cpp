@@ -103,6 +103,7 @@ int pick_interact(const Unit* u, int n, const View& v, const Config& cfg, const 
     for (int i = 0; i < n; ++i) {
         const Unit& t = u[i];
         if (!t.interact || t.type == 4) continue;      // ground items belong to Alt + Cross
+        if (!t.selectable) continue;                  // proximity offers only what the game owns
         if (!on_screen(v, t.sx, t.sy)) continue;
         if (rej && rej->has(t)) continue;
         const float d = iso_len((float)(t.sx - psx), (float)(t.sy - psy));
@@ -351,7 +352,7 @@ void Scheme::releaseAll(Actions& out) {
     castSlot_ = -1; castBit_ = 0; castId_ = 0; castVerified_ = false;
     interact_ = false; interId_ = 0; interArm_ = 0;
     lootConfirm_ = false; lootCursorId_ = 0; lootTgt_ = Target{}; lootArm_ = 0;
-    lsOn_ = false; lsArm_ = 0; tgt_ = Target{}; tgtId_ = 0; rmbL_ = false;
+    lsOn_ = false; lsArm_ = 0; tgt_ = Target{}; tgtId_ = 0; rmbL_ = false; hudClick_ = false;
 }
 
 void Scheme::leave(Actions& out) { releaseAll(out); mode_ = M_NONE; prev_ = 0; }
@@ -559,6 +560,21 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
         if (ci >= 0) { tgt_.has = true; tgt_.id = castId_; tgt_.sx = u[ci].sx; tgt_.sy = u[ci].sy; tgt_.verified = castVerified_; }
     } else if (ti >= 0 && !alt_) { tgt_ = Target{}; tgt_.has = true; tgt_.id = u[ti].id; tgt_.sx = u[ti].sx; tgt_.sy = u[ti].sy; }
     else tgt_ = Target{};
+
+    // ---- Cross on the HUD: a plain click ----
+    // The stats and skills buttons, the menu bar and the belt are not
+    // panels, so the scheme is in world mode and Cross meant "act on the
+    // world" over them. Down in that band there is no world to act on, and
+    // the only way the cursor got there is the player driving it -- assisted
+    // points are clamped out of it by design.
+    const bool onHud = cy_ > v.h - cfg_.hudH;
+    if ((down & B_CROSS) && !layer && onHud && castSlot_ < 0 && !interact_ && !alt_) {
+        out.push(A_LDOWN, cx_, cy_); lmb_ = true; hudClick_ = true;
+    }
+    if (hudClick_ && !(c.buttons & B_CROSS)) {
+        if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+        hudClick_ = false;
+    }
 
     // ---- Cross: the one action button ----
     // Order: what the player is POINTING at wins, because pointing at a
@@ -815,7 +831,7 @@ void Scheme::panelTick(const Ctl& c, const Ctx& x, const View& v, uint32_t down,
     // Cross is the left click in EVERY panel, the skill tree included: you
     // still have to click an icon to spend a point on it.
     if ((down & B_CROSS) && !layer) { out.push(A_LDOWN, cx_, cy_); lmb_ = true; }
-    if ((up & B_CROSS) && lmb_ && !(c.buttons & B_L)) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+    if ((up & B_CROSS) && lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
     if (x.skillTree) {                                                    // faces = bind the hovered icon
         for (int i = 0; i < 4; ++i) if (down & kFaceBits[i]) {
             const int slot = face_slot(i, layer);
@@ -828,8 +844,9 @@ void Scheme::panelTick(const Ctl& c, const Ctx& x, const View& v, uint32_t down,
         if (up & B_SQR)   shiftOwn(SH_SQR, false, out);
         if (down & B_CIR) out.push(A_KEY, 0x1B);
     }
-    if ((down & B_L) && !layer && !alt_) { out.push(A_LDOWN, cx_, cy_); lmb_ = true; }
-    if ((up & B_L) && lmb_ && !(c.buttons & B_CROSS)) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+    // L is the modifier here too. It used to click, which made it impossible
+    // to use as one: console, 21/09, "the Horadric Cube gets pulled up by
+    // just clicking L before even hitting D-Pad left". Cross is the click.
     tgt_ = Target{};
 }
 

@@ -1323,6 +1323,59 @@ static void test_the_walk_never_stalls_for_long() {
     CHECK(pressed && ticks <= 6);
 }
 
+static void test_the_cursor_overrides_the_targetable_filter() {
+    // Console, 21/09: shrines and the stash can no longer be approached or
+    // activated, "even hovering above them via right-stick". The targetable
+    // bit says they are not selectable, whatever the reason, and that filter
+    // was applied everywhere. Pointing at something is an explicit statement
+    // of intent, so the cursor overrides it -- the filter keeps the PROXIMITY
+    // list clean, which is all it was ever needed for.
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1];
+    u[0].id = 1; u[0].type = 2; u[0].cls = 7; u[0].sx = 500; u[0].sy = 300;
+    u[0].interact = true; u[0].selectable = false;    // a shrine the bit disowns
+    CHECK(pad::pick_interact(u, 1, v, cfg) == -1);    // not offered by proximity
+    CHECK(pad::pick_at(u, 1, 500, 296) == 0);         // but reachable by pointing at it
+    s.setCursor(500, 296);
+    s.tick(c, x, v, u, 1, a);
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_MOVE, 500, 280));
+}
+
+static void test_cross_clicks_the_hud() {
+    // Console, 21/09: Cross does not work as a left click on the stats and
+    // skills buttons, the menu bar or the belt. Those are not panels, so the
+    // scheme was in world mode and Cross meant "act on the world". Down in
+    // the HUD band there is no world to act on, and the only way the cursor
+    // got there is the player driving it.
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1] = { mkMon(1, 430, 300) };           // a monster right next to us
+    s.setCursor(300, 560);                             // cursor on the HUD
+    s.tick(c, x, v, u, 1, a);
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_LDOWN, 300, 560));          // a plain click, not an attack
+    CHECK(!s.interacting());
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_LUP));
+}
+
+static void test_l_is_a_modifier_in_panels_too() {
+    // Console, 21/09: "the Horadric Cube gets selected and pulled up from the
+    // inventory by just clicking L before even hitting D-Pad left". L cannot
+    // be both a click and the modifier that L + direction needs. Cross is the
+    // click in panels; L keeps the modifier job everywhere.
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; x.panelOpen = true;
+    pad::Ctl c; pad::Actions a;
+    s.setCursor(200, 200);
+    c.buttons = pad::B_L; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(!hasAct(a, pad::A_LDOWN));                   // L picks nothing up any more
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_LDOWN, 200, 200));          // Cross still clicks
+}
+
 int main() {
     test_projection();
     test_clamp_and_box();
@@ -1387,6 +1440,9 @@ int main() {
     test_own_corpse_outranks_everything();
     test_a_far_corpse_does_not_outrank_what_is_on_us();
     test_the_nearest_wins_between_an_object_and_a_monster();
+    test_the_cursor_overrides_the_targetable_filter();
+    test_cross_clicks_the_hud();
+    test_l_is_a_modifier_in_panels_too();
     test_interact_reach_is_configurable();
     test_offscreen_units_are_not_targets();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);

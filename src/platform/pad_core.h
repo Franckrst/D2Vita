@@ -60,7 +60,15 @@ struct Unit {
     // OUR OWN body, left behind by a death with all our gear on it. Getting it
     // back outranks anything else Cross could be pointed at.
     bool ownCorpse = false;
-    bool interact = false;          // can be an L target (item, object, NPC)
+    bool interact = false;          // can be a Cross target (item, object, NPC)
+    // The game's own targetable bit. It filters the PROXIMITY list only: the
+    // cursor pointed straight at something outranks it, because the bit turns
+    // out to disown things that really are usable -- shrines and the stash,
+    // console 21/09 -- and being unable to reach those is worse than being
+    // offered a torch we never asked for.
+    // Defaults to true: usable unless the game says otherwise. The glue sets
+    // it explicitly from the flag for every kind of unit it collects.
+    bool selectable = true;
     // This unit's Alt name label, when the game drew one for it this frame:
     // lx/ly = the CENTER of the label's rectangle, lw/lh its size. Copied
     // from the game's OWN label array and keyed by unit id, so it is exact
@@ -270,6 +278,7 @@ private:
     // race, and it costs the player no button press to find out.
     uint32_t coldId_ = 0, coldType_ = 0; int coldTicks_ = 0;
     bool     rmbL_ = false;            // L + D-pad left holds the right button
+    bool     hudClick_ = false;        // Cross is clicking the HUD, not the world
     // modifiers / keys held
     bool     alt_ = false, esc_ = false, wkey_ = false;
     uint32_t shiftOwners_ = 0;

@@ -1755,6 +1755,7 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
             // NOT applied to `hostile` above: no combat evidence yet, and
             // being wrong about a monster costs the whole fight.
             o.interact = alive && town && (q.flags & 0x00200002u) == 0x00000002u;
+            o.selectable = o.interact;
             // A corpse is a target in its own right (corpse explosion,
             // revive, raise skeleton). OUR OWN summons' corpses count too --
             // the game lets you explode those as readily as any other.
@@ -1763,8 +1764,9 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
             // A body on the ground. Gated on the same targetable bit as
             // everything else, so a living player standing next to us in a
             // multiplayer game is not mistaken for loot.
-            o.interact  = corpseMode && (q.flags & 0x00200002u) == 0x00000002u;
-            o.ownCorpse = o.interact;
+            o.interact   = corpseMode && (q.flags & 0x00200002u) == 0x00000002u;
+            o.selectable = o.interact;
+            o.ownCorpse  = o.interact;
         } else if (q.type == 2) {
             // Ask the GAME whether this object can be hovered at all, instead
             // of offering every torch and shadow and learning the hard way.
@@ -1775,9 +1777,10 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
             // is a suppression bit whose setter was not located, so it is
             // mirrored rather than assumed clear -- one extra AND for a
             // condition the game really does test.
-            o.interact = (q.flags & 0x00200002u) == 0x00000002u;
+            o.interact   = true;                       // reachable by pointing at it
+            o.selectable = (q.flags & 0x00200002u) == 0x00000002u;   // offered by proximity
         }
-        else if (q.type == 4) o.interact = true;                      // items: browsed with Alt, never an L target
+        else if (q.type == 4) { o.interact = true; o.selectable = true; }   // items: browsed with Alt
         rawFlags[n] = q.flags; rawUnit[n] = &q;
         if (q.type == 4) {
             // Exact label rect, keyed by unit id -- no proximity, no geometry.
