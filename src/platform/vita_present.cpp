@@ -159,7 +159,18 @@ d2kb::State g_kb;
 int g_kb_simple = -1;                 // read once, on first open
 radial_menu::State g_rm{};            // radial menu: state written by the input tick, read by presentation
 uint32_t g_kb_last_focus = 0;         // ouverture auto du clavier : dernier focus texte vu
-inline void draw_keyboard(uint32_t* fb){ d2kb::draw(g_kb, fb, SCR_W, SCR_H); }
+// Translucent by default: the player can still see the character/menu behind
+// the keys while typing. D2_KBALPHA=0-100 in env.txt overrides (100 = opaque,
+// the old look); read once and clamped, like every other knob here.
+int g_kb_alpha = -1;
+inline void draw_keyboard(uint32_t* fb){
+    if (g_kb_alpha < 0){
+        const char* e = getenv("D2_KBALPHA");
+        g_kb_alpha = e ? atoi(e) : 50;
+        if (g_kb_alpha < 0) g_kb_alpha = 0; if (g_kb_alpha > 100) g_kb_alpha = 100;
+    }
+    d2kb::draw(g_kb, fb, SCR_W, SCR_H, g_kb_alpha);
+}
 // --- async present: the scale+flip runs on its OWN Vita core -----------------
 // The guest emulation is single-core; the 960x544 palette scale (~2-5 ms of
 // A9 time per frame) moves to a second CPU via a dedicated thread (the
