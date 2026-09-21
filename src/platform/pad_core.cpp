@@ -634,22 +634,19 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             interact_ = false; interId_ = 0; interArm_ = 0;
             moveTo(userX_, userY_, out);                // borrowed, now handed back
         } else {
-            // The LEFT stick breaks off. It used to steer the target, which
-            // is what was asked for first -- but movement is gated for as
-            // long as Cross is held, so in a melee the stick stopped being a
-            // way out and just kept re-picking whoever was nearest: console,
-            // 21/09, "impossible to get out of the group, my barbarian keeps
-            // launching attacks". Escaping wins; steering moved to the right
-            // stick, which is free here and already drives the aim cone.
+            // EITHER stick re-picks the target. The left one steers it
+            // directly -- movement is gated while Cross is held, so it has
+            // nothing else to do -- and the right one does it through the aim
+            // cone, like a cast. Breaking off on the left stick was tried to
+            // cure "stuck in a melee" and was a mistake: that had another
+            // cause entirely (the walk clicked against the previous frame's
+            // hover), and the cure cost the steering that had been asked for.
+            float sax = ax, say = ay; bool sAimed = aimed;
             if (std::sqrt(c.lx * c.lx + c.ly * c.ly) > cfg_.deadzone) {
-                if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
-                interact_ = false; interId_ = 0; interArm_ = 0; interAttempt_ = 0;
-                lsOn_ = false;                       // let the walk engage from scratch
-                return;
+                to_iso(c.lx, c.ly, &sax, &say); sAimed = true;
             }
-            // Re-pick as the right stick swings the aim, same cone as a cast.
-            if (aimed && interType_ == 1) {
-                const int ni = pick_hostile(u, n, v, ax, ay, aimed, cfg_, -1, T_HOSTILE, &rej_);
+            if (sAimed && interType_ == 1) {
+                const int ni = pick_hostile(u, n, v, sax, say, sAimed, cfg_, -1, T_HOSTILE, &rej_);
                 if (ni >= 0 && !(u[ni].id == interId_ && u[ni].type == interType_)) {
                     if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
                     interId_ = u[ni].id; interType_ = u[ni].type; interCls_ = u[ni].cls;

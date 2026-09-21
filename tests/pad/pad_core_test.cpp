@@ -1100,34 +1100,23 @@ static void test_a_hovered_object_is_never_learned_as_scenery() {
     CHECK(s.interacting());
 }
 
-static void test_left_stick_breaks_off_and_walks() {
-    // Console, 21/09: "in a group of monsters, impossible to get out with the
-    // stick, my barbarian keeps launching attacks". Steering the target with
-    // the LEFT stick, which is what was asked for first, made Cross a trap:
-    // movement is gated for as long as it is held, and in a melee the stick
-    // just kept re-picking. Escaping has to win, so the left stick now breaks
-    // off -- target steering moved to the right stick, see the next test.
+static void test_left_stick_switches_target_while_cross_is_held() {
+    // Restored. It was taken away to fix "stuck in a melee", on a theory that
+    // turned out to be wrong -- the real cause was the walk clicking against
+    // the previous frame's hover, which is fixed independently. Movement is
+    // gated while Cross is held either way, so the left stick is free to mean
+    // "that one instead", which is what was asked for.
     pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-    pad::Unit u[1] = { mkMon(1, 460, 300) };
-    c.buttons = pad::B_CROSS; s.tick(c, x, v, u, 1, a);
-    x.selValid = 1; x.selId = 1; x.selType = 1;
-    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(s.interacting() && hasAct(a, pad::A_LDOWN));
-    c.lx = -1.f;                                      // shove the stick away, Cross still held
-    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(!s.interacting());                          // broken off
-    CHECK(hasAct(a, pad::A_LUP));
-    // The walk starts within a few ticks: the game is still hovering the
-    // monster we just broke off from, and the walk waits that out rather than
-    // sending a click that would be read as another attack.
-    bool walking = false;
-    for (int i = 0; i < 6 && !walking; ++i) {
-        a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-        if (hasAct(a, pad::A_LDOWN)) walking = true;
-    }
-    CHECK(walking);
-    CHECK(s.cx() < 400);                              // away from the stick's side
+    pad::Unit u[2] = { mkMon(1, 500, 300),      // east
+                       mkMon(2, 400, 220) };    // north
+    s.tick(c, x, v, u, 2, a);
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    CHECK(s.interacting() && hasAct(a, pad::A_MOVE, 500, 272));   // the nearer one, east
+    c.ly = -1.f;                                                   // swing the stick north
+    a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    CHECK(s.interacting());                                        // still attacking, not fleeing
+    CHECK(hasAct(a, pad::A_MOVE, 400, 192));                       // now the northern one
 }
 
 static void test_right_stick_switches_target_while_cross_is_held() {
@@ -1435,7 +1424,7 @@ int main() {
     test_a_hovered_object_is_never_learned_as_scenery();
     test_scenery_offered_by_proximity_is_written_off_fast();
     test_walking_out_of_a_crowd_finds_clear_ground();
-    test_left_stick_breaks_off_and_walks();
+    test_left_stick_switches_target_while_cross_is_held();
     test_right_stick_switches_target_while_cross_is_held();
     test_own_corpse_outranks_everything();
     test_a_far_corpse_does_not_outrank_what_is_on_us();
