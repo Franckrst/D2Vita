@@ -1771,8 +1771,17 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
         // the level number (Level+0x1C0), and the ground-label geometry, which
         // is no longer computed at all -- the game's own table is read instead.
         static int lines = 0; static uint32_t lastTgt = 0; static uint32_t lastUi[38] = {0};
+        static uint32_t lastLvl = 0xffffffffu;
         char m[160];
         if (lines < 2000) {
+            // Whether we think we are in town decides whether every NPC is a
+            // TARGET or something to talk to, so a level number we misread
+            // turns a town inside out. One line per level change answers it.
+            if (s.levelNo != lastLvl) { lastLvl = s.levelNo;
+                int nh = 0, ni = 0; for (int i = 0; i < n; i++) { if (units[i].hostile) ++nh; if (units[i].interact) ++ni; }
+                snprintf(m, sizeof m, "pad: niveau=%u ville=%d unites=%d hostiles=%d interactifs=%d",
+                         s.levelNo, (int)town, n, nh, ni);
+                d2vita_progress(m); ++lines; }
             // UiVar indices are magic numbers in panels[]: this is the only way
             // to find the one behind "panel X is not detected".
             for (int i = 0; i < 38 && lines < 2000; i++) if (s.uiVars[i] != lastUi[i]) { lastUi[i] = s.uiVars[i];

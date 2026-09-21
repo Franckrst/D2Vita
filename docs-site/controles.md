@@ -19,6 +19,7 @@
 | L held | **Stand still** (Shift): cast and attack without moving |
 | L, short press | Toggle run/walk |
 | L + D-pad → | Virtual keyboard |
+| L + D-pad ← | **Right click** at the cursor (mercenary's inventory: hover his portrait) |
 | R then L (held) | Alt — ground item labels ; D-pad = move the selection cursor from item to item (nearest to the cursor in that direction), Cross = pick up the selected item (cyan marker) |
 | D-pad ↑ / ← / ↓ / → | Belt potions 1 / 2 / 3 / 4 |
 | R + D-pad | Potion to the mercenary |
@@ -35,6 +36,13 @@ exactly where the cursor points — which is how a ground-targeted skill
 and it goes out along the direction you last walked in instead.
 
 `aim=0` in `controls.txt` turns the snap off and leaves a plain cursor.
+
+**The cursor beats everything.** Whatever it sits on is what Cross acts on,
+ahead of any cone. Distances are measured in the world, not in screen pixels:
+the projection makes one pixel down worth two across, so a unit north of you
+is not the near one it looks. And a unit the game refuses to hover — a
+critter, a vulture still in the air — is dropped after a moment instead of
+capturing every press.
 
 **Assigning a skill to a button**: open the skill tree (radial menu), hover
 the icon, then press the very gesture that will cast it — Circle for slot 1,

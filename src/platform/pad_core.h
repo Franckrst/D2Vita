@@ -92,6 +92,18 @@ void screen_dir_to_world(float dx, float dy, float* wx, float* wy);
 void clamp_point(const View& v, const Config& cfg, int* px, int* py);
 bool in_unit_box(const Unit& u, int x, int y);
 
+// Units the game refused to hover, whatever cursor height we tried. We cannot
+// tell a critter or a still-airborne vulture apart up front, but the game
+// declining to select one for a while says the same thing -- and without this
+// the nearest such creature captured every Cross press and blocked the real
+// target behind it (console, 21/09).
+struct Reject {
+    enum { N = 4 };
+    uint32_t id[N] = {}, type[N] = {}; int n = 0, next = 0;
+    bool has(uint32_t i, uint32_t t) const;
+    void add(uint32_t i, uint32_t t);
+};
+
 // Aim direction for the cone: the player->cursor vector, normalized. Returns
 // false while the cursor sits on the player, where there is no direction to
 // read -- the assist then falls back to "nearest". The cursor is what the
@@ -104,12 +116,17 @@ bool aim_from_cursor(const View& v, int cx, int cy, float* ax, float* ay);
 // `current` = index of the current target in `u` (or -1); kept while it
 // qualifies and its score <= 1.25*best + 20 (hysteresis). Returns -1 if none.
 int  pick_hostile(const Unit* u, int n, const View& v, float ax, float ay, bool aimed,
-                  const Config& cfg, int current, TargetKind kind = T_HOSTILE);
+                  const Config& cfg, int current, TargetKind kind = T_HOSTILE,
+                  const Reject* rej = nullptr);
 // L target: nearest interactable chest / door / town NPC <= 220 px. Ground
 // items are deliberately NOT candidates -- Alt + Cross already browses and
 // picks them up, and having both made L a second, blurrier way to do it.
 // Returns -1 if none.
-int  pick_interact(const Unit* u, int n, const View& v, const Config& cfg);
+int  pick_interact(const Unit* u, int n, const View& v, const Config& cfg, const Reject* rej = nullptr);
+// The unit whose hit box contains (cx, cy): what the player is literally
+// pointing at, which beats any cone. Interactables and hostiles only; ties go
+// to the nearest anchor. -1 if the cursor is over nothing.
+int  pick_at(const Unit* u, int n, int cx, int cy, const Reject* rej = nullptr);
 
 // Learned hover height per (type, class): where the cursor must sit for the
 // game to hover a unit of that class. Reset at boot (RAM only).
@@ -158,6 +175,7 @@ public:
     // becomes the spot a cast borrows from and hands back to.
     void setCursor(int x, int y) { cx_ = x; cy_ = y; userX_ = x; userY_ = y; }
     bool casting() const { return castSlot_ >= 0; }
+    bool interacting() const { return interact_; }
 
 private:
     enum Mode { M_NONE, M_WORLD, M_PANEL };
@@ -209,6 +227,8 @@ private:
     // interArm_ > 0: the cursor is on the target and we are waiting for the
     // game to report the hover before pressing (see the L block).
     int      interAttempt_ = 0, interH_ = 0, interArm_ = 0;
+    Reject   rej_;                     // units the game would not hover
+    bool     rmbL_ = false;            // L + D-pad left holds the right button
     // modifiers / keys held
     bool     alt_ = false, esc_ = false, wkey_ = false;
     uint32_t shiftOwners_ = 0;

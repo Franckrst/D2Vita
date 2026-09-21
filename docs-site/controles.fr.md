@@ -18,6 +18,7 @@
 | L maintenu | **Sur place** (Maj) : lancer et attaquer sans bouger |
 | L, pression brève | Marche/course (bascule) |
 | L + D-pad → | Clavier virtuel |
+| L + D-pad ← | **Clic droit** au curseur (inventaire du mercenaire : survoler son portrait) |
 | R puis L (maintenus) | Alt — étiquettes des objets au sol ; D-pad = déplacer le curseur d'objet en objet (vers le plus proche du curseur dans cette direction), Croix = ramasser l'objet sélectionné (repère cyan) |
 | D-pad ↑ / ← / ↓ / → | Potions ceinture 1 / 2 / 3 / 4 |
 | R + D-pad | Potion au mercenaire |
@@ -34,6 +35,14 @@ sol (téléport, météore…). Curseur posé sur les pieds du personnage, elle 
 plutôt dans la direction de votre dernier déplacement.
 
 `aim=0` dans `controls.txt` désactive le saut et laisse un curseur simple.
+
+**Le curseur prime sur tout.** Ce qu'il survole est ce sur quoi Croix agit,
+avant n'importe quel cône. Les distances se mesurent dans le monde et non en
+pixels écran : la projection rend un pixel vers le bas deux fois plus « cher »
+qu'un pixel de côté, donc une unité au nord n'est pas la plus proche qu'elle
+paraît. Et une unité que le jeu refuse de survoler — une bestiole, un vautour
+encore en vol — est abandonnée au bout d'un moment au lieu de capturer tous
+les appuis.
 
 **Assigner une compétence à un bouton** : ouvrir l'arbre de compétences
 (menu radial), survoler l'icône, puis faire exactement le geste qui la

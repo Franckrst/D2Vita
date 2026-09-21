@@ -676,15 +676,18 @@ static void test_cast_gives_the_cursor_back() {
     pad::Ctx x; x.inGame = true;
     pad::Unit u[1] = { mkMon(5, 600, 300) };
     pad::Ctl c; pad::Actions a;
-    s.setCursor(600, 200);                           // where the player parked it
+    // 200 px east, 40 px up: 22 degrees off the target in WORLD terms, inside
+    // the cone. (600,200) would be 45 degrees away once y counts double, and
+    // would rightly snap to nothing.
+    s.setCursor(600, 260);                           // where the player parked it
     s.tick(c, x, v, u, 1, a);
     c.buttons = pad::B_CIR; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
     CHECK(hasAct(a, pad::A_MOVE, 600, 272));         // snapped onto the target
     CHECK(hasAct(a, pad::A_RDOWN, 600, 272));
     c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
     CHECK(hasAct(a, pad::A_RUP));
-    CHECK(hasAct(a, pad::A_MOVE, 600, 200));         // handed straight back
-    CHECK(s.cx() == 600 && s.cy() == 200);
+    CHECK(hasAct(a, pad::A_MOVE, 600, 260));         // handed straight back
+    CHECK(s.cx() == 600 && s.cy() == 260);
 }
 
 static void test_cast_without_a_target_uses_the_cursor() {
@@ -947,6 +950,101 @@ static void test_shift_survives_two_owners() {
     CHECK(ups == 1);
 }
 
+// --- feedback from discussion #16, v3-test1 --------------------------------
+
+static void test_distance_is_measured_in_the_world_not_on_screen() {
+    // The projection squashes y by 2 (x*16, y*8 per subtile), so a unit due
+    // north looked HALF as far as one due east at the same world distance.
+    // That is what put Lysander ahead of Fara on console.
+    pad::View v = mkView(); pad::Config cfg;
+    pad::Unit u[2] = { mkMon(1, 600, 300),      // due east, 200 px of screen
+                       mkMon(2, 400, 180) };    // due north, 120 px of screen
+    // On screen the northern one is nearer; in the world it is 240 against 200.
+    CHECK(pad::pick_hostile(u, 2, v, 0.f, 0.f, false, cfg, -1) == 0);
+}
+
+static void test_interact_reach_is_round_in_the_world() {
+    pad::View v = mkView(); pad::Config cfg;
+    pad::Unit u[1];
+    u[0].id = 1; u[0].type = 2; u[0].interact = true;
+    u[0].sx = 400; u[0].sy = 400;                            // 100 px below = 200 in the world
+    CHECK(pad::pick_interact(u, 1, v, cfg) == 0);
+    u[0].sy = 420;                                           // 120 px below = 240: out of reach
+    CHECK(pad::pick_interact(u, 1, v, cfg) == -1);
+    u[0].sx = 600; u[0].sy = 300;                            // 200 px east = 200: in reach again
+    CHECK(pad::pick_interact(u, 1, v, cfg) == 0);
+}
+
+static void test_cross_takes_what_is_under_the_cursor() {
+    // Console report: "the stash does not get detected at all; I can even
+    // highlight it with the right stick, press Cross, and the character
+    // neither walks to it nor opens it." The chain read the CONE, never the
+    // unit actually under the cursor, so any targetable unit beat it.
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true;
+    pad::Unit u[2] = { mkMon(5, 560, 300) };                 // a hostile, right in the cone
+    u[1].id = 9; u[1].type = 2; u[1].cls = 7;                // the stash, under the cursor
+    u[1].sx = 500; u[1].sy = 300; u[1].interact = true;
+    pad::Ctl c; pad::Actions a;
+    s.setCursor(500, 296);                                   // inside the stash's box
+    s.tick(c, x, v, u, 2, a);
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    CHECK(hasAct(a, pad::A_MOVE, 500, 280));                 // the stash (type 2 hover height 20)
+}
+
+static void test_pick_at_prefers_the_unit_under_the_cursor() {
+    pad::Unit u[2] = { mkMon(1, 400, 300) };
+    u[1].id = 2; u[1].type = 2; u[1].sx = 600; u[1].sy = 300; u[1].interact = true;
+    CHECK(pad::pick_at(u, 2, 600, 296) == 1);
+    CHECK(pad::pick_at(u, 2, 400, 280) == 0);
+    CHECK(pad::pick_at(u, 2, 100, 100) == -1);
+}
+
+static void test_a_unit_the_game_never_hovers_is_given_up_on() {
+    // Console: "tiny animals (scorpions) that are not attackable get detected
+    // but char does not run to them, essentially blocking the attack to an
+    // attackable target". We cannot tell a critter apart up front, but we can
+    // notice that the game refuses to hover it and stop offering it.
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[2] = { mkMon(1, 440, 300), mkMon(2, 520, 300) };   // the critter is nearer
+    c.buttons = pad::B_CROSS; s.tick(c, x, v, u, 2, a);
+    CHECK(s.interacting());
+    for (int i = 0; i < 30; ++i) { a = pad::Actions{}; s.tick(c, x, v, u, 2, a); }
+    CHECK(!s.interacting());                                  // gave up, never pressed
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    // pressing again must now reach the one behind it
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    CHECK(hasAct(a, pad::A_MOVE, 520, 272));
+}
+
+static void test_a_hovered_unit_is_never_given_up_on() {
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1] = { mkMon(1, 440, 300) };
+    c.buttons = pad::B_CROSS; s.tick(c, x, v, u, 1, a);
+    x.selValid = 1; x.selId = 1; x.selType = 1;
+    for (int i = 0; i < 40; ++i) { a = pad::Actions{}; s.tick(c, x, v, u, 1, a); }
+    CHECK(s.interacting());                                   // held on a unit the game confirms
+}
+
+static void test_l_plus_dpad_left_is_a_right_click() {
+    // The merc's inventory is opened by right-clicking his portrait, and the
+    // world had no right click left once Triangle became a skill.
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    s.setCursor(120, 80);                                     // the merc portrait, top left
+    c.buttons = pad::B_L; s.tick(c, x, v, nullptr, 0, a);
+    c.buttons = pad::B_L | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_RDOWN, 120, 80));
+    CHECK(!hasAct(a, pad::A_KEYDOWN, 0x32));                  // and NOT belt potion 2
+    c.buttons = pad::B_L; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_RUP));
+    // without L it is still the belt
+    c.buttons = pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_KEYDOWN, 0x32));
+}
+
 int main() {
     test_projection();
     test_clamp_and_box();
@@ -991,6 +1089,13 @@ int main() {
     test_l_used_as_a_modifier_does_not_toggle_run();
     test_r_then_l_is_alt_not_stand_still();
     test_shift_survives_two_owners();
+    test_distance_is_measured_in_the_world_not_on_screen();
+    test_interact_reach_is_round_in_the_world();
+    test_cross_takes_what_is_under_the_cursor();
+    test_pick_at_prefers_the_unit_under_the_cursor();
+    test_a_unit_the_game_never_hovers_is_given_up_on();
+    test_a_hovered_unit_is_never_given_up_on();
+    test_l_plus_dpad_left_is_a_right_click();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

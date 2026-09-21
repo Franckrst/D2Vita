@@ -7,6 +7,14 @@ namespace pad {
 
 static const float kPi = 3.14159265358979f;
 
+// D2's projection is x*16 / y*8 per subtile, so one pixel DOWN is worth two
+// pixels ACROSS in world terms. Measuring targets in raw screen pixels made
+// anything north or south of the player look half as far as it is -- console,
+// 21/09: Lysander picked over Fara although Fara was nearer and faced. Every
+// distance and direction the assist reasons about goes through this first.
+static inline void to_iso(float dx, float dy, float* ix, float* iy) { *ix = dx; *iy = 2.f * dy; }
+static inline float iso_len(float dx, float dy) { return std::sqrt(dx * dx + 4.f * dy * dy); }
+
 void world_to_screen(const View& v, int32_t fx, int32_t fy, int* sx, int* sy) {
     const int64_t dx = (int64_t)fx - (int64_t)fy;
     const int64_t sm = (int64_t)fx + (int64_t)fy;
@@ -41,7 +49,7 @@ static const float kAimMinPx = 24.f;
 
 bool aim_from_cursor(const View& v, int cx, int cy, float* ax, float* ay) {
     int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
-    const float dx = (float)(cx - psx), dy = (float)(cy - psy);
+    float dx, dy; to_iso((float)(cx - psx), (float)(cy - psy), &dx, &dy);
     const float m = std::sqrt(dx * dx + dy * dy);
     if (m < kAimMinPx) return false;
     *ax = dx / m; *ay = dy / m;
@@ -49,7 +57,7 @@ bool aim_from_cursor(const View& v, int cx, int cy, float* ax, float* ay) {
 }
 
 int pick_hostile(const Unit* u, int n, const View& v, float ax, float ay, bool aimed,
-                 const Config& cfg, int current, TargetKind kind) {
+                 const Config& cfg, int current, TargetKind kind, const Reject* rej) {
     int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
     if (aimed) {
         const float am = std::sqrt(ax * ax + ay * ay);
@@ -60,7 +68,8 @@ int pick_hostile(const Unit* u, int n, const View& v, float ax, float ay, bool a
     auto score = [&](int i, float* s) -> bool {
         const Unit& t = u[i];
         if (!(kind == T_CORPSE ? t.corpse : t.hostile)) return false;
-        const float dx = (float)(t.sx - psx), dy = (float)(t.sy - psy);
+        if (rej && rej->has(t.id, t.type)) return false;      // the game will not select it
+        float dx, dy; to_iso((float)(t.sx - psx), (float)(t.sy - psy), &dx, &dy);
         const float d = std::sqrt(dx * dx + dy * dy);
         if (d > maxD) return false;
         if (aimed) {
@@ -79,15 +88,39 @@ int pick_hostile(const Unit* u, int n, const View& v, float ax, float ay, bool a
     return best;
 }
 
-int pick_interact(const Unit* u, int n, const View& v, const Config& /*cfg*/) {
+int pick_interact(const Unit* u, int n, const View& v, const Config& /*cfg*/, const Reject* rej) {
     int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
     int best = -1; float bd = 0.f;
     for (int i = 0; i < n; ++i) {
         const Unit& t = u[i];
         if (!t.interact || t.type == 4) continue;      // ground items belong to Alt + Cross
-        const float dx = (float)(t.sx - psx), dy = (float)(t.sy - psy);
-        const float d = std::sqrt(dx * dx + dy * dy);
+        if (rej && rej->has(t.id, t.type)) continue;
+        const float d = iso_len((float)(t.sx - psx), (float)(t.sy - psy));
         if (d > 220.f) continue;
+        if (best < 0 || d < bd) { best = i; bd = d; }
+    }
+    return best;
+}
+
+bool Reject::has(uint32_t i, uint32_t t) const {
+    for (int k = 0; k < n; ++k) if (id[k] == i && type[k] == t) return true;
+    return false;
+}
+void Reject::add(uint32_t i, uint32_t t) {
+    if (has(i, t)) return;
+    id[next] = i; type[next] = t;
+    next = (next + 1) % N;
+    if (n < N) ++n;
+}
+
+int pick_at(const Unit* u, int n, int cx, int cy, const Reject* rej) {
+    int best = -1; float bd = 0.f;
+    for (int i = 0; i < n; ++i) {
+        const Unit& t = u[i];
+        if (!t.interact && !t.hostile) continue;
+        if (rej && rej->has(t.id, t.type)) continue;
+        if (!in_unit_box(t, cx, cy)) continue;
+        const float d = iso_len((float)(t.sx - cx), (float)(t.sy - cy));
         if (best < 0 || d < bd) { best = i; bd = d; }
     }
     return best;
@@ -200,8 +233,7 @@ int nearest_item(const Unit* u, int n, const View& v) {
     int best = -1; float bd = 0.f;
     for (int i = 0; i < n; ++i) {
         if (u[i].type != 4) continue;
-        const float dx = (float)(u[i].sx - psx), dy = (float)(u[i].sy - psy);
-        const float dist = std::sqrt(dx * dx + dy * dy);
+        const float dist = iso_len((float)(u[i].sx - psx), (float)(u[i].sy - psy));
         if (best < 0 || dist < bd) { best = i; bd = dist; }
     }
     return best;
@@ -222,6 +254,8 @@ static inline int face_slot(int i, bool layer) { return layer ? i + 3 : i - 1; }
 enum : uint32_t { SH_L = 1u, SH_SQR = 2u, SH_DPAD = 4u };
 // A press shorter than this, with nothing else pressed, is a tap (30 Hz).
 static const int kTapTicks = 10;
+// Four candidate heights, one tried every 3 ticks: two full sweeps.
+static const int kHoverGiveUp = 24;
 static const uint32_t kDpadBits[4] = { B_UP, B_LEFT, B_DOWN, B_RIGHT };   // belt 1..4, same order as the legacy table
 
 void Scheme::stickDelta(float sx, float sy, const View& v, float* dx, float* dy) const {
@@ -284,7 +318,7 @@ void Scheme::releaseAll(Actions& out) {
     castSlot_ = -1; castBit_ = 0; castId_ = 0; castVerified_ = false;
     interact_ = false; interId_ = 0; interArm_ = 0;
     lootConfirm_ = false; lootCursorId_ = 0; lootTgt_ = Target{}; lootArm_ = 0;
-    lsOn_ = false; tgt_ = Target{}; tgtId_ = 0;
+    lsOn_ = false; tgt_ = Target{}; tgtId_ = 0; rmbL_ = false;
 }
 
 void Scheme::leave(Actions& out) { releaseAll(out); mode_ = M_NONE; prev_ = 0; }
@@ -309,8 +343,12 @@ void Scheme::commonButtons(const Ctl& c, uint32_t down, uint32_t up, Actions& ou
         if (wkey_) { out.push(A_KEYUP, 0x57); wkey_ = false; }
         if (esc_)  { out.push(A_KEYUP, 0x1B); esc_ = false; }
     }
+    const bool lmod = (c.buttons & B_L) != 0;
     for (int i = 0; i < 4; ++i) {
-        if (!alt_ && (down & kDpadBits[i])) {   // D-pad navigates the loot cursor while Alt is held, not potions
+        // Alt browses with the D-pad, and L + Left is the right click: neither
+        // may reach the belt.
+        if (kDpadBits[i] == B_LEFT && lmod && !layer) continue;
+        if (!alt_ && (down & kDpadBits[i])) {
             dpad_[i].vk = 0x31 + i; dpad_[i].shift = layer;
             if (layer) shiftOwn(SH_DPAD << i, true, out);              // Shift + belt key = potion to the mercenary
             out.push(A_KEYDOWN, 0x31 + i);
@@ -346,6 +384,18 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
         lTicks_ = 0; lTap_ = false;
     }
 
+    // ---- L + D-pad left: right click ----
+    // The world lost its right click when Triangle became a skill, and the
+    // mercenary's inventory is opened by right-clicking his portrait. L is
+    // the modifier; Left is the only direction under it that is still free
+    // (Right opens the keyboard, Up is the lag marker).
+    if ((down & B_LEFT) && (c.buttons & B_L) && !layer && !alt_ && !rmbL_ && castSlot_ < 0) {
+        out.push(A_RDOWN, cx_, cy_); rmb_ = true; rmbL_ = true;
+    }
+    if (rmbL_ && (!(c.buttons & B_LEFT) || !(c.buttons & B_L))) {
+        out.push(A_RUP, cx_, cy_); rmb_ = false; rmbL_ = false;
+    }
+
     // ---- right stick: the cursor the player aims with ----
     // Runs before the target pick so a cast pressed this tick already sees the
     // spot the player is pointing at. Alt browsing and an interaction own the
@@ -369,7 +419,7 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
     const bool aimed = castSlot_ >= 0 ? aim_from_cursor(v, userX_, userY_, &ax, &ay)
                                       : aim_from_cursor(v, cx_, cy_, &ax, &ay);
     int ti = -1;
-    if (cfg_.aim) { ti = pick_hostile(u, n, v, ax, ay, aimed, cfg_, findId(u, n, tgtId_, 1)); tgtId_ = ti >= 0 ? u[ti].id : 0; }
+    if (cfg_.aim) { ti = pick_hostile(u, n, v, ax, ay, aimed, cfg_, findId(u, n, tgtId_, 1), T_HOSTILE, &rej_); tgtId_ = ti >= 0 ? u[ti].id : 0; }
 
     // ---- cast: faces = slots 1-4, R + faces = 5-8 ----
     if (castSlot_ < 0 && !interact_ && !alt_) {
@@ -391,7 +441,7 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             int tgtIdx = ti;
             if (castKind_ == T_GROUND) tgtIdx = -1;
             else if (castKind_ == T_CORPSE)
-                tgtIdx = cfg_.aim ? pick_hostile(u, n, v, ax, ay, aimed, cfg_, -1, T_CORPSE) : -1;
+                tgtIdx = cfg_.aim ? pick_hostile(u, n, v, ax, ay, aimed, cfg_, -1, T_CORPSE, &rej_) : -1;
             const int ti2 = tgtIdx;
             int px, py;
             if (ti2 >= 0) {
@@ -420,7 +470,7 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             int ci = findId(u, n, castId_, castType_);
             const bool stillValid = ci >= 0 && (castKind_ == T_CORPSE ? u[ci].corpse : u[ci].hostile);
             if (castId_ && !stillValid) {                              // target died or left: re-pick
-                ci = cfg_.aim ? pick_hostile(u, n, v, ax, ay, aimed, cfg_, -1, castKind_) : -1;
+                ci = cfg_.aim ? pick_hostile(u, n, v, ax, ay, aimed, cfg_, -1, castKind_, &rej_) : -1;
                 if (ci >= 0) {
                     castId_ = u[ci].id; castType_ = u[ci].type; castCls_ = u[ci].cls;
                     castAttempt_ = 0; castVerified_ = false;
@@ -458,12 +508,18 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
     // only then to the nearest enemy -- otherwise a barrel could never be
     // opened with anything alive on screen.
     if ((down & B_CROSS) && !layer && castSlot_ < 0 && !interact_ && !alt_) {
-        int ii = (aimed && ti >= 0) ? ti : -1;
-        if (ii < 0) ii = pick_interact(u, n, v, cfg_);
+        // The cursor sitting ON something is the least ambiguous statement of
+        // intent there is, so it comes first -- ahead of the cone, which used
+        // to win and made the stash unreachable however carefully it was
+        // pointed at (console, 21/09).
+        int ii = pick_at(u, n, cx_, cy_, &rej_);
+        if (ii < 0 && aimed) ii = ti;                  // ti already skips the rejects
+        if (ii < 0) ii = pick_interact(u, n, v, cfg_, &rej_);
         if (ii < 0) ii = ti;
         if (ii >= 0) {
             interact_ = true; interId_ = u[ii].id; interType_ = u[ii].type; interCls_ = u[ii].cls;
             interAttempt_ = 0; interArm_ = 1;
+            userX_ = cx_; userY_ = cy_;          // an interaction borrows the cursor too
             interH_ = interType_ == 4 ? 6 : hover_.get(interType_, interCls_, interType_ == 2 ? 20 : cfg_.hoverH);
             if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; lsClick_ = false; }
             // Move ONLY, then press once the game reports the hover -- same rule
@@ -479,6 +535,7 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
         if (!(c.buttons & B_CROSS)) {
             if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
             interact_ = false; interId_ = 0; interArm_ = 0;
+            moveTo(userX_, userY_, out);                // borrowed, now handed back
         } else {
             const int ii = findId(u, n, interId_, interType_);
             if (ii < 0) interArm_ = 0;                        // gone: pressing now would be a walk order
@@ -500,13 +557,23 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
                     interArm_ = 0;                                // settled on a height that works
                 } else if (interArm_ > 0) {
                     ++interArm_;
+                    // Two full sweeps of the height table with no hover at
+                    // all: this unit is not selectable. Remember it and let
+                    // go, so the next press reaches what is behind it.
+                    if (interArm_ > kHoverGiveUp) {
+                        rej_.add(interId_, interType_);
+                        if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+                        interact_ = false; interId_ = 0; interArm_ = 0;
+                        interAttempt_ = 0;
+                        moveTo(userX_, userY_, out);   // give the aim back, not parked on it
+                    }
                     // Sprites are hit-tested against the cursor itself, so no
                     // hover means the height is wrong -- and on a unit that
                     // MOVES, a height that worked a moment ago can stop
                     // working. Keep cycling rather than giving up after four
                     // tries, one candidate every 3 ticks since each needs a
                     // rendered frame before the game can answer.
-                    if (interType_ != 4 && interArm_ % 3 == 0) {
+                    else if (interType_ != 4 && interArm_ % 3 == 0) {
                         interAttempt_ = interAttempt_ >= 4 ? 1 : interAttempt_ + 1;
                         interH_ = HoverTable::try_seq(interAttempt_, hover_.get(interType_, interCls_, interType_ == 2 ? 20 : cfg_.hoverH));
                     }
