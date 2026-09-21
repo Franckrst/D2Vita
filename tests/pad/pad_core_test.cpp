@@ -1118,9 +1118,16 @@ static void test_left_stick_breaks_off_and_walks() {
     a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
     CHECK(!s.interacting());                          // broken off
     CHECK(hasAct(a, pad::A_LUP));
-    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_LDOWN));                   // and walking, away from the stick's side
-    CHECK(s.cx() < 400);
+    // The walk starts within a few ticks: the game is still hovering the
+    // monster we just broke off from, and the walk waits that out rather than
+    // sending a click that would be read as another attack.
+    bool walking = false;
+    for (int i = 0; i < 6 && !walking; ++i) {
+        a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+        if (hasAct(a, pad::A_LDOWN)) walking = true;
+    }
+    CHECK(walking);
+    CHECK(s.cx() < 400);                              // away from the stick's side
 }
 
 static void test_right_stick_switches_target_while_cross_is_held() {
@@ -1273,6 +1280,49 @@ static void test_the_nearest_wins_between_an_object_and_a_monster() {
     CHECK(hasAct(a2, pad::A_MOVE, 450, 280));
 }
 
+static void test_the_walk_waits_for_the_hover_to_clear() {
+    // Console, 21/09: "when X is not held we still attack -- the left stick
+    // moves the mouse and clicks, and if there are mobs under the cursor it
+    // should not click, because there it clicks from the very start."
+    // Exactly right: a click resolves against the hover of the PREVIOUS
+    // rendered frame, so moving and pressing in the same breath applies the
+    // click to whatever the cursor was over before -- a monster, which D2
+    // reads as ATTACK. The pickup and interact paths already wait for this;
+    // the walk did not.
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1] = { mkMon(1, 500, 300) };
+    x.selValid = 1; x.selId = 1; x.selType = 1;        // the game is hovering a monster
+    c.lx = 1.f; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_MOVE));                      // the cursor goes to the walk point
+    CHECK(!hasAct(a, pad::A_LDOWN));                    // but nothing is pressed yet
+    x.selValid = 0;                                     // the game re-reads: clear ground
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_LDOWN));                     // now it is a walk order
+}
+
+static void test_the_walk_still_starts_at_once_on_clear_ground() {
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    c.lx = 1.f; s.tick(c, x, v, nullptr, 0, a);         // nothing hovered: no reason to wait
+    CHECK(hasAct(a, pad::A_LDOWN));
+}
+
+static void test_the_walk_never_stalls_for_long() {
+    // If the hover never clears, walk anyway rather than stand there.
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1] = { mkMon(1, 500, 300) };
+    x.selValid = 1; x.selId = 1; x.selType = 1;
+    c.lx = 1.f;
+    int ticks = 0; bool pressed = false;
+    while (ticks < 12 && !pressed) {
+        a = pad::Actions{}; s.tick(c, x, v, u, 1, a); ++ticks;
+        if (hasAct(a, pad::A_LDOWN)) pressed = true;
+    }
+    CHECK(pressed && ticks <= 6);
+}
+
 int main() {
     test_projection();
     test_clamp_and_box();
@@ -1301,6 +1351,9 @@ int main() {
     test_cast_without_a_target_uses_the_cursor();
     test_cast_with_a_parked_cursor_aims_ahead();
     test_the_walk_leaves_the_cursor_alone();
+    test_the_walk_waits_for_the_hover_to_clear();
+    test_the_walk_still_starts_at_once_on_clear_ground();
+    test_the_walk_never_stalls_for_long();
     test_repick_follows_where_the_player_now_aims();
     test_panel_cursor_sums_both_sticks_before_rounding();
     test_faces_are_skills_one_to_three();

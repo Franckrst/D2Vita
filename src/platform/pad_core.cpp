@@ -351,7 +351,7 @@ void Scheme::releaseAll(Actions& out) {
     castSlot_ = -1; castBit_ = 0; castId_ = 0; castVerified_ = false;
     interact_ = false; interId_ = 0; interArm_ = 0;
     lootConfirm_ = false; lootCursorId_ = 0; lootTgt_ = Target{}; lootArm_ = 0;
-    lsOn_ = false; tgt_ = Target{}; tgtId_ = 0; rmbL_ = false;
+    lsOn_ = false; lsArm_ = 0; tgt_ = Target{}; tgtId_ = 0; rmbL_ = false;
 }
 
 void Scheme::leave(Actions& out) { releaseAll(out); mode_ = M_NONE; prev_ = 0; }
@@ -770,9 +770,21 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             walk_.clicked = true; walk_.px = px; walk_.py = py;
             for (int i = 0; i < n; ++i) if (in_unit_box(u[i], px, py)) { walk_.onUnit = true; break; }
             moveTo(px, py, out);
-            if (!lmb_) { out.push(A_LDOWN, px, py); lmb_ = true; lsClick_ = true; }
+            // Do NOT press in the same breath as the move. The game resolves a
+            // click against the hover it computed on the PREVIOUS rendered
+            // frame, so pressing now acts on whatever the cursor sat on
+            // before -- a monster, if one was under it, which D2 reads as
+            // ATTACK rather than walk. Console, 21/09: "it clicks from the
+            // very start". Same one-frame lag the pickup and interact paths
+            // already wait out; the walk simply never did.
+            if (!lmb_) {
+                if (!x.selValid || lsArm_ >= 4) {
+                    out.push(A_LDOWN, px, py); lmb_ = true; lsClick_ = true; lsArm_ = 0;
+                } else ++lsArm_;                 // and walk anyway rather than stand there
+            }
         } else if (lsOn_) {
             if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; lsClick_ = false; }
+            lsArm_ = 0;
             int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
             psy += 6; clamp_point(v, cfg_, &psx, &psy);
             cx_ = psx; cy_ = psy; out.push(A_CLICK, psx, psy);            // click at the feet = stop

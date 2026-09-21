@@ -246,6 +246,10 @@ private:
     // on every exit. lsClick_: it is down because of the LEFT STICK, the one
     // case the movement block may cancel on its own.
     bool     lsOn_ = false, lmb_ = false, lsClick_ = false, rmb_ = false;
+    // Ticks the walk has been waiting for the game's hover to clear before it
+    // presses. A click acts on the PREVIOUS frame's hover, so pressing in the
+    // same breath as the move attacks whatever the cursor used to sit on.
+    int      lsArm_ = 0;
     float    lastDx_ = 0.f, lastDy_ = 1.f;
     // cast in progress
     int      castSlot_ = -1; uint32_t castBit_ = 0;
