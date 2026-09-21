@@ -269,8 +269,11 @@ static inline int face_slot(int i, bool layer) { return layer ? i + 3 : i - 1; }
 enum : uint32_t { SH_L = 1u, SH_SQR = 2u, SH_DPAD = 4u };
 // A press shorter than this, with nothing else pressed, is a tap (30 Hz).
 static const int kTapTicks = 10;
-// Four candidate heights, one tried every 3 ticks: two full sweeps.
-static const int kHoverGiveUp = 24;
+// Four candidate heights, one tried every 3 ticks: two full sweeps, for a
+// creature whose sprite has to be hunted for. An OBJECT is static and sits
+// where it is drawn, so one sweep is already conclusive -- and every tick
+// spent on a decorative fire is a tick the player is not attacking.
+static const int kHoverGiveUp = 24, kHoverGiveUpObj = 9;
 // Frames of cursor-inside-the-box with no hover before scenery is written off.
 static const int kColdTicks = 5;
 static const uint32_t kDpadBits[4] = { B_UP, B_LEFT, B_DOWN, B_RIGHT };   // belt 1..4, same order as the legacy table
@@ -618,7 +621,7 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
                     // Two full sweeps of the height table with no hover at
                     // all: this unit is not selectable. Remember it and let
                     // go, so the next press reaches what is behind it.
-                    if (interArm_ > kHoverGiveUp) {
+                    if (interArm_ > (interType_ == 2 ? kHoverGiveUpObj : kHoverGiveUp)) {
                         { const int ri = findId(u, n, interId_, interType_); if (ri >= 0) rej_.add(u[ri]); }
                         if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
                         interact_ = false; interId_ = 0; interArm_ = 0;
@@ -716,10 +719,6 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
     const bool on = lsOn_ ? (lm > cfg_.deadzone) : (lm > cfg_.deadzone + 0.05f);
     if (on) { lastDx_ = c.lx / lm; lastDy_ = c.ly / lm; }
     if (castSlot_ < 0 && !interact_ && !alt_) {
-        if (on && !lsOn_) {                       // the walk starts: remember the aim as an offset
-            int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
-            walkDx_ = userX_ - psx; walkDy_ = userY_ - psy;
-        }
         if (on) {
             int px, py; orbit_point(v, c, cfg_, u, n, &px, &py);
             moveTo(px, py, out);
@@ -727,17 +726,13 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
         } else if (lsOn_) {
             if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; lsClick_ = false; }
             int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
-            int fx = psx, fy = psy + 6; clamp_point(v, cfg_, &fx, &fy);
-            cx_ = fx; cy_ = fy; out.push(A_CLICK, fx, fy);                // click at the feet = stop
-            // Hand the aim back, but as the OFFSET it was: the camera has
-            // scrolled since, so the absolute point it used to sit on now
-            // means nothing -- console, 21/09, "the cursor lands anywhere".
-            // Measured from the player's own projection, NOT from the feet
-            // point above, which carries a 6 px nudge of its own.
-            int ax = psx + walkDx_, ay = psy + walkDy_;
-            clamp_point(v, cfg_, &ax, &ay);
-            userX_ = ax; userY_ = ay;
-            moveTo(ax, ay, out);
+            psy += 6; clamp_point(v, cfg_, &psx, &psy);
+            cx_ = psx; cy_ = psy; out.push(A_CLICK, psx, psy);            // click at the feet = stop
+            // And that is where it stays. Restoring the aim here was tried
+            // twice -- absolute, then as an offset -- and both teleport the
+            // cursor out from under the player at the very moment they stop
+            // moving. Console, 21/09: it should simply stay put.
+            userX_ = psx; userY_ = psy;
         }
     } else if (lsClick_) { out.push(A_LUP, cx_, cy_); lmb_ = false; lsClick_ = false; }   // only ever lift the
                                                                      // stick's OWN click here: lmb_ now also covers

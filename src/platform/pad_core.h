@@ -220,10 +220,6 @@ private:
     // never costs the player the spot they were pointing at. Saved on press;
     // while the cast holds, the right stick steers this instead of cx_/cy_.
     int      userX_ = 400, userY_ = 300;
-    // The aim as an OFFSET from the character, captured when a walk starts.
-    // A walk scrolls the camera, so handing back the absolute point the aim
-    // used to occupy put the cursor somewhere unrelated.
-    int      walkDx_ = 0, walkDy_ = 0;
     // lmb_: the left button is down, whoever pressed it -- releaseAll lifts it
     // on every exit. lsClick_: it is down because of the LEFT STICK, the one
     // case the movement block may cancel on its own.

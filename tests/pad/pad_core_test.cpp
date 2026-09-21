@@ -717,20 +717,20 @@ static void test_cast_with_a_parked_cursor_aims_ahead() {
     CHECK(hasAct(a, pad::A_RDOWN, gx, gy));
 }
 
-static void test_walking_gives_the_cursor_back_too() {
-    // The left stick borrows the cursor for the walk point, and the stop click
-    // lands on the player's own feet. Without a hand-back, every step taken
-    // would wipe the spot the player was aiming at.
+static void test_the_walk_leaves_the_cursor_alone() {
+    // Console, 21/09: "the cursor should stay where it is once the stick is
+    // released". Any teleport of the cursor is disorienting, including the
+    // well-meant one that tried to restore the previous aim -- the walk's own
+    // stop click already parks it on the character, and that is where it stays.
     pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true;
     pad::Ctl c; pad::Actions a;
-    s.setCursor(600, 200);                            // aimed up and to the right
-    c.lx = 1.f; s.tick(c, x, v, nullptr, 0, a);       // walk right
+    s.setCursor(600, 200);
+    c.lx = 1.f; s.tick(c, x, v, nullptr, 0, a);
     c.lx = 0.f; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
     CHECK(hasAct(a, pad::A_CLICK, 400, 306));         // stop click on the feet
-    CHECK(hasAct(a, pad::A_MOVE, 600, 200));          // then the aim comes back
-    CHECK(actIndex(a, pad::A_CLICK) < actIndex(a, pad::A_MOVE));
-    CHECK(s.cx() == 600 && s.cy() == 200);
+    CHECK(!hasAct(a, pad::A_MOVE));                   // and nothing after it
+    CHECK(s.cx() == 400 && s.cy() == 306);
 }
 
 static void test_repick_follows_where_the_player_now_aims() {
@@ -1114,23 +1114,6 @@ static void test_left_stick_switches_target_while_cross_is_held() {
     CHECK(hasAct(a, pad::A_MOVE, 400, 192));                       // now the northern one
 }
 
-static void test_the_walk_hands_back_an_offset_not_a_stale_point() {
-    // Console, 21/09: "when I move and release the stick the cursor lands
-    // anywhere". The hand-back restored an ABSOLUTE screen point saved before
-    // the walk -- by the time the walk ends the camera has scrolled and that
-    // point means something else entirely. What must survive a walk is the
-    // aim RELATIVE to the character.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-    s.setCursor(600, 260);                          // aim: 200 right, 40 up of the player
-    s.tick(c, x, v, nullptr, 0, a);
-    c.lx = 1.f; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    pad::View v2 = v; v2.viewX -= 100;              // the camera scrolled: player now at (500,300)
-    c.lx = 0.f; a = pad::Actions{}; s.tick(c, x, v2, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_CLICK, 500, 306));       // stop click on the feet, wherever they are
-    CHECK(s.cx() == 700 && s.cy() == 260);          // same aim, not the stale (600,260)
-}
-
 static void test_interact_reach_is_configurable() {
     // Measuring in world units halved the vertical reach that the old screen
     // metric gave, so the default has to be re-stated rather than inherited.
@@ -1155,6 +1138,28 @@ static void test_offscreen_units_are_not_targets() {
     pad::Unit obj[1];
     obj[0].id = 3; obj[0].type = 2; obj[0].sx = -20; obj[0].sy = 300; obj[0].interact = true;
     CHECK(pad::pick_interact(obj, 1, v, cfg) == -1);
+}
+
+static void test_scenery_offered_by_proximity_is_written_off_fast() {
+    // Console, 21/09: "in Lut Gholein it is the little fires or shadows that
+    // sometimes get targeted by X". Those are offered by PROXIMITY, so the
+    // cursor never passed over them and the passive learner never saw them.
+    // They cost one press to learn -- make that press short: an object is
+    // static, so a few frames without a hover is already the answer, unlike a
+    // creature whose sprite has to be hunted for.
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[2];
+    u[0].id = 1; u[0].type = 2; u[0].cls = 99; u[0].sx = 430; u[0].sy = 300; u[0].interact = true;  // a fire
+    u[1].id = 2; u[1].type = 2; u[1].cls = 99; u[1].sx = 460; u[1].sy = 300; u[1].interact = true;  // another
+    c.buttons = pad::B_CROSS; s.tick(c, x, v, u, 2, a);
+    CHECK(s.interacting());
+    int ticks = 0;
+    while (s.interacting() && ticks < 40) { a = pad::Actions{}; s.tick(c, x, v, u, 2, a); ++ticks; }
+    CHECK(ticks <= 12);                                   // written off in well under half a second
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    CHECK(!s.interacting());                              // and the whole class is gone, both of them
 }
 
 int main() {
@@ -1184,7 +1189,7 @@ int main() {
     test_cast_gives_the_cursor_back();
     test_cast_without_a_target_uses_the_cursor();
     test_cast_with_a_parked_cursor_aims_ahead();
-    test_walking_gives_the_cursor_back_too();
+    test_the_walk_leaves_the_cursor_alone();
     test_repick_follows_where_the_player_now_aims();
     test_panel_cursor_sums_both_sticks_before_rounding();
     test_faces_are_skills_one_to_three();
@@ -1211,8 +1216,8 @@ int main() {
     test_alt_does_not_care_which_shoulder_came_first();
     test_scenery_the_game_never_hovers_is_learned_by_class();
     test_a_hovered_object_is_never_learned_as_scenery();
+    test_scenery_offered_by_proximity_is_written_off_fast();
     test_left_stick_switches_target_while_cross_is_held();
-    test_the_walk_hands_back_an_offset_not_a_stale_point();
     test_interact_reach_is_configurable();
     test_offscreen_units_are_not_targets();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
