@@ -28,7 +28,7 @@
 
 | Combo | Action |
 |---|---|
-| R + Triangle | **Virtual keyboard** (open; close with Select) |
+| R + Triangle | **Virtual keyboard** (open; close with Select — it also opens by itself on text fields, see below) |
 | R + D-pad | F1 / F2 / F3 / F4 — quick skills |
 | R + Select | Space — close all panels |
 
@@ -53,10 +53,22 @@ sector is then selected, even if one had been hovered just before).
 This menu replaces the old dedicated shortcuts for each of these actions
 (character, skills, quests, automap, inventory): one gesture for all
 seven, instead of seven combinations to remember. The virtual keyboard is
-deliberately not included — used too often to justify going through a menu
-every time, it stays on its own dedicated gesture (R + Triangle).
+deliberately not included: it opens by itself whenever a text field takes
+focus, and keeps its own dedicated gesture (R + Triangle) for everything
+else.
 
-## Virtual keyboard (R + Triangle)
+## Virtual keyboard
+
+The keyboard **opens by itself** when a text field takes focus — character
+name, Battle.net account and password, game name and password. Closing stays
+manual (Select or the FERMER key — Start/Enter validates the field but
+leaves the keyboard open), and a closed keyboard does not reopen until
+another field takes focus (or the same one loses and regains it). R + Triangle
+still opens it at any time. `D2_KBAUTO=0` in `ux0:data/d2vita/env.txt` turns
+the automatic opening off. The runtime reads the game's own "focused control"
+state to know this (read-only, the control's header only — never the text).
+Each transition is logged in `boot_progress.txt` as `clavier: focus champ ON`
+or `clavier: focus champ OFF`. In-game chat is not covered yet (phase 2).
 
 | Input | Action |
 |---|---|
@@ -64,7 +76,7 @@ every time, it stays on its own dedicated gesture (R + Triangle).
 | Cross | Type the selected key |
 | Circle | Backspace |
 | Start | Enter |
-| Select (or the CLOSE key) | Close the keyboard |
+| Select (or the FERMER key) | Close the keyboard |
 | Touch tap on a key | Type it directly |
 
 The virtual keyboard's own rendering (font, layout) comes from the generic

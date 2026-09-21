@@ -27,7 +27,7 @@
 
 | Combo | Action |
 |---|---|
-| R + Triangle | **Clavier virtuel** (ouvrir ; fermer avec Select) |
+| R + Triangle | **Clavier virtuel** (ouvrir ; fermer avec Select — il s'ouvre aussi de lui-même sur les champs texte, voir plus bas) |
 | R + D-pad | F1 / F2 / F3 / F4 — compétences rapides |
 | R + Select | Espace — fermer tous les panneaux |
 
@@ -52,10 +52,23 @@ alors sélectionné, même si un secteur avait été survolé juste avant).
 Ce menu remplace les anciens raccourcis dédiés à chacune de ces actions
 (personnage, compétences, quêtes, automap, inventaire) : un seul geste pour
 les sept, plutôt que sept combinaisons à mémoriser. Le clavier virtuel n'y
-est volontairement pas inclus — trop utilisé pour justifier de passer par un
-menu à chaque fois, il reste sur son propre geste dédié (R + Triangle).
+est volontairement pas inclus : il s'ouvre de lui-même dès qu'un champ texte
+prend le focus, et garde son propre geste dédié (R + Triangle) pour le reste.
 
-## Clavier virtuel (R + Triangle)
+## Clavier virtuel
+
+Le clavier **s'ouvre de lui-même** quand un champ texte prend le focus — nom
+de personnage, compte et mot de passe Battle.net, nom et mot de passe de
+partie. La fermeture reste manuelle (Select ou la touche FERMER —
+Start/Entrée valide le champ mais laisse le clavier ouvert), et un clavier
+fermé ne se rouvre pas tant qu'un autre champ n'a pas pris le focus (ou que
+le même ne l'a pas perdu puis repris). R + Triangle l'ouvre toujours, sur
+n'importe quel écran. `D2_KBAUTO=0` dans `ux0:data/d2vita/env.txt` coupe
+l'ouverture automatique. Le runtime lit pour cela l'état « contrôle
+focalisé » du jeu lui-même (lecture seule, l'en-tête du contrôle seulement —
+jamais le texte). Chaque transition est journalisée dans
+`boot_progress.txt` en `clavier: focus champ ON/OFF`. Le chat en jeu n'est
+pas encore couvert (phase 2).
 
 | Entrée | Action |
 |---|---|

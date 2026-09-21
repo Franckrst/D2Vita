@@ -3,7 +3,7 @@
 // ---- scripted input injection (drive the menu without a real mouse) --------
 // D2SCRIPT env: comma-separated "frame:action[:a[:b]]" events, frame-ordered.
 //   actions: move:x:y  ldown:x:y  lup:x:y  rdown:x:y  rup:x:y  click:x:y
-//            keydown:vk  keyup:vk  key:vk (down+up)  activate
+//            keydown:vk  keyup:vk  key:vk (down+up)  chr:ascii  activate
 // Events fire when the blit counter reaches `frame`; messages are queued and
 // consumed by the game's own PeekMessageA/DispatchMessageA pump (real path).
 #include "scripted_input.h"

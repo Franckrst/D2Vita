@@ -15,6 +15,7 @@
 #include "runtime/rt_host.h"
 #include "runtime/scripted_input.h"   // win_activate_once/cmd_poll/g_keyState/d2vita_input_tick
 #include "runtime/frame_profile.h"    // lw_peek_empty
+#include "runtime/text_focus_probe.h" // text_focus_poll (ouverture auto du clavier)
 #include "runtime/win32_shims_window.h"  // wx86_get_cursor
 #include "runtime/guest_sync.h"       // WxEvent (manual-reset "never signaled" wait)
 #include "platform/vita_present.h"    // d2vita_progress
@@ -208,6 +209,7 @@ void win32_shims_user32_d2_install(Bridge& br){
         // precisely the ones where remote control is needed.
         { static uint64_t lastIn=0; uint64_t nowIn=rt_now_us();
           if(nowIn-lastIn>=16000ull){ lastIn=nowIn;
+              text_focus_poll(c);                     // publie le focus AVANT le tick d'entree
               if(d2vita_input_tick) d2vita_input_tick();
               cmd_poll(); } }
         if(g_msgQ.empty()){

@@ -20,6 +20,7 @@ RT_BOOT_SRCS_HEAD=(
   "$ROOT/src/runtime/lazy_seek.cpp"
   "$ROOT/src/runtime/io_stat.cpp"
   "$ROOT/src/runtime/scripted_input.cpp"
+  "$ROOT/src/runtime/text_focus_probe.cpp"
   "$ROOT/src/runtime/path_cache.cpp"
   "$ROOT/src/runtime/d2ini.cpp"
   "$ROOT/src/runtime/exe_identity.cpp"

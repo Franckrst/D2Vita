@@ -15,8 +15,10 @@ the source of truth for the public repository.
       Unicorn oracle (generic engine, now lives in the
       `third_party/winx86` submodule)
 - [x] Boot → menus → solo play, on Vita3K **and** real console
-- [x] Rogue Encampment playable: full physical controls + system virtual
-      keyboard (upper/lowercase, digits, punctuation)
+- [x] Rogue Encampment playable: full physical controls + virtual keyboard
+      (upper/lowercase, digits, punctuation; opens by itself on text fields —
+      validated on the console on 2026-09-21 for every menu field: character
+      name, Battle.net account/password, game name; in-game chat is phase 2)
 - [x] Native scheduler (real preemption): the default; the older
       cooperative scheduler remains as a benchmarking instrument
       (the virtual-clock oracles depend on it)

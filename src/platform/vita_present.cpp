@@ -14,6 +14,7 @@ extern "C" int d2_tlswrap_dump(char*, unsigned);
 #include "platform/vita_net.h"
 #include "platform/vita_kb.h"   // full virtual keyboard (layouts, font, drawing)
 #include "platform/radial_menu.h"   // 7-sector radial menu (hold Select + left stick)
+#include "runtime/text_focus_probe.h"   // d2vita_text_focus : edit box focalisee (ouverture auto du clavier)
 #include "platform/vita_gxm.h"      // d2gxm_ui_active: le menu part-il sur le GPU ?
 #include "platform/vita_host.h"        // engine: log, cores, sleep (CONSOLE-specific)
 #include "runtime/host_clock.h"           // engine: monotonic host clock
@@ -157,6 +158,7 @@ void draw_fps(uint32_t* fb, int fps10) {           // fps*10 (one decimal)
 d2kb::State g_kb;
 int g_kb_simple = -1;                 // read once, on first open
 radial_menu::State g_rm{};            // radial menu: state written by the input tick, read by presentation
+uint32_t g_kb_last_focus = 0;         // ouverture auto du clavier : dernier focus texte vu
 inline void draw_keyboard(uint32_t* fb){ d2kb::draw(g_kb, fb, SCR_W, SCR_H); }
 // --- async present: the scale+flip runs on its OWN Vita core -----------------
 // The guest emulation is single-core; the 960x544 palette scale (~2-5 ms of
@@ -1558,6 +1560,11 @@ void do_release(const Act& a){
     else if (a.kind==A_RMB){ if(g_rmb_sent){ d2vita_inject("rup",(int)g_cx,(int)g_cy); g_rmb_sent=false; } }
     else if (a.kind==A_KEY)  d2vita_inject("keyup",a.vk,0);
 }
+// Ouverture du clavier (automatique ou R+Triangle), D2_KBSIMPLE lu une fois.
+void kb_open_now(){
+    if (g_kb_simple < 0){ const char* e=getenv("D2_KBSIMPLE"); g_kb_simple = (e&&*e&&strcmp(e,"0"))?1:0; }
+    d2kb::open_kb(g_kb, g_kb_simple);
+}
 } // namespace
 
 extern "C" void d2vita_input_tick(void){
@@ -1645,6 +1652,18 @@ extern "C" void d2vita_input_tick(void){
     // L + Start = on-demand screenshot (ux0:data/d2vita/shot_<frame>.bmp) —
     // for capturing a rendering defect the test bench can't reproduce on its own.
     if ((b&B_START)&&!(was&B_START)&&(b&B_L)){ if(d2gxm_shot_request) d2gxm_shot_request(); return; }
+    // Ouverture automatique quand un champ texte prend le focus (sonde
+    // text_focus_probe.cpp). La fermeture reste manuelle, d'ou le verrou : le
+    // dernier focus vu suit la sonde meme vers 0, une fermeture au Select ne
+    // rouvre rien, un retour au meme champ (focus passe par 0) est un nouveau
+    // front. Jamais sous l'autopilote : les bancs tapent le nom du perso par
+    // D2SCRIPT sans manette, le clavier resterait dessine sur toute la partie.
+    if (script_cut){
+        const uint32_t f = d2vita_text_focus();
+        const bool rise = f != 0 && f != g_kb_last_focus;
+        g_kb_last_focus = f;
+        if (rise && !g_kb.open){ kb_open_now(); d2vita_progress("clavier: ouverture automatique"); return; }
+    }
     // R+Triangle OPENS the virtual keyboard (the radial menu's own
     // "keyboard" sector maps to "character"/C instead). Triangle ALONE stays
     // W (weapon swap, generic table below). Only handles the OPEN edge: once
@@ -1652,8 +1671,7 @@ extern "C" void d2vita_input_tick(void){
     // (toggle echo masking, see the g_kb.open block below) — closing stays on
     // Select.
     if ((b&B_TRI)&&!(was&B_TRI)&&layer&&!g_kb.open){
-        if (g_kb_simple < 0){ const char* e=getenv("D2_KBSIMPLE"); g_kb_simple = (e&&*e&&strcmp(e,"0"))?1:0; }
-        d2kb::open_kb(g_kb, g_kb_simple);
+        kb_open_now();
         return;
     }
     if (g_kb.open){
