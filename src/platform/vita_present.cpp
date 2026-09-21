@@ -1731,7 +1731,14 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
     static const padst::Unit* rawUnit[padst::MAX_UNITS];
     for (int i = 0; i < s.nUnits && n < padst::MAX_UNITS; i++) {
         const padst::Unit& q = s.units[i];
-        if (q.type == 0 && q.id == s.playerId) continue;              // never box/target ourselves
+        // Never box/target ourselves -- EXCEPT once we are a corpse. Getting
+        // our gear back is the whole point, and we do not know yet whether
+        // the body reuses the player's unit id or gets one of its own, so
+        // handle both: skip the LIVING player only. Modes 0/12/17 are the
+        // death and dead animations; the padlog prints the mode of every
+        // type-0 unit it sees so the real one can be confirmed.
+        const bool corpseMode = (q.mode == 0 || q.mode == 12 || q.mode == 17);
+        if (q.type == 0 && q.id == s.playerId && !corpseMode) continue;
         if (q.type == 3 || q.type == 5) continue;                     // missiles, tiles
         pad::Unit& o = units[n]; o = pad::Unit{};
         o.id = q.id; o.type = q.type; o.cls = q.cls;
@@ -1752,6 +1759,12 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
             // revive, raise skeleton). OUR OWN summons' corpses count too --
             // the game lets you explode those as readily as any other.
             o.corpse   = !alive && !town;
+        } else if (q.type == 0) {
+            // A body on the ground. Gated on the same targetable bit as
+            // everything else, so a living player standing next to us in a
+            // multiplayer game is not mistaken for loot.
+            o.interact  = corpseMode && (q.flags & 0x00200002u) == 0x00000002u;
+            o.ownCorpse = o.interact;
         } else if (q.type == 2) {
             // Ask the GAME whether this object can be hovered at all, instead
             // of offering every torch and shadow and learning the hard way.
@@ -1818,6 +1831,26 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
             // to find the one behind "panel X is not detected".
             for (int i = 0; i < 38 && lines < 2000; i++) if (s.uiVars[i] != lastUi[i]) { lastUi[i] = s.uiVars[i];
                 snprintf(m, sizeof m, "pad: uivar[%d]=%u", i, s.uiVars[i]); d2vita_progress(m); ++lines; }
+            // Every distinct (mode) a type-0 unit is seen in: which one a
+            // player corpse actually uses, and whether it keeps the player's
+            // unit id, is the thing that decides whether Cross can ever
+            // reach it.
+            {
+                static uint32_t seenP[16]; static int nSeenP = 0;
+                for (int i = 0; i < s.nUnits && lines < 2000; i++) {
+                    if (s.units[i].type != 0) continue;
+                    const uint32_t key = (s.units[i].mode << 1) | (s.units[i].id == s.playerId ? 1u : 0u);
+                    bool known = false;
+                    for (int k = 0; k < nSeenP; k++) if (seenP[k] == key) { known = true; break; }
+                    if (known || nSeenP >= 16) continue;
+                    seenP[nSeenP++] = key;
+                    snprintf(m, sizeof m, "pad: joueur id=%u %s mode=%u drapeaux=%08x ciblable=%d",
+                             s.units[i].id, s.units[i].id == s.playerId ? "MOI" : "autre",
+                             s.units[i].mode, s.units[i].flags,
+                             (int)((s.units[i].flags & 0x00200002u) == 2u));
+                    d2vita_progress(m); ++lines;
+                }
+            }
             // One line the first time each kind of unit is seen, so a console
             // run says outright whether the targetable bit tracks what the
             // game actually lets the cursor hover: a chest should read 1 and

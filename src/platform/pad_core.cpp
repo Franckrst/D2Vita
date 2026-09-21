@@ -441,10 +441,10 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
     // spot the player is pointing at. Alt browsing and an interaction own the
     // cursor outright; a cast borrows it, and the stick then steers the point
     // it will be handed back to.
-    if (!alt_ && !interact_) {
+    if (!alt_) {
         float dx = 0.f, dy = 0.f;
         stickDelta(c.rx, c.ry, v, &dx, &dy);
-        if (castSlot_ >= 0) cursorStep(dx, dy, v, &userX_, &userY_);
+        if (castSlot_ >= 0 || interact_) cursorStep(dx, dy, v, &userX_, &userY_);
         else {
             int px = cx_, py = cy_;
             if (cursorStep(dx, dy, v, &px, &py)) moveTo(px, py, out);
@@ -456,8 +456,8 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
     // sits on its target, so using it would re-target along a direction the
     // player may have left several frames ago.
     float ax = 0.f, ay = 0.f;
-    const bool aimed = castSlot_ >= 0 ? aim_from_cursor(v, userX_, userY_, &ax, &ay)
-                                      : aim_from_cursor(v, cx_, cy_, &ax, &ay);
+    const bool aimed = (castSlot_ >= 0 || interact_) ? aim_from_cursor(v, userX_, userY_, &ax, &ay)
+                                                    : aim_from_cursor(v, cx_, cy_, &ax, &ay);
     int ti = -1;
     if (cfg_.aim) { ti = pick_hostile(u, n, v, ax, ay, aimed, cfg_, findId(u, n, tgtId_, 1), T_HOSTILE, &rej_); tgtId_ = ti >= 0 ? u[ti].id : 0; }
 
@@ -571,7 +571,11 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
         // intent there is, so it comes first -- ahead of the cone, which used
         // to win and made the stash unreachable however carefully it was
         // pointed at (console, 21/09).
-        int ii = pick_at(u, n, cx_, cy_, &rej_);
+        // Our own body, with all our gear on it, outranks anything else the
+        // button could mean -- console, 21/09, and it is hard to argue with.
+        int ii = -1;
+        for (int k = 0; k < n; ++k) if (u[k].ownCorpse) { ii = k; break; }
+        if (ii < 0) ii = pick_at(u, n, cx_, cy_, &rej_);
         if (ii < 0 && aimed) ii = ti;                  // ti already skips the rejects
         if (ii < 0) ii = pick_interact(u, n, v, cfg_, &rej_);
         if (ii < 0) ii = ti;
@@ -596,14 +600,22 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             interact_ = false; interId_ = 0; interArm_ = 0;
             moveTo(userX_, userY_, out);                // borrowed, now handed back
         } else {
-            // Movement is suspended for as long as Cross is held, so the left
-            // stick is free to steer the TARGET instead (console request,
-            // 21/09). Creatures only: a chest does not move and neither
-            // should the intent to open it.
-            const float stickM = std::sqrt(c.lx * c.lx + c.ly * c.ly);
-            if (stickM > cfg_.deadzone && interType_ == 1) {
-                float sxd, syd; to_iso(c.lx, c.ly, &sxd, &syd);
-                const int ni = pick_hostile(u, n, v, sxd, syd, true, cfg_, -1, T_HOSTILE, &rej_);
+            // The LEFT stick breaks off. It used to steer the target, which
+            // is what was asked for first -- but movement is gated for as
+            // long as Cross is held, so in a melee the stick stopped being a
+            // way out and just kept re-picking whoever was nearest: console,
+            // 21/09, "impossible to get out of the group, my barbarian keeps
+            // launching attacks". Escaping wins; steering moved to the right
+            // stick, which is free here and already drives the aim cone.
+            if (std::sqrt(c.lx * c.lx + c.ly * c.ly) > cfg_.deadzone) {
+                if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+                interact_ = false; interId_ = 0; interArm_ = 0; interAttempt_ = 0;
+                lsOn_ = false;                       // let the walk engage from scratch
+                return;
+            }
+            // Re-pick as the right stick swings the aim, same cone as a cast.
+            if (aimed && interType_ == 1) {
+                const int ni = pick_hostile(u, n, v, ax, ay, aimed, cfg_, -1, T_HOSTILE, &rej_);
                 if (ni >= 0 && !(u[ni].id == interId_ && u[ni].type == interType_)) {
                     if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
                     interId_ = u[ni].id; interType_ = u[ni].type; interCls_ = u[ni].cls;

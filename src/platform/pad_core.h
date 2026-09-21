@@ -57,6 +57,9 @@ struct Unit {
     int sx = 0, sy = 0;             // feet anchor on screen
     bool hostile = false;           // can be a skill target
     bool corpse  = false;           // a DEAD monster: what the corpse skills want
+    // OUR OWN body, left behind by a death with all our gear on it. Getting it
+    // back outranks anything else Cross could be pointed at.
+    bool ownCorpse = false;
     bool interact = false;          // can be an L target (item, object, NPC)
     // This unit's Alt name label, when the game drew one for it this frame:
     // lx/ly = the CENTER of the label's rectangle, lw/lh its size. Copied

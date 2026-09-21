@@ -1100,9 +1100,31 @@ static void test_a_hovered_object_is_never_learned_as_scenery() {
     CHECK(s.interacting());
 }
 
-static void test_left_stick_switches_target_while_cross_is_held() {
-    // Console request: holding X should let the left stick move the target,
-    // since movement is suspended for the duration anyway.
+static void test_left_stick_breaks_off_and_walks() {
+    // Console, 21/09: "in a group of monsters, impossible to get out with the
+    // stick, my barbarian keeps launching attacks". Steering the target with
+    // the LEFT stick, which is what was asked for first, made Cross a trap:
+    // movement is gated for as long as it is held, and in a melee the stick
+    // just kept re-picking. Escaping has to win, so the left stick now breaks
+    // off -- target steering moved to the right stick, see the next test.
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1] = { mkMon(1, 460, 300) };
+    c.buttons = pad::B_CROSS; s.tick(c, x, v, u, 1, a);
+    x.selValid = 1; x.selId = 1; x.selType = 1;
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(s.interacting() && hasAct(a, pad::A_LDOWN));
+    c.lx = -1.f;                                      // shove the stick away, Cross still held
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(!s.interacting());                          // broken off
+    CHECK(hasAct(a, pad::A_LUP));
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_LDOWN));                   // and walking, away from the stick's side
+    CHECK(s.cx() < 400);
+}
+
+static void test_right_stick_switches_target_while_cross_is_held() {
+    // Target steering, on the stick that is free during an interaction.
     pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[2] = { mkMon(1, 500, 300),      // east
@@ -1110,9 +1132,25 @@ static void test_left_stick_switches_target_while_cross_is_held() {
     s.tick(c, x, v, u, 2, a);
     c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     CHECK(s.interacting() && hasAct(a, pad::A_MOVE, 500, 272));   // the nearer one, east
-    c.ly = -1.f;                                                   // swing the stick north
-    a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
-    CHECK(hasAct(a, pad::A_MOVE, 400, 192));                       // now the northern one
+    c.ry = -1.f;                                                   // swing the aim north
+    for (int i = 0; i < 12; ++i) { a = pad::Actions{}; s.tick(c, x, v, u, 2, a); }
+    CHECK(hasAct(a, pad::A_MOVE, 400, 192) || s.target().id == 2);
+}
+
+static void test_own_corpse_outranks_everything() {
+    // Console, 21/09: "after a death, walking back to my corpse, I cannot
+    // target it with X -- that should be an absolute priority". A player
+    // corpse is a type-0 unit and the glue set neither interact nor hostile
+    // on those, so nothing ever offered it.
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[2] = { mkMon(1, 470, 300) };
+    u[1].id = 7; u[1].type = 0; u[1].cls = 4; u[1].sx = 620; u[1].sy = 300;
+    u[1].interact = true; u[1].ownCorpse = true;
+    s.setCursor(470, 280);                            // cursor parked ON the monster
+    s.tick(c, x, v, u, 2, a);
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    CHECK(hasAct(a, pad::A_MOVE, 620, 272));          // the corpse wins anyway
 }
 
 static void test_interact_reach_is_configurable() {
@@ -1245,7 +1283,9 @@ int main() {
     test_a_hovered_object_is_never_learned_as_scenery();
     test_scenery_offered_by_proximity_is_written_off_fast();
     test_walking_out_of_a_crowd_finds_clear_ground();
-    test_left_stick_switches_target_while_cross_is_held();
+    test_left_stick_breaks_off_and_walks();
+    test_right_stick_switches_target_while_cross_is_held();
+    test_own_corpse_outranks_everything();
     test_interact_reach_is_configurable();
     test_offscreen_units_are_not_targets();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
