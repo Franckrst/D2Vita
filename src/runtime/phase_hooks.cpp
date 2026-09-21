@@ -517,12 +517,15 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
                         // Room2) DO resolve correctly — proven dynamically: 3 different
                         // units (different Room1 *and* Room2 pointers, i.e. different
                         // room tiles) all converged on the exact same r2+0x58 pointer,
-                        // the fan-in you expect from "many rooms, one level". +0x1C0 is
-                        // the fix, CONFIRMED on console: 1 at the Rogue camp, 2 in Blood
-                        // Moor, back to 1 on returning to town (the two runner-up
-                        // candidates found during the offline investigation, +0x1D0 and
-                        // +0x1DC, either moved in lockstep with +0x1C0 or never moved at
-                        // all — neither is a better choice).
+                        // the fan-in you expect from "many rooms, one level". +0x1C0
+                        // resolves and tracks transitions, but it holds dwLevelTYPE, not
+                        // dwLevelNo: console, 21/09, an out-and-back from Lut Gholein
+                        // read 12 <-> 16 = Act 2 Town <-> Act 2 Desert, while Lut
+                        // Gholein's level NUMBER is 40. The earlier check that seemed to
+                        // confirm a level number — 1 at the Rogue camp, 2 in Blood Moor —
+                        // passed by coincidence: Act 1 Town and Act 1 Wilderness have
+                        // type ids equal to their level numbers. Consumers must compare
+                        // against TYPES (see pad_is_town).
                         uint32_t lvptr=0;
                         const uint32_t r1=c.read_u32(path+0x1c);
                         if(r1){ const uint32_t r2=c.read_u32(r1+0x10);

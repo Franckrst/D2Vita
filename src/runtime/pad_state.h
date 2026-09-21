@@ -42,11 +42,16 @@ struct Snapshot {
     bool     inGame;                 // camera exit saw a non-null player
     uint32_t playerId; int32_t playerFx, playerFy;
     int32_t  viewX, viewY;           // [Game+0x3a520c] / [Game+0x3a5208]
-    uint32_t levelNo;                // Path->Room1->Room2->Level->dwLevelNo, 0 if unreadable
-    // The Level POINTER the number was read from. Published on its own so a
-    // log can tell "the room chain went stale" (pointer frozen too) apart from
-    // "+0x1c0 is the wrong field" (pointer moves, number does not) -- console,
-    // 21/09: the number sat at 12 across a waypoint trip to another act.
+    // Path->Room1->Room2->Level->+0x1c0. This is dwLevelTYPE, not dwLevelNo:
+    // console, 21/09, an out-and-back from Lut Gholein read 12 <-> 16, which
+    // are Act 2 Town and Act 2 Desert in LvlTypes.txt -- Lut Gholein's level
+    // NUMBER is 40. The earlier "1 at the Rogue camp, 2 in the Blood Moor"
+    // check passed by coincidence: those are Act 1 Town and Act 1 Wilderness,
+    // whose type ids happen to equal their level numbers. 0 = unreadable.
+    uint32_t levelType;
+    // The Level POINTER the type was read from. It moved in lockstep with the
+    // value on console, which is what proved the room chain sound and sent the
+    // investigation to the field's meaning instead.
     uint32_t levelPtr;
     uint32_t selValid, selId, selType;   // [0x3a6a94] / [0x3a6a78] / [0x3a6a8c]: unit the game hovers
     uint32_t uiVars[38];             // [0x3a27c0 + 4*i]
@@ -55,7 +60,7 @@ struct Snapshot {
 };
 
 bool on();                           // D2_PAD absent or != "0" -> true (hooks armed)
-void frame_begin(uint32_t playerId, int32_t pfx, int32_t pfy, int32_t vx, int32_t vy, uint32_t levelNo,
+void frame_begin(uint32_t playerId, int32_t pfx, int32_t pfy, int32_t vx, int32_t vy, uint32_t levelType,
                  uint32_t selValid, uint32_t selId, uint32_t selType, const uint32_t* uiVars38);
 void add_unit(const Unit& u);
 // Whole-array snapshot, read in one go by the camera hook (unlike units,

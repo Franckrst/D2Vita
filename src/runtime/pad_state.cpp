@@ -17,7 +17,7 @@ bool on() {
 static uint32_t g_levelPtr = 0;
 void set_level_ptr(uint32_t p) { g_levelPtr = p; }
 
-void frame_begin(uint32_t playerId, int32_t pfx, int32_t pfy, int32_t vx, int32_t vy, uint32_t levelNo,
+void frame_begin(uint32_t playerId, int32_t pfx, int32_t pfy, int32_t vx, int32_t vy, uint32_t levelType,
                  uint32_t selValid, uint32_t selId, uint32_t selType, const uint32_t* ui) {
     // An EMPTY live list means no draw pass ran, not "nothing is on screen":
     // the game skips rendering under load (Game+0x44f27e) while this hook,
@@ -41,7 +41,7 @@ void frame_begin(uint32_t playerId, int32_t pfx, int32_t pfy, int32_t vx, int32_
     if (g_live.nLabels > 0) memcpy(g_stable.labels, g_live.labels, sizeof(Label) * (size_t)g_live.nLabels);
     g_live.frame += 1; g_stable.frame = g_live.frame; g_live.nUnits = 0; g_live.nLabels = 0;
     g_stable.inGame = playerId != 0;
-    g_stable.playerId = playerId; g_stable.levelNo = levelNo; g_stable.levelPtr = g_levelPtr;
+    g_stable.playerId = playerId; g_stable.levelType = levelType; g_stable.levelPtr = g_levelPtr;
     g_stable.selValid = selValid; g_stable.selId = selId; g_stable.selType = selType;
     memcpy(g_stable.uiVars, ui, sizeof g_stable.uiVars);
     g_written = true;

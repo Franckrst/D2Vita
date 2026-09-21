@@ -1591,7 +1591,14 @@ void pad_leave(){
     }
     overlay_publish(OverlayPub{});
 }
-bool pad_is_town(uint32_t lvl){ return lvl == 0 || lvl == 1 || lvl == 40 || lvl == 75 || lvl == 103 || lvl == 109; }
+// LEVEL TYPES, not level numbers (see padst::Snapshot::levelType). 1 and 12
+// are confirmed on console: Act 1 Town and Act 2 Town. 20/26/29 are the Act
+// 3/4/5 towns per LvlTypes.txt and are still unconfirmed here — the padlog
+// prints the type on every change, so one trip through Kurast settles them.
+// 0 means unreadable, and is treated as town on purpose: mistaking a dungeon
+// for a town only costs the aim assist, while the reverse turns every
+// shopkeeper into a target.
+bool pad_is_town(uint32_t t){ return t == 0 || t == 1 || t == 12 || t == 20 || t == 26 || t == 29; }
 bool pad_is_merc(uint32_t cls){ return cls == 271 || cls == 338 || cls == 359 || cls == 560; }
 
 bool parse_act(const char* v, Act* out){
@@ -1715,7 +1722,7 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
     for (int p : panels) if (s.uiVars[p]) x.panelOpen = true;
     x.skillTree = s.uiVars[4] != 0;
     x.selValid = s.selValid; x.selId = s.selId; x.selType = s.selType;
-    const bool town = pad_is_town(s.levelNo);
+    const bool town = pad_is_town(s.levelType);
 
     static pad::Unit units[padst::MAX_UNITS]; int n = 0;
     for (int i = 0; i < s.nUnits && n < padst::MAX_UNITS; i++) {
@@ -1778,11 +1785,11 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
             // Whether we think we are in town decides whether every NPC is a
             // TARGET or something to talk to, so a level number we misread
             // turns a town inside out. One line per level change answers it.
-            if (s.levelNo != lastLvl || s.levelPtr != lastLvlPtr) {
-                lastLvl = s.levelNo; lastLvlPtr = s.levelPtr;
+            if (s.levelType != lastLvl || s.levelPtr != lastLvlPtr) {
+                lastLvl = s.levelType; lastLvlPtr = s.levelPtr;
                 int nh = 0, ni = 0; for (int i = 0; i < n; i++) { if (units[i].hostile) ++nh; if (units[i].interact) ++ni; }
-                snprintf(m, sizeof m, "pad: niveau=%u lvptr=%08x ville=%d unites=%d hostiles=%d interactifs=%d",
-                         s.levelNo, s.levelPtr, (int)town, n, nh, ni);
+                snprintf(m, sizeof m, "pad: type_niveau=%u lvptr=%08x ville=%d unites=%d hostiles=%d interactifs=%d",
+                         s.levelType, s.levelPtr, (int)town, n, nh, ni);
                 d2vita_progress(m); ++lines; }
             // UiVar indices are magic numbers in panels[]: this is the only way
             // to find the one behind "panel X is not detected".
