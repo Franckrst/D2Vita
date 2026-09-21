@@ -523,9 +523,11 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
                         // candidates found during the offline investigation, +0x1D0 and
                         // +0x1DC, either moved in lockstep with +0x1C0 or never moved at
                         // all — neither is a better choice).
+                        uint32_t lvptr=0;
                         const uint32_t r1=c.read_u32(path+0x1c);
                         if(r1){ const uint32_t r2=c.read_u32(r1+0x10);
-                            if(r2){ const uint32_t lv=c.read_u32(r2+0x58); if(lv) lvl=c.read_u32(lv+0x1c0); } }
+                            if(r2){ const uint32_t lv=c.read_u32(r2+0x58); lvptr=lv; if(lv) lvl=c.read_u32(lv+0x1c0); } }
+                        padst::set_level_ptr(lvptr);
                     }
                     // Ground-item name labels: the game's OWN array (see
                     // padst::Label). Read whole, in one pass, no hook and no

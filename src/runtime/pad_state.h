@@ -43,6 +43,11 @@ struct Snapshot {
     uint32_t playerId; int32_t playerFx, playerFy;
     int32_t  viewX, viewY;           // [Game+0x3a520c] / [Game+0x3a5208]
     uint32_t levelNo;                // Path->Room1->Room2->Level->dwLevelNo, 0 if unreadable
+    // The Level POINTER the number was read from. Published on its own so a
+    // log can tell "the room chain went stale" (pointer frozen too) apart from
+    // "+0x1c0 is the wrong field" (pointer moves, number does not) -- console,
+    // 21/09: the number sat at 12 across a waypoint trip to another act.
+    uint32_t levelPtr;
     uint32_t selValid, selId, selType;   // [0x3a6a94] / [0x3a6a78] / [0x3a6a8c]: unit the game hovers
     uint32_t uiVars[38];             // [0x3a27c0 + 4*i]
     int      nUnits; Unit units[MAX_UNITS];
@@ -57,6 +62,8 @@ void add_unit(const Unit& u);
 // which accumulate call by call). Call it BEFORE frame_begin, which is what
 // publishes it to the reader.
 void set_labels(const Label* l, int n);
+// Call before frame_begin, like set_labels.
+void set_level_ptr(uint32_t p);
 bool read(Snapshot& out);            // false until the first frame_begin
 
 } // namespace padst

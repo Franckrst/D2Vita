@@ -84,6 +84,7 @@ static void test_pick_hostile() {
 
 static void test_pick_interact() {
     pad::View v = mkView(); pad::Config cfg;
+    cfg.reach = 220;                                    // pin the radius this test was written against
     pad::Unit u[3];
     u[0].id = 1; u[0].type = 2; u[0].sx = 420; u[0].sy = 300; u[0].interact = true;    // chest, 20 px
     u[1].id = 2; u[1].type = 4; u[1].sx = 560; u[1].sy = 300; u[1].interact = true;    // item, 160 px
@@ -969,6 +970,7 @@ static void test_distance_is_measured_in_the_world_not_on_screen() {
 
 static void test_interact_reach_is_round_in_the_world() {
     pad::View v = mkView(); pad::Config cfg;
+    cfg.reach = 220;                                         // pin the radius: this tests the METRIC
     pad::Unit u[1];
     u[0].id = 1; u[0].type = 2; u[0].interact = true;
     u[0].sx = 400; u[0].sy = 400;                            // 100 px below = 200 in the world
@@ -1112,6 +1114,49 @@ static void test_left_stick_switches_target_while_cross_is_held() {
     CHECK(hasAct(a, pad::A_MOVE, 400, 192));                       // now the northern one
 }
 
+static void test_the_walk_hands_back_an_offset_not_a_stale_point() {
+    // Console, 21/09: "when I move and release the stick the cursor lands
+    // anywhere". The hand-back restored an ABSOLUTE screen point saved before
+    // the walk -- by the time the walk ends the camera has scrolled and that
+    // point means something else entirely. What must survive a walk is the
+    // aim RELATIVE to the character.
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    s.setCursor(600, 260);                          // aim: 200 right, 40 up of the player
+    s.tick(c, x, v, nullptr, 0, a);
+    c.lx = 1.f; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    pad::View v2 = v; v2.viewX -= 100;              // the camera scrolled: player now at (500,300)
+    c.lx = 0.f; a = pad::Actions{}; s.tick(c, x, v2, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_CLICK, 500, 306));       // stop click on the feet, wherever they are
+    CHECK(s.cx() == 700 && s.cy() == 260);          // same aim, not the stale (600,260)
+}
+
+static void test_interact_reach_is_configurable() {
+    // Measuring in world units halved the vertical reach that the old screen
+    // metric gave, so the default has to be re-stated rather than inherited.
+    pad::View v = mkView(); pad::Config cfg;
+    pad::Unit u[1];
+    u[0].id = 1; u[0].type = 2; u[0].interact = true;
+    u[0].sx = 400; u[0].sy = 440;                   // 140 px below = 280 in the world
+    CHECK(pad::pick_interact(u, 1, v, cfg) == 0);   // inside the new default reach
+    cfg.reach = 220;
+    CHECK(pad::pick_interact(u, 1, v, cfg) == -1);  // and the knob really bites
+}
+
+static void test_offscreen_units_are_not_targets() {
+    // Console log, 21/09: targets at ecran=(-86,281) and (864,225) on an
+    // 800-wide screen. You cannot click what is not drawn, and reaching for
+    // one of those beat the monster actually in front of the player.
+    pad::View v = mkView(); pad::Config cfg;
+    pad::Unit off[2] = { mkMon(1, -86, 281), mkMon(2, 864, 225) };
+    CHECK(pad::pick_hostile(off, 2, v, 0.f, 0.f, false, cfg, -1) == -1);
+    pad::Unit mixed[2] = { mkMon(1, 864, 225), mkMon(2, 470, 300) };
+    CHECK(pad::pick_hostile(mixed, 2, v, 0.f, 0.f, false, cfg, -1) == 1);
+    pad::Unit obj[1];
+    obj[0].id = 3; obj[0].type = 2; obj[0].sx = -20; obj[0].sy = 300; obj[0].interact = true;
+    CHECK(pad::pick_interact(obj, 1, v, cfg) == -1);
+}
+
 int main() {
     test_projection();
     test_clamp_and_box();
@@ -1167,6 +1212,9 @@ int main() {
     test_scenery_the_game_never_hovers_is_learned_by_class();
     test_a_hovered_object_is_never_learned_as_scenery();
     test_left_stick_switches_target_while_cross_is_held();
+    test_the_walk_hands_back_an_offset_not_a_stale_point();
+    test_interact_reach_is_configurable();
+    test_offscreen_units_are_not_targets();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

@@ -1642,6 +1642,7 @@ void load_controls_txt(){
         else if (!strcasecmp(line,"cone"))     { g_padcfg.coneDeg=(float)atof(v); n++; continue; }
         else if (!strcasecmp(line,"hover_h"))  { g_padcfg.hoverH=atoi(v); n++; continue; }
         else if (!strcasecmp(line,"hud_h"))    { g_padcfg.hudH=atoi(v); n++; continue; }
+        else if (!strcasecmp(line,"reach"))    { g_padcfg.reach=atoi(v); n++; continue; }
         // slot1..slot7 = hostile | ground | corpse -- what that skill slot
         // aims at. Ground so teleport lands where you point instead of on the
         // monster; corpse so the necromancer's corpse skills see the dead,
@@ -1771,16 +1772,17 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
         // the level number (Level+0x1C0), and the ground-label geometry, which
         // is no longer computed at all -- the game's own table is read instead.
         static int lines = 0; static uint32_t lastTgt = 0; static uint32_t lastUi[38] = {0};
-        static uint32_t lastLvl = 0xffffffffu;
+        static uint32_t lastLvl = 0xffffffffu, lastLvlPtr = 0xffffffffu;
         char m[160];
         if (lines < 2000) {
             // Whether we think we are in town decides whether every NPC is a
             // TARGET or something to talk to, so a level number we misread
             // turns a town inside out. One line per level change answers it.
-            if (s.levelNo != lastLvl) { lastLvl = s.levelNo;
+            if (s.levelNo != lastLvl || s.levelPtr != lastLvlPtr) {
+                lastLvl = s.levelNo; lastLvlPtr = s.levelPtr;
                 int nh = 0, ni = 0; for (int i = 0; i < n; i++) { if (units[i].hostile) ++nh; if (units[i].interact) ++ni; }
-                snprintf(m, sizeof m, "pad: niveau=%u ville=%d unites=%d hostiles=%d interactifs=%d",
-                         s.levelNo, (int)town, n, nh, ni);
+                snprintf(m, sizeof m, "pad: niveau=%u lvptr=%08x ville=%d unites=%d hostiles=%d interactifs=%d",
+                         s.levelNo, s.levelPtr, (int)town, n, nh, ni);
                 d2vita_progress(m); ++lines; }
             // UiVar indices are magic numbers in panels[]: this is the only way
             // to find the one behind "panel X is not detected".

@@ -15,6 +15,14 @@ static const float kPi = 3.14159265358979f;
 static inline void to_iso(float dx, float dy, float* ix, float* iy) { *ix = dx; *iy = 2.f * dy; }
 static inline float iso_len(float dx, float dy) { return std::sqrt(dx * dx + 4.f * dy * dy); }
 
+// You cannot click what is not drawn. Without this the assist reached for
+// units well outside the viewport -- console log, 21/09, targets at x=-86 and
+// x=864 on an 800-wide screen -- and they beat what was in front of the
+// player.
+static inline bool on_screen(const View& v, int sx, int sy) {
+    return sx >= 0 && sx <= v.w - 1 && sy >= 0 && sy <= v.h - 1;
+}
+
 void world_to_screen(const View& v, int32_t fx, int32_t fy, int* sx, int* sy) {
     const int64_t dx = (int64_t)fx - (int64_t)fy;
     const int64_t sm = (int64_t)fx + (int64_t)fy;
@@ -68,6 +76,7 @@ int pick_hostile(const Unit* u, int n, const View& v, float ax, float ay, bool a
     auto score = [&](int i, float* s) -> bool {
         const Unit& t = u[i];
         if (!(kind == T_CORPSE ? t.corpse : t.hostile)) return false;
+        if (!on_screen(v, t.sx, t.sy)) return false;
         if (rej && rej->has(t)) return false;                  // the game will not select it
         float dx, dy; to_iso((float)(t.sx - psx), (float)(t.sy - psy), &dx, &dy);
         const float d = std::sqrt(dx * dx + dy * dy);
@@ -88,15 +97,16 @@ int pick_hostile(const Unit* u, int n, const View& v, float ax, float ay, bool a
     return best;
 }
 
-int pick_interact(const Unit* u, int n, const View& v, const Config& /*cfg*/, const Reject* rej) {
+int pick_interact(const Unit* u, int n, const View& v, const Config& cfg, const Reject* rej) {
     int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
     int best = -1; float bd = 0.f;
     for (int i = 0; i < n; ++i) {
         const Unit& t = u[i];
         if (!t.interact || t.type == 4) continue;      // ground items belong to Alt + Cross
+        if (!on_screen(v, t.sx, t.sy)) continue;
         if (rej && rej->has(t)) continue;
         const float d = iso_len((float)(t.sx - psx), (float)(t.sy - psy));
-        if (d > 220.f) continue;
+        if (d > (float)cfg.reach) continue;
         if (best < 0 || d < bd) { best = i; bd = d; }
     }
     return best;
@@ -706,6 +716,10 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
     const bool on = lsOn_ ? (lm > cfg_.deadzone) : (lm > cfg_.deadzone + 0.05f);
     if (on) { lastDx_ = c.lx / lm; lastDy_ = c.ly / lm; }
     if (castSlot_ < 0 && !interact_ && !alt_) {
+        if (on && !lsOn_) {                       // the walk starts: remember the aim as an offset
+            int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
+            walkDx_ = userX_ - psx; walkDy_ = userY_ - psy;
+        }
         if (on) {
             int px, py; orbit_point(v, c, cfg_, u, n, &px, &py);
             moveTo(px, py, out);
@@ -713,12 +727,17 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
         } else if (lsOn_) {
             if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; lsClick_ = false; }
             int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
-            psy += 6; clamp_point(v, cfg_, &psx, &psy);
-            cx_ = psx; cy_ = psy; out.push(A_CLICK, psx, psy);            // click at the feet = stop
-            // The walk borrowed the cursor the same way a cast does, and the
-            // stop click just parked it on our own feet. Hand it back, or
-            // every step taken would wipe where the player was aiming.
-            moveTo(userX_, userY_, out);
+            int fx = psx, fy = psy + 6; clamp_point(v, cfg_, &fx, &fy);
+            cx_ = fx; cy_ = fy; out.push(A_CLICK, fx, fy);                // click at the feet = stop
+            // Hand the aim back, but as the OFFSET it was: the camera has
+            // scrolled since, so the absolute point it used to sit on now
+            // means nothing -- console, 21/09, "the cursor lands anywhere".
+            // Measured from the player's own projection, NOT from the feet
+            // point above, which carries a 6 px nudge of its own.
+            int ax = psx + walkDx_, ay = psy + walkDy_;
+            clamp_point(v, cfg_, &ax, &ay);
+            userX_ = ax; userY_ = ay;
+            moveTo(ax, ay, out);
         }
     } else if (lsClick_) { out.push(A_LUP, cx_, cy_); lmb_ = false; lsClick_ = false; }   // only ever lift the
                                                                      // stick's OWN click here: lmb_ now also covers

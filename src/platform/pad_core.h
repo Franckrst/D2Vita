@@ -35,6 +35,10 @@ struct Config {
     // click command outright, with no packet sent, when the cursor sits in
     // the last 49 px at the moment the command resolves (Game+0x61700).
     int   hudH     = 60;
+    // How far Cross reaches for a chest, door, portal or town NPC, in WORLD
+    // units. Stated explicitly because measuring in world units rather than
+    // screen pixels halved what the old 220 gave vertically.
+    int   reach    = 300;
     bool  aim      = true;                 // automatic hostile target selection
     float sens     = 10.f;                 // free-cursor speed in panels
     // Per slot (0..6 = F1..F7), from controls.txt `slot1=ground` and friends.
@@ -216,6 +220,10 @@ private:
     // never costs the player the spot they were pointing at. Saved on press;
     // while the cast holds, the right stick steers this instead of cx_/cy_.
     int      userX_ = 400, userY_ = 300;
+    // The aim as an OFFSET from the character, captured when a walk starts.
+    // A walk scrolls the camera, so handing back the absolute point the aim
+    // used to occupy put the cursor somewhere unrelated.
+    int      walkDx_ = 0, walkDy_ = 0;
     // lmb_: the left button is down, whoever pressed it -- releaseAll lifts it
     // on every exit. lsClick_: it is down because of the LEFT STICK, the one
     // case the movement block may cancel on its own.
