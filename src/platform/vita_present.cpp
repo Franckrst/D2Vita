@@ -109,6 +109,38 @@ extern "C" void d2vita_set_game_size(int w, int h) {
     char m[72]; std::snprintf(m, sizeof m, "entree: resolution du jeu -> %dx%d (Glide)", w, h);
     d2vita_progress(m);
 }
+// Projection écran <- fenêtre de jeu, publiée par le chemin GXM (proj_update).
+// Sans elle, l'entrée supposerait que l'image remplit l'écran : dès qu'il y a
+// des bandes (D2_ASPECT=4:3), le curseur tactile atterrirait décalé.
+// Tant qu'elle n'a pas été publiée (chemin GDI, GXM non armé), on garde
+// EXACTEMENT l'ancienne formule.
+bool  g_map_ok = false;
+float g_map_ox = 0.f, g_map_oy = 0.f, g_map_ix = 1.f, g_map_iy = 1.f;
+// Même knob que le chemin GXM (D2_ASPECT), relu ici : les deux chemins de
+// présentation sont indépendants et mutuellement exclusifs.
+bool aspect_iso() {
+    static int v = -1;
+    if (v < 0) { const char* a = getenv("D2_ASPECT");
+        v = (a && (!std::strcmp(a, "etire") || !std::strcmp(a, "stretch") ||
+                   !std::strcmp(a, "0"))) ? 0 : 1; }
+    return v != 0;
+}
+extern "C" void d2vita_set_present_map(float ox, float oy, float ix, float iy) {
+    if (ix <= 0.f || iy <= 0.f) return;
+    g_map_ox = ox; g_map_oy = oy; g_map_ix = ix; g_map_iy = iy; g_map_ok = true;
+}
+// Pavé tactile avant (1920x1088) -> espace fenêtre de jeu.
+// Sans carte publiée : l'ancienne formule entière, inchangée. Avec : on passe
+// par l'écran pour pouvoir retirer les bandes (et on perd au passage la double
+// troncature entière de l'ancienne, ce qui ne peut que rapprocher du bon
+// pixel).
+inline void pad_to_game(int px, int py, int* gx, int* gy) {
+    if (!g_map_ok) { *gx = px * g_game_w / 1920; *gy = py * g_game_h / 1088; return; }
+    const float sx = (float)px * (float)SCR_W / 1920.f;
+    const float sy = (float)py * (float)SCR_H / 1088.f;
+    *gx = (int)((sx - g_map_ox) * g_map_ix);
+    *gy = (int)((sy - g_map_oy) * g_map_iy);
+}
 uint32_t* g_fb[2] = {nullptr, nullptr};
 SceUID    g_fb_uid[2] = {0, 0};
 int       g_cur = 0;
@@ -573,8 +605,18 @@ void do_scale_and_flip(const PresentSlot* sfr) {
         }
     }
     if (path_wx86) {
-        const wx86::DstRect full{0, 0, SCR_W, SCR_H};
-        wx86::scale_blit(dst, SCR_W, full, pixels, w, h, w * (bpp / 8),
+        // Même choix d'aspect que le chemin GXM. fit_rect() existait déjà dans
+        // le moteur (et est couvert par present_scale_selftest) mais n'était
+        // appelé nulle part : le port étirait toujours en plein écran.
+        const wx86::DstRect r = wx86::fit_rect(w, h, SCR_W, SCR_H, !aspect_iso());
+        if (r.x > 0 || r.y > 0) {
+            // Les bandes ne sont écrites par personne : sans ça elles gardent
+            // l'image de la frame précédente.
+            std::memset(dst, 0, (size_t)SCR_W * SCR_H * 4);
+            d2vita_set_present_map((float)r.x, (float)r.y,
+                                   (float)w / (float)r.w, (float)h / (float)r.h);
+        }
+        wx86::scale_blit(dst, SCR_W, r, pixels, w, h, w * (bpp / 8),
                          bpp == 8 ? wx86::SrcFormat::Pal8 : wx86::SrcFormat::Bgra32,
                          sfr->pal);
     } else {
@@ -1731,7 +1773,9 @@ extern "C" void d2vita_input_tick(void){
         SceTouchData tk; memset(&tk,0,sizeof tk);                // tap sur une touche
         if (sceTouchPeek(SCE_TOUCH_PORT_FRONT,&tk,1)>=0){
             if (tk.reportNum>0){ if(g_t_at<0){ g_t_at=g_itick; g_t_moved=false; }
-                g_t_x=tk.report[0].x/2; g_t_y=tk.report[0].y/2; }   // 1920x1088 -> 960x544
+                // Le clavier vit en pixels ÉCRAN (pas dans la fenêtre de jeu) :
+                // pas de bandes à retirer ici, seulement l'échelle du pavé.
+                g_t_x=tk.report[0].x*SCR_W/1920; g_t_y=tk.report[0].y*SCR_H/1088; }
             else if (g_t_at>=0){
                 int r=0,c=0;
                 if (g_itick-g_t_at<g_tap_ticks &&
@@ -1813,7 +1857,7 @@ extern "C" void d2vita_input_tick(void){
     SceTouchData td; memset(&td,0,sizeof td);
     if (sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1)>=0){
         if (td.reportNum>0){
-            int tx=td.report[0].x*g_game_w/1920, ty=td.report[0].y*g_game_h/1088;
+            int tx=0, ty=0; pad_to_game(td.report[0].x, td.report[0].y, &tx, &ty);
             if (g_t_at<0){ g_t_at=g_itick; g_t_x0=tx; g_t_y0=ty; g_t_moved=false; }
             if (std::abs(tx-g_t_x0)>10||std::abs(ty-g_t_y0)>10) g_t_moved=true;
             g_t_x=tx; g_t_y=ty; g_cx=(float)tx; g_cy=(float)ty; moved=true;

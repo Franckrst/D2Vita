@@ -400,6 +400,63 @@ const SceGxmProgram* get_shader(const char* name, const char* src, int profile, 
 bool g_knobRead = false, g_knob = false, g_ready = false, g_failed = false;
 int  g_gameW = 800, g_gameH = 600;
 
+// ---- PROJECTION FENÊTRE DE JEU -> ÉCRAN ------------------------------------
+// Il n'existe AUCUNE image intermédiaire : les sprites sont rastérisés
+// directement dans le framebuffer de l'écran, et c'est cette projection seule
+// qui décide de leur forme.
+//   D2_ASPECT=4:3 (DÉFAUT) : échelle ISOTROPE, image centrée, bandes sur les
+//     côtés. À 800x600 dans 960x544 : s=0,9067, image 725x544, bandes 117 px.
+//   D2_ASPECT=etire : l'ancien comportement, la fenêtre remplit l'écran avec
+//     l'étirement non isotrope de la StretchBlt du chemin GDI — x1,200 en X et
+//     x0,907 en Y, soit une image 32 % trop large. Gardé pour l'A/B.
+// Tout le fichier passe par ces valeurs et par scr2g*(), jamais par un rapport
+// g_gameW/SCR_W écrit à la main.
+//
+// Le sens INVERSE est stocké (g_projI*) au lieu d'être calculé par division :
+// en mode "etire" l'offset vaut 0, donc scr2gx() se réduit à `x * g_projIx`,
+// c'est-à-dire LITTÉRALEMENT l'ancien `x * kx` — même expression, mêmes bits.
+// Ce n'est pas de la coquetterie : (x*W)/S et x*(W/S) diffèrent sur 432 des
+// 1506 abscisses entières de l'écran, mesuré. Une ré-écriture "équivalente"
+// aurait déplacé des sommets d'UI sans que rien ne le signale.
+int   g_aspect  = 1;                      // 0 = étiré, 1 = isotrope
+float g_projSx  = 1.f, g_projSy = 1.f;    // pixels écran par pixel de jeu
+float g_projIx  = 1.f, g_projIy = 1.f;    // pixels de jeu par pixel écran (inverse)
+float g_projOx  = 0.f, g_projOy = 0.f;    // coin haut-gauche de l'image, en pixels écran
+
+// L'ENTRÉE (vita_present.cpp) doit convertir écran -> jeu exactement comme
+// ici, sinon le curseur tactile atterrit à côté dès qu'il y a des bandes.
+// On publie le sens INVERSE (pixels de jeu par pixel écran), celui dont
+// l'entrée a besoin.
+extern "C" { __attribute__((weak)) void d2vita_set_present_map(float ox, float oy, float ix, float iy); }
+
+void proj_update() {
+    if (g_aspect == 1) {
+        const float rx = (float)SCR_W / (float)g_gameW;
+        const float ry = (float)SCR_H / (float)g_gameH;
+        const float s  = rx < ry ? rx : ry;
+        g_projSx = g_projSy = s;
+        g_projIx = g_projIy = 1.f / s;
+        g_projOx = ((float)SCR_W - (float)g_gameW * s) * 0.5f;
+        g_projOy = ((float)SCR_H - (float)g_gameH * s) * 0.5f;
+    } else {
+        g_projSx = (float)SCR_W / (float)g_gameW;
+        g_projSy = (float)SCR_H / (float)g_gameH;
+        g_projIx = (float)g_gameW / (float)SCR_W;   // l'ancien kx, à l'identique
+        g_projIy = (float)g_gameH / (float)SCR_H;   // l'ancien ky
+        g_projOx = g_projOy = 0.f;
+    }
+    if (d2vita_set_present_map) d2vita_set_present_map(g_projOx, g_projOy, g_projIx, g_projIy);
+}
+
+// Inverse EXACTE de la projection : un pixel ÉCRAN -> l'espace fenêtre de jeu.
+// C'est ce que doivent utiliser toutes les incrustations construites en pixels
+// écran (menu radial, clavier) et le quad d'effacement, qui doit couvrir les
+// bandes sous peine de garder l'image précédente sur les côtés.
+// En mode "etire" l'offset est 0 et (x - 0.f) == x pour tout x fini : cette
+// seule expression redonne donc exactement l'ancien `x * kx`, sans branche.
+inline float scr2gx(float x) { return (x - g_projOx) * g_projIx; }
+inline float scr2gy(float y) { return (y - g_projOy) * g_projIy; }
+
 // ---- PIPELINE KNOBS and GPU-COST VARIANT KNOBS -----------------------------
 // All default to the shipped behavior: with none set, nothing on the
 // measured console path changes by a single byte.
@@ -749,6 +806,7 @@ bool d2gxm_kb_active() { return g_ready && g_kbUiOk; }
 extern "C" { __attribute__((weak)) void d2vita_set_game_size(int w, int h); }
 void d2gxm_set_window(int w, int h) {
     if (w > 0) g_gameW = w; if (h > 0) g_gameH = h;
+    proj_update();                     // les bandes changent avec la fenêtre
     if (d2vita_set_game_size && w > 0 && h > 0) d2vita_set_game_size(w, h);
 }
 
@@ -840,6 +898,20 @@ bool d2gxm_init(int gameW, int gameH) {
     // size they'd draw in the wrong place. They're disabled (and this is
     // logged) rather than smearing the image.
     g_overlayOk = (SCR_W == 960 && SCR_H == 544);
+    // Forme de l'image. Lu APRÈS D2_GXMRES : les bandes se calculent sur la
+    // taille de rendu effective, pas sur 960x544 supposés.
+    if (const char* a = getenv("D2_ASPECT")) {
+        if (!std::strcmp(a, "etire") || !std::strcmp(a, "stretch") || !std::strcmp(a, "0"))
+            g_aspect = 0;
+        else g_aspect = 1;
+    }
+    proj_update();
+    { char m[96]; std::snprintf(m, sizeof m, "gxm: aspect=%s image=%dx%d bandes=%d,%d",
+                                g_aspect ? "4:3" : "etire",
+                                (int)((float)g_gameW * g_projSx + 0.5f),
+                                (int)((float)g_gameH * g_projSy + 0.5f),
+                                (int)(g_projOx + 0.5f), (int)(g_projOy + 0.5f));
+      d2vita_progress(m); }
     if (d2gxm_async()) {
         // With 2 buffer sets, async costs almost exactly the same memory as
         // sync (one extra 16 KiB palette area), and already allows ONE frame
@@ -1570,9 +1642,18 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
     g_texScratchN = 0;
     g_hwpalNewThisFrame = 0;
 
-    // Projection uniform: game window (800x600) -> screen, the same stretch
-    // as the GDI path's StretchBlt.
-    float scale[4] = { 2.0f / (float)g_gameW, -2.0f / (float)g_gameH, -1.0f, 1.0f };
+    // Projection uniform: fenêtre de jeu -> écran. Voir g_aspect plus haut.
+    // La jambe "etire" est l'expression d'origine, littéralement inchangée.
+    float scale[4];
+    if (g_aspect == 0) {
+        scale[0] =  2.0f / (float)g_gameW; scale[1] = -2.0f / (float)g_gameH;
+        scale[2] = -1.0f;                  scale[3] =  1.0f;
+    } else {
+        scale[0] =  2.0f * g_projSx / (float)SCR_W;
+        scale[1] = -2.0f * g_projSy / (float)SCR_H;
+        scale[2] =  2.0f * g_projOx / (float)SCR_W - 1.0f;
+        scale[3] =  1.0f - 2.0f * g_projOy / (float)SCR_H;
+    }
     void* vu = nullptr;
     sceGxmReserveVertexDefaultUniformBuffer(g_ctx, &vu);
     if (vu) sceGxmSetUniformDataF(vu, g_pScale, 0, 4, scale);
@@ -1661,8 +1742,13 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
         d2gr::Vtx* cv = (d2gr::Vtx*)g_vtxBuf[slot].p + nv;    // after the game's own vertices
         uint16_t* ci = (uint16_t*)g_idxBuf[slot].p + ni;
         if (nv + 4 <= MAXV && ni + 6 <= MAXI) {
-            const float W = (float)g_gameW, H = (float)g_gameH;
-            const float xs[4] = { 0, W, W, 0 }, ys[4] = { 0, 0, H, H };
+            // Le quad d'effacement doit couvrir TOUT L'ÉCRAN, bandes comprises :
+            // en mode isotrope aucun triangle du jeu ne touche les côtés, et
+            // sans ça ils garderaient l'image de la frame précédente. En mode
+            // "etire" scr2g*() rend exactement 0..g_gameW / 0..g_gameH.
+            const float X0 = scr2gx(0.f), X1 = scr2gx((float)SCR_W);
+            const float Y0 = scr2gy(0.f), Y1 = scr2gy((float)SCR_H);
+            const float xs[4] = { X0, X1, X1, X0 }, ys[4] = { Y0, Y0, Y1, Y1 };
             for (int k = 0; k < 4; ++k) { cv[k].x = xs[k]; cv[k].y = ys[k]; cv[k].u = 0; cv[k].v = 0;
                                           cv[k].argb = 0xFFFFFFFFu; cv[k].pal = 0.0f; }
             ci[0] = (uint16_t)(nv+0); ci[1] = (uint16_t)(nv+1); ci[2] = (uint16_t)(nv+2);
@@ -1787,15 +1873,14 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
                 d2gr::Vtx* uv = (d2gr::Vtx*)g_vtxBuf[slot].p + vb;
                 uint16_t*  ui = (uint16_t*)g_idxBuf[slot].p + ib;
                 // build_quads rend des pixels ÉCRAN ; les sommets vivent dans
-                // l'espace de la FENÊTRE DE JEU, que la projection étire de
-                // façon non isotrope (800x600 -> 960x544). Sans cette
-                // conversion la roue deviendrait une ellipse.
-                const float kx = (float)g_gameW / (float)SCR_W;
-                const float ky = (float)g_gameH / (float)SCR_H;
+                // l'espace de la FENÊTRE DE JEU. scr2g*() est l'inverse exacte
+                // de la projection : en mode "etire" elle annule l'étirement
+                // non isotrope (sans quoi la roue deviendrait une ellipse), en
+                // mode isotrope elle retire simplement les bandes.
                 for (int k = 0; k < nq; ++k) {
                     for (int c = 0; c < 4; ++c) {
                         d2gr::Vtx& v2 = uv[k * 4 + c];
-                        v2.x = q[k].x[c] * kx; v2.y = q[k].y[c] * ky;
+                        v2.x = scr2gx(q[k].x[c]); v2.y = scr2gy(q[k].y[c]);
                         v2.u = q[k].u[c];      v2.v = q[k].v[c];
                         v2.argb = 0xFFFFFFFFu; v2.pal = 0.0f;
                     }
@@ -1856,10 +1941,8 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
             // g_kbTexH plus haut : la hauteur de LAY_FULL, la plus grande des
             // deux dispositions -- LAY_SIMPLE y dessine dans le bas, laissant
             // le haut transparent, alpha=0 du memset).
-            const float kx = (float)g_gameW / (float)SCR_W;
-            const float ky = (float)g_gameH / (float)SCR_H;
-            const float y0 = (float)(SCR_H - g_kbTexH) * ky, y1 = (float)SCR_H * ky;
-            const float x0 = 0.0f, x1 = (float)SCR_W * kx;
+            const float y0 = scr2gy((float)(SCR_H - g_kbTexH)), y1 = scr2gy((float)SCR_H);
+            const float x0 = scr2gx(0.0f), x1 = scr2gx((float)SCR_W);
             const float xs[4] = { x0, x1, x1, x0 }, ys[4] = { y0, y0, y1, y1 };
             const float us[4] = { 0.0f, 1.0f, 1.0f, 0.0f }, vs[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
             for (int c = 0; c < 4; ++c) {
