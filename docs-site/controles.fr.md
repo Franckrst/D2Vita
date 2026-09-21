@@ -64,7 +64,9 @@ Start/Entrée valide le champ mais laisse le clavier ouvert), et un clavier
 fermé ne se rouvre pas tant qu'un autre champ n'a pas pris le focus (ou que
 le même ne l'a pas perdu puis repris). R + Triangle l'ouvre toujours, sur
 n'importe quel écran. `D2_KBAUTO=0` dans `ux0:data/d2vita/env.txt` coupe
-l'ouverture automatique. Le runtime lit pour cela l'état « contrôle
+l'ouverture automatique. Le clavier se dessine à 50 % d'opacité par défaut —
+le personnage/menu reste visible derrière — réglable avec `D2_KBALPHA=0-100`
+(100 = ancien rendu opaque). Le runtime lit pour cela l'état « contrôle
 focalisé » du jeu lui-même (lecture seule, l'en-tête du contrôle seulement —
 jamais le texte). Chaque transition est journalisée dans
 `boot_progress.txt` en `clavier: focus champ ON/OFF` (plafonné à 64 lignes
