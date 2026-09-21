@@ -65,9 +65,14 @@ manual (Select or the FERMER key — Start/Enter validates the field but
 leaves the keyboard open), and a closed keyboard does not reopen until
 another field takes focus (or the same one loses and regains it). R + Triangle
 still opens it at any time. `D2_KBAUTO=0` in `ux0:data/d2vita/env.txt` turns
-the automatic opening off. The keyboard draws at 50% opacity by default — the
-character/menu stays visible behind it — adjustable with `D2_KBALPHA=0-100`
-(100 = the old fully opaque look). The runtime reads the game's own "focused control"
+the automatic opening off. The keyboard draws at 80% opacity by default — the
+character/menu stays faintly visible behind it — adjustable with
+`D2_KBALPHA=0-100` (100 = the old fully opaque look). Below 100, blending is
+done on the GPU (a separate textured layer, composed alongside the radial
+menu) whenever that path is armed; if it isn't, the keyboard falls back to
+drawing translucency on the CPU, which reads the screen to blend and costs
+noticeably more per frame — opaque (100) is always the fast path either way.
+The runtime reads the game's own "focused control"
 state to know this (read-only, the control's header only — never the text).
 Each transition is logged in `boot_progress.txt` as `clavier: focus champ ON`
 or `clavier: focus champ OFF` (capped at 64 lines per session). In-game chat

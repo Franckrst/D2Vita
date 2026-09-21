@@ -6,6 +6,7 @@
 #include "platform/vita_present.h"
 #include "platform/vita_gpumem.h"   // engine: console GPU memory
 #include "platform/radial_menu.h"   // incrustation GPU: atlas + quads du menu
+#include "platform/vita_kb.h"       // incrustation GPU du clavier: d2kb::draw dans une texture, pas la CDRAM
 
 #include <cstdio>
 #include <cstdlib>
@@ -470,6 +471,15 @@ SceGxmShaderPatcherId  g_fpUiId = 0;
 GpuBlock  g_uiTexBlk{};
 SceGxmTexture g_uiTex;
 bool g_uiOk = false;
+// Clavier virtuel translucide : MEME programme (g_fpUi lit deja l'alpha de sa
+// texture, exactement ce qu'il faut), mais son propre jeu de textures. Atlas
+// du menu = contenu STATIQUE, rempli une fois pour toutes ; le clavier change
+// a chaque frappe -- un tampon PAR IMAGE EN VOL (g_ring), jamais partage
+// entre deux images qui se chevauchent en vol, comme g_vtxBuf/g_palBlk.
+GpuBlock      g_kbTexBlk[MAXRING]{};
+SceGxmTexture g_kbTex[MAXRING];
+bool g_kbUiOk = false;
+int  g_kbTexW = 0, g_kbTexH = 0;   // dimensions reelles (LAY_FULL, couvre aussi LAY_SIMPLE, plus petite)
 bool g_flatOk = false;
 const SceGxmProgramParameter* g_pScale = nullptr;
 const SceGxmProgramParameter* g_pConst = nullptr;
@@ -727,6 +737,9 @@ bool d2gxm_knob() {
 bool d2gxm_ready() { return g_ready; }
 // Armee seulement si la scene GXM tourne ET que le shader+atlas sont en place.
 bool d2gxm_ui_active() { return g_ready && g_uiOk; }
+// Meme regle pour le clavier virtuel translucide (tampons de texture, pas
+// atlas : voir g_kbUiOk plus haut).
+bool d2gxm_kb_active() { return g_ready && g_kbUiOk; }
 // The INPUT layer (vita_present.cpp, g_game_w/g_game_h) learns the game's
 // resolution via d2vita_present(), which is only called on the GDI path. In
 // Glide the game changes resolution via grSstWinOpen, so without this call
@@ -1182,9 +1195,9 @@ bool d2gxm_init(int gameW, int gameH) {
 
     // ---- INCRUSTATION D'INTERFACE SUR LE GPU (menu radial) -----------------
     // Son absence n'est PAS une erreur : sans .gxp (console sans libshacccg et
-    // VPK plus ancien), g_uiOk reste faux et le blitter CPU reprend la main,
-    // plus lent mais correct. Ce qui serait une faute, c'est de le laisser à
-    // moitié armé — d'où le ET final sur les trois conditions.
+    // VPK plus ancien), g_uiOk reste faux et le menu radial n'ouvre plus (pas
+    // de repli CPU — retiré à dessein, voir vita_present.h). Ce qui serait une
+    // faute, c'est de le laisser à moitié armé — d'où le ET final.
     {
         const SceGxmProgram* fui = get_shader("d2_ring_f_rgba", kFragmentRgbaCg, 1, 2);
         bool ok = false;
@@ -1203,10 +1216,9 @@ bool d2gxm_init(int gameW, int gameH) {
                         SCE_GXM_TEXTURE_FORMAT_A8B8G8R8,
                         (unsigned)radial_menu::RM_ATLAS_DIM,
                         (unsigned)radial_menu::RM_ATLAS_DIM, 0) >= 0;
-                // POINT, comme le blitter CPU qu'on remplace : filtrer
-                // changerait le rendu du menu en même temps qu'on change sa
-                // façon d'être dessiné, et on ne saurait plus à quoi attribuer
-                // une différence à l'écran.
+                // POINT : filtrer changerait le rendu du menu en même temps
+                // qu'on change sa façon d'être dessiné, et on ne saurait plus
+                // à quoi attribuer une différence à l'écran.
                 sceGxmTextureSetMinFilter(&g_uiTex, SCE_GXM_TEXTURE_FILTER_POINT);
                 sceGxmTextureSetMagFilter(&g_uiTex, SCE_GXM_TEXTURE_FILTER_POINT);
                 sceGxmTextureSetUAddrMode(&g_uiTex, SCE_GXM_TEXTURE_ADDR_CLAMP);
@@ -1215,10 +1227,44 @@ bool d2gxm_init(int gameW, int gameH) {
         }
         g_uiOk = ok;
         char m[144];
-        std::snprintf(m, sizeof m, "gxm: incrustation menu sur GPU %s (%s) — sinon blitter CPU",
+        std::snprintf(m, sizeof m, "gxm: incrustation menu sur GPU %s (%s)",
                       g_uiOk ? "ARMEE" : "KO", g_shaderOrigin[2][0] ? g_shaderOrigin[2] : "absent");
         d2vita_progress(m);
         if (!g_uiOk && g_uiTexBlk.p) { gpu_free(g_uiTexBlk); g_uiTexBlk = GpuBlock{}; }
+    }
+
+    // ---- INCRUSTATION DU CLAVIER VIRTUEL TRANSLUCIDE SUR LE GPU ------------
+    // Même programme que ci-dessus (g_fpUi) -- pas de shader à compiler en
+    // plus, seulement son propre jeu de textures. Sans lui (ou sous 100 %
+    // d'opacité), draw_keyboard() garde son chemin CPU direct-vers-CDRAM
+    // habituel (vita_present.cpp) : écriture seule, toujours rapide, rien à
+    // changer là. Ce n'est QUE la translucidité (lire l'écran pour mélanger)
+    // qui a besoin du GPU -- exactement le défaut qui coûtait ~81 ms/image au
+    // menu radial avant son propre passage sur GPU (~814 ns par pixel RELU en
+    // CDRAM, le pire accès de la console, mesuré ci-dessus).
+    if (g_uiOk) {
+        g_kbTexW = SCR_W;
+        g_kbTexH = d2kb::panel_h(d2kb::LAY_FULL);   // couvre aussi LAY_SIMPLE, plus petite
+        bool ok = true;
+        for (int i = 0; i < g_ring; ++i) {
+            const uint32_t bytes = (uint32_t)g_kbTexW * (uint32_t)g_kbTexH * 4;
+            if (!gpu_alloc_gpu(g_kbTexBlk[i], bytes, SCE_GXM_MEMORY_ATTRIB_READ, "d2gxm_kb")) { ok = false; break; }
+            std::memset(g_kbTexBlk[i].p, 0, bytes);
+            if (sceGxmTextureInitLinear(&g_kbTex[i], g_kbTexBlk[i].p,
+                    SCE_GXM_TEXTURE_FORMAT_A8B8G8R8,
+                    (unsigned)g_kbTexW, (unsigned)g_kbTexH, 0) < 0) { ok = false; break; }
+            sceGxmTextureSetMinFilter(&g_kbTex[i], SCE_GXM_TEXTURE_FILTER_POINT);
+            sceGxmTextureSetMagFilter(&g_kbTex[i], SCE_GXM_TEXTURE_FILTER_POINT);
+            sceGxmTextureSetUAddrMode(&g_kbTex[i], SCE_GXM_TEXTURE_ADDR_CLAMP);
+            sceGxmTextureSetVAddrMode(&g_kbTex[i], SCE_GXM_TEXTURE_ADDR_CLAMP);
+        }
+        g_kbUiOk = ok;
+        char m[144];
+        std::snprintf(m, sizeof m, "gxm: clavier translucide sur GPU %s (%d tampon(s) %dx%d)",
+                      g_kbUiOk ? "ARME" : "KO", g_ring, g_kbTexW, g_kbTexH);
+        d2vita_progress(m);
+        if (!g_kbUiOk) for (int i = 0; i < g_ring; ++i)
+            if (g_kbTexBlk[i].p) { gpu_free(g_kbTexBlk[i]); g_kbTexBlk[i] = GpuBlock{}; }
     }
 
     // Vertex/index buffers: ONE SET PER FRAME IN FLIGHT. This is the first
@@ -1722,17 +1768,20 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
         ++g_calls;
     }
 
-    // ---- MENU RADIAL, SUR LE GPU -------------------------------------------
+    // ---- INCRUSTATIONS D'INTERFACE, SUR LE GPU -----------------------------
     // Dernier dessin de la scène, donc au-dessus de tout, et dans le même
     // passage : rien à relire, rien à recopier. Les sommets sont écrits APRÈS
     // ceux du jeu (et après le quad d'effacement, qui en consomme 4/6) dans la
-    // place libre des tampons du slot — exactement le procédé du quad
-    // d'effacement juste au-dessus.
+    // place libre des tampons du slot. Deux couches possibles (menu radial
+    // PUIS clavier), chacune démarrant où la précédente s'est arrêtée : uiVb/
+    // uiIb avance du nombre de sommets/indices RÉELLEMENT consommés (0 si
+    // cette couche est fermée), pour que la suivante ne piétine rien.
+    uint32_t uiVb = nv + 4, uiIb = ni + 6;
     if (g_uiOk) {
         if (const radial_menu::State* rm = d2vita_radial_state()) {
             radial_menu::Quad q[2 * RM_N];
             const int nq = radial_menu::build_quads(*rm, SCR_W, SCR_H, q, 2 * RM_N);
-            const uint32_t vb = nv + 4, ib = ni + 6;
+            const uint32_t vb = uiVb, ib = uiIb;
             if (nq > 0 && vb + (uint32_t)nq * 4 <= MAXV && ib + (uint32_t)nq * 6 <= MAXI) {
                 d2gr::Vtx* uv = (d2gr::Vtx*)g_vtxBuf[slot].p + vb;
                 uint16_t*  ui = (uint16_t*)g_idxBuf[slot].p + ib;
@@ -1759,7 +1808,62 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
                 sceGxmDraw(g_ctx, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16,
                            (uint16_t*)g_idxBuf[slot].p + ib, (uint32_t)nq * 6);
                 ++g_calls;
+                uiVb += (uint32_t)nq * 4; uiIb += (uint32_t)nq * 6;
             }
+        }
+    }
+    // ---- CLAVIER VIRTUEL TRANSLUCIDE, SUR LE GPU ---------------------------
+    // Seulement si l'opacité n'est pas 100 % (à 100, draw_keyboard() écrit
+    // déjà directement dans la CDRAM sans jamais la relire -- déjà rapide,
+    // inutile de le refaire ici) et si les tampons de texture sont armés.
+    // Rendu à part : le clavier est du texte + des rectangles reconstruits à
+    // chaque frappe, quatre coins suffisent (un seul quad, texture entière).
+    if (g_kbUiOk) {
+        const int alpha = d2vita_kb_alpha();
+        const d2kb::State* kb = (alpha > 0 && alpha < 100) ? d2vita_kb_state() : nullptr;
+        if (kb && uiVb + 4 <= MAXV && uiIb + 6 <= MAXI) {
+            // Dessin OPAQUE (comme toujours) dans le tampon du clavier -- en
+            // RAM/VRAM ordinaire, jamais la CDRAM du framebuffer visible : un
+            // memset+draw complets ici coûtent l'équivalent d'un clavier
+            // opaque normal (déjà mesuré rapide), pas 200 000 lectures CDRAM.
+            uint32_t* tex = (uint32_t*)g_kbTexBlk[slot].p;
+            const size_t npx = (size_t)g_kbTexW * (size_t)g_kbTexH;
+            std::memset(tex, 0, npx * 4);
+            d2kb::draw(*kb, tex, g_kbTexW, g_kbTexH, 100);
+            // d2kb::draw ne pose jamais que 0xFF au canal alpha (jamais autre
+            // chose, jamais mélangé : appelé à 100 ci-dessus) : un pixel non
+            // dessiné reste à 0 (le memset). Retague chaque pixel DESSINÉ
+            // avec l'opacité demandée ; le shader (g_fpUi, alpha de TEXTURE)
+            // s'occupe du mélange à l'écran, jamais le CPU.
+            const uint32_t aByte = (uint32_t)alpha * 255u / 100u;
+            for (size_t i = 0; i < npx; ++i)
+                if ((tex[i] >> 24) == 0xFFu) tex[i] = (tex[i] & 0x00FFFFFFu) | (aByte << 24);
+
+            d2gr::Vtx* kv = (d2gr::Vtx*)g_vtxBuf[slot].p + uiVb;
+            uint16_t*  ki = (uint16_t*)g_idxBuf[slot].p + uiIb;
+            // La texture couvre les g_kbTexH rangées du BAS de l'écran (voir
+            // g_kbTexH plus haut : la hauteur de LAY_FULL, la plus grande des
+            // deux dispositions -- LAY_SIMPLE y dessine dans le bas, laissant
+            // le haut transparent, alpha=0 du memset).
+            const float kx = (float)g_gameW / (float)SCR_W;
+            const float ky = (float)g_gameH / (float)SCR_H;
+            const float y0 = (float)(SCR_H - g_kbTexH) * ky, y1 = (float)SCR_H * ky;
+            const float x0 = 0.0f, x1 = (float)SCR_W * kx;
+            const float xs[4] = { x0, x1, x1, x0 }, ys[4] = { y0, y0, y1, y1 };
+            const float us[4] = { 0.0f, 1.0f, 1.0f, 0.0f }, vs[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+            for (int c = 0; c < 4; ++c) {
+                kv[c].x = xs[c]; kv[c].y = ys[c]; kv[c].u = us[c]; kv[c].v = vs[c];
+                kv[c].argb = 0xFFFFFFFFu; kv[c].pal = 0.0f;
+            }
+            const uint16_t b0 = (uint16_t)uiVb;
+            ki[0] = b0;              ki[1] = (uint16_t)(b0 + 1);
+            ki[2] = (uint16_t)(b0+2); ki[3] = b0;
+            ki[4] = (uint16_t)(b0+2); ki[5] = (uint16_t)(b0 + 3);
+            sceGxmSetFragmentProgram(g_ctx, g_fpUi);
+            sceGxmSetFragmentTexture(g_ctx, 0, &g_kbTex[slot]);
+            sceGxmDraw(g_ctx, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16,
+                       (uint16_t*)g_idxBuf[slot].p + uiIb, 6);
+            ++g_calls;
         }
     }
 

@@ -56,10 +56,13 @@ void d2gxm_drain();
 // Counter line for the 10 s window. Returns the number of bytes written.
 int  d2gxm_counters(char* out, unsigned n);
 // Vrai quand l'incrustation GPU (menu radial) est armée : shader présent ET
-// atlas alloué. Le blitter CPU de radial_menu.h ne doit alors PAS dessiner,
-// sinon le menu serait composé deux fois et le coût qu'on vient de supprimer
-// reviendrait par la porte de derrière.
+// atlas alloué.
 bool d2gxm_ui_active();
+// Même chose pour le clavier virtuel translucide : shader (le même, g_fpUi)
+// ET tampons de texture alloués (un par image en vol, contenu dynamique).
+// Indépendant de d2gxm_ui_active : une texture qui échoue à s'allouer (VRAM
+// basse) n'a aucune raison de désarmer le menu radial, et réciproquement.
+bool d2gxm_kb_active();
 void d2gxm_shutdown();
 
 #define D2GXM_PALETTES 16
@@ -80,6 +83,7 @@ static inline uint64_t d2gxm_busy_from() { return ~(uint64_t)0; }
 static inline void d2gxm_drain() {}
 static inline int  d2gxm_counters(char*, unsigned) { return 0; }
 static inline bool d2gxm_ui_active() { return false; }
+static inline bool d2gxm_kb_active() { return false; }
 static inline void d2gxm_shutdown() {}
 #define D2GXM_PALETTES 16
 

@@ -162,15 +162,26 @@ uint32_t g_kb_last_focus = 0;         // ouverture auto du clavier : dernier foc
 // Translucent by default: the player can still see the character/menu behind
 // the keys while typing. D2_KBALPHA=0-100 in env.txt overrides (100 = opaque,
 // the old look); read once and clamped, like every other knob here.
+//
+// Below 100, drawing needs to READ whatever is already on screen to blend --
+// on this console that means CDRAM, measured elsewhere in this project at
+// ~814 ns PER PIXEL read (see d2gxm_kb_active below). So alpha<100 is only
+// ever drawn this (CPU) way as a fallback: the sceGxm path composes it on
+// the GPU instead (vita_gxm.cpp), which never touches CDRAM from the CPU at
+// all. This function stays correct standalone (host tests, the older GDI
+// presentation path, and the case where the GPU path isn't armed) but is
+// SLOW below 100 -- never call it for that case when d2gxm_kb_active() is
+// true, that CPU work would just be thrown away by the GPU draw underneath.
 int g_kb_alpha = -1;
-inline void draw_keyboard(uint32_t* fb){
+inline int kb_alpha(){
     if (g_kb_alpha < 0){
         const char* e = getenv("D2_KBALPHA");
-        g_kb_alpha = e ? atoi(e) : 50;
+        g_kb_alpha = e ? atoi(e) : 80;
         if (g_kb_alpha < 0) g_kb_alpha = 0; if (g_kb_alpha > 100) g_kb_alpha = 100;
     }
-    d2kb::draw(g_kb, fb, SCR_W, SCR_H, g_kb_alpha);
+    return g_kb_alpha;
 }
+inline void draw_keyboard(uint32_t* fb){ d2kb::draw(g_kb, fb, SCR_W, SCR_H, kb_alpha()); }
 // --- async present: the scale+flip runs on its OWN Vita core -----------------
 // The guest emulation is single-core; the 960x544 palette scale (~2-5 ms of
 // A9 time per frame) moves to a second CPU via a dedicated thread (the
@@ -415,8 +426,15 @@ void d2vita_overlay(uint32_t* fb) {
     if (++n >= 30) { const uint64_t dt = now - t0; if (dt) fps10 = (int)((uint64_t)n * 10000000ull / dt);
                      n = 0; t0 = now; }
     if (fps_en) draw_fps(fb, fps10);
-    if (g_kb.open) draw_keyboard(fb);
+    // Opaque, or the GPU path isn't armed: draw here, same as always (write
+    // only, never reads CDRAM back -- always fast). Translucent AND armed:
+    // skip it, d2gxm_submit's own scene-injected quad composes it on the GPU
+    // instead (vita_gxm.cpp) -- drawing it here too would blend it TWICE.
+    if (g_kb.open && !(kb_alpha() < 100 && d2gxm_kb_active())) draw_keyboard(fb);
 }
+
+const d2kb::State* d2vita_kb_state() { return g_kb.open ? &g_kb : nullptr; }
+int d2vita_kb_alpha() { return kb_alpha(); }
 
 const radial_menu::State* d2vita_radial_state() { return g_rm.open ? &g_rm : nullptr; }
 
