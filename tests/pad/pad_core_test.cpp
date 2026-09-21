@@ -931,8 +931,8 @@ static void test_r_then_l_is_alt_not_stand_still() {
 }
 
 static void test_shift_survives_two_owners() {
-    // L holds Shift for stand-still; R + belt also needs Shift to send the
-    // potion to the mercenary. Releasing one must not lift it under the other.
+    // Shift has several owners at once. Releasing one must not lift it out
+    // from under another.
     pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     int downs = 0, ups = 0;
@@ -941,12 +941,16 @@ static void test_shift_survives_two_owners() {
             if (z.v[i].k == pad::A_KEYDOWN && z.v[i].a == 0x10) ++downs;
             if (z.v[i].k == pad::A_KEYUP   && z.v[i].a == 0x10) ++ups;
         } };
-    c.buttons = pad::B_L; s.tick(c, x, v, nullptr, 0, a); tally(a);
-    c.buttons = pad::B_L | pad::B_R | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); tally(a);
-    CHECK(downs == 1 && ups == 0);                          // one press, still held
-    c.buttons = pad::B_L | pad::B_R; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); tally(a);
-    CHECK(ups == 0);                                        // belt let go, L still holds it
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); tally(a);
+    // Two mercenary potions at once: R + Up and R + Left each need Shift.
+    // (L can no longer be a co-owner in game -- L + R is the Alt layer.)
+    c.buttons = pad::B_R; s.tick(c, x, v, nullptr, 0, a); tally(a);
+    c.buttons = pad::B_R | pad::B_UP; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); tally(a);
+    CHECK(downs == 1 && ups == 0);
+    c.buttons = pad::B_R | pad::B_UP | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); tally(a);
+    CHECK(downs == 1 && ups == 0);                          // second owner, no second press
+    c.buttons = pad::B_R | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); tally(a);
+    CHECK(ups == 0);                                        // Up let go, Left still holds it
+    c.buttons = pad::B_R; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); tally(a);
     CHECK(ups == 1);
 }
 
@@ -1045,6 +1049,69 @@ static void test_l_plus_dpad_left_is_a_right_click() {
     CHECK(hasAct(a, pad::A_KEYDOWN, 0x32));
 }
 
+// --- second console round, 21/09 ------------------------------------------
+
+static void test_alt_does_not_care_which_shoulder_came_first() {
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    // L first, then R: used to give Shift and no labels at all
+    c.buttons = pad::B_L; s.tick(c, x, v, nullptr, 0, a);
+    c.buttons = pad::B_L | pad::B_R; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_KEYDOWN, 0x12));            // Alt
+    CHECK(hasAct(a, pad::A_KEYUP, 0x10));              // and the stand-still Shift let go
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_KEYUP, 0x12));
+    CHECK(!hasAct(a, pad::A_KEY, 0x52));               // never a run toggle
+}
+
+static void test_scenery_the_game_never_hovers_is_learned_by_class() {
+    // Console, 21/09: "X cible encore des torches". Every type-2 object is
+    // flagged interactable by the glue, torches included. The game never
+    // hovers one, and scenery of a given class never will -- so learn the
+    // CLASS, not the instance, and learn it just by sweeping the cursor over
+    // it rather than by wasting a press.
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[2];
+    u[0].id = 1; u[0].type = 2; u[0].cls = 55; u[0].sx = 500; u[0].sy = 300; u[0].interact = true;  // torch
+    u[1].id = 2; u[1].type = 2; u[1].cls = 55; u[1].sx = 560; u[1].sy = 300; u[1].interact = true;  // another torch
+    s.setCursor(500, 296);                              // hovering the first one, game says nothing
+    for (int i = 0; i < 10; ++i) { a = pad::Actions{}; s.tick(c, x, v, u, 2, a); }
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    CHECK(!s.interacting());                            // learned: not a target
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    s.setCursor(560, 296);                              // the OTHER torch of the same class
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    CHECK(!s.interacting());                            // no second press wasted
+}
+
+static void test_a_hovered_object_is_never_learned_as_scenery() {
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1];
+    u[0].id = 1; u[0].type = 2; u[0].cls = 7; u[0].sx = 500; u[0].sy = 300; u[0].interact = true;
+    s.setCursor(500, 296);
+    x.selValid = 1; x.selId = 1; x.selType = 2;         // the game does hover this chest
+    for (int i = 0; i < 20; ++i) { a = pad::Actions{}; s.tick(c, x, v, u, 1, a); }
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(s.interacting());
+}
+
+static void test_left_stick_switches_target_while_cross_is_held() {
+    // Console request: holding X should let the left stick move the target,
+    // since movement is suspended for the duration anyway.
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[2] = { mkMon(1, 500, 300),      // east
+                       mkMon(2, 400, 220) };    // north
+    s.tick(c, x, v, u, 2, a);
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    CHECK(s.interacting() && hasAct(a, pad::A_MOVE, 500, 272));   // the nearer one, east
+    c.ly = -1.f;                                                   // swing the stick north
+    a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    CHECK(hasAct(a, pad::A_MOVE, 400, 192));                       // now the northern one
+}
+
 int main() {
     test_projection();
     test_clamp_and_box();
@@ -1096,6 +1163,10 @@ int main() {
     test_a_unit_the_game_never_hovers_is_given_up_on();
     test_a_hovered_unit_is_never_given_up_on();
     test_l_plus_dpad_left_is_a_right_click();
+    test_alt_does_not_care_which_shoulder_came_first();
+    test_scenery_the_game_never_hovers_is_learned_by_class();
+    test_a_hovered_object_is_never_learned_as_scenery();
+    test_left_stick_switches_target_while_cross_is_held();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

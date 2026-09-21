@@ -98,10 +98,15 @@ bool in_unit_box(const Unit& u, int x, int y);
 // the nearest such creature captured every Cross press and blocked the real
 // target behind it (console, 21/09).
 struct Reject {
-    enum { N = 4 };
-    uint32_t id[N] = {}, type[N] = {}; int n = 0, next = 0;
-    bool has(uint32_t i, uint32_t t) const;
-    void add(uint32_t i, uint32_t t);
+    enum { NID = 8, NCLS = 32 };
+    // Creatures are rejected per INSTANCE: a vulture still in the air will
+    // land and become a target. Scenery is rejected per CLASS: a torch class
+    // is never operable, so learning it once spares every other torch on the
+    // level -- which is what "X keeps targeting torches" came down to.
+    uint32_t id[NID] = {}, idType[NID] = {}; int nId = 0, nextId = 0;
+    uint32_t cls[NCLS] = {}, clsType[NCLS] = {}; int nCls = 0;
+    bool has(const Unit& u) const;
+    void add(const Unit& u);
 };
 
 // Aim direction for the cone: the player->cursor vector, normalized. Returns
@@ -228,6 +233,10 @@ private:
     // game to report the hover before pressing (see the L block).
     int      interAttempt_ = 0, interH_ = 0, interArm_ = 0;
     Reject   rej_;                     // units the game would not hover
+    // Passive learning: the cursor is sitting inside a unit's box and the game
+    // reports no hover for it. After a few frames that is a statement, not a
+    // race, and it costs the player no button press to find out.
+    uint32_t coldId_ = 0, coldType_ = 0; int coldTicks_ = 0;
     bool     rmbL_ = false;            // L + D-pad left holds the right button
     // modifiers / keys held
     bool     alt_ = false, esc_ = false, wkey_ = false;

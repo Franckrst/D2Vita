@@ -68,7 +68,7 @@ int pick_hostile(const Unit* u, int n, const View& v, float ax, float ay, bool a
     auto score = [&](int i, float* s) -> bool {
         const Unit& t = u[i];
         if (!(kind == T_CORPSE ? t.corpse : t.hostile)) return false;
-        if (rej && rej->has(t.id, t.type)) return false;      // the game will not select it
+        if (rej && rej->has(t)) return false;                  // the game will not select it
         float dx, dy; to_iso((float)(t.sx - psx), (float)(t.sy - psy), &dx, &dy);
         const float d = std::sqrt(dx * dx + dy * dy);
         if (d > maxD) return false;
@@ -94,7 +94,7 @@ int pick_interact(const Unit* u, int n, const View& v, const Config& /*cfg*/, co
     for (int i = 0; i < n; ++i) {
         const Unit& t = u[i];
         if (!t.interact || t.type == 4) continue;      // ground items belong to Alt + Cross
-        if (rej && rej->has(t.id, t.type)) continue;
+        if (rej && rej->has(t)) continue;
         const float d = iso_len((float)(t.sx - psx), (float)(t.sy - psy));
         if (d > 220.f) continue;
         if (best < 0 || d < bd) { best = i; bd = d; }
@@ -102,15 +102,20 @@ int pick_interact(const Unit* u, int n, const View& v, const Config& /*cfg*/, co
     return best;
 }
 
-bool Reject::has(uint32_t i, uint32_t t) const {
-    for (int k = 0; k < n; ++k) if (id[k] == i && type[k] == t) return true;
+bool Reject::has(const Unit& u) const {
+    for (int k = 0; k < nCls; ++k) if (cls[k] == u.cls && clsType[k] == u.type) return true;
+    for (int k = 0; k < nId; ++k) if (id[k] == u.id && idType[k] == u.type) return true;
     return false;
 }
-void Reject::add(uint32_t i, uint32_t t) {
-    if (has(i, t)) return;
-    id[next] = i; type[next] = t;
-    next = (next + 1) % N;
-    if (n < N) ++n;
+void Reject::add(const Unit& u) {
+    if (has(u)) return;
+    if (u.type == 2) {                       // scenery: the whole class is out
+        if (nCls < NCLS) { cls[nCls] = u.cls; clsType[nCls] = u.type; ++nCls; }
+        return;
+    }
+    id[nextId] = u.id; idType[nextId] = u.type;
+    nextId = (nextId + 1) % NID;
+    if (nId < NID) ++nId;
 }
 
 int pick_at(const Unit* u, int n, int cx, int cy, const Reject* rej) {
@@ -118,7 +123,7 @@ int pick_at(const Unit* u, int n, int cx, int cy, const Reject* rej) {
     for (int i = 0; i < n; ++i) {
         const Unit& t = u[i];
         if (!t.interact && !t.hostile) continue;
-        if (rej && rej->has(t.id, t.type)) continue;
+        if (rej && rej->has(t)) continue;
         if (!in_unit_box(t, cx, cy)) continue;
         const float d = iso_len((float)(t.sx - cx), (float)(t.sy - cy));
         if (best < 0 || d < bd) { best = i; bd = d; }
@@ -256,6 +261,8 @@ enum : uint32_t { SH_L = 1u, SH_SQR = 2u, SH_DPAD = 4u };
 static const int kTapTicks = 10;
 // Four candidate heights, one tried every 3 ticks: two full sweeps.
 static const int kHoverGiveUp = 24;
+// Frames of cursor-inside-the-box with no hover before scenery is written off.
+static const int kColdTicks = 5;
 static const uint32_t kDpadBits[4] = { B_UP, B_LEFT, B_DOWN, B_RIGHT };   // belt 1..4, same order as the legacy table
 
 void Scheme::stickDelta(float sx, float sy, const View& v, float* dx, float* dy) const {
@@ -359,8 +366,15 @@ void Scheme::commonButtons(const Ctl& c, uint32_t down, uint32_t up, Actions& ou
             dpad_[i] = Held{};
         }
     }
-    // Alt (ground item labels): R held first, then L. Ends when either goes up.
-    if ((down & B_L) && layer && !interact_ && castSlot_ < 0) { out.push(A_KEYDOWN, 0x12); alt_ = true; }
+    // Alt (ground item labels): BOTH shoulders, in either order. Requiring R
+    // first was invisible to the player -- console, 21/09: "it works, but it
+    // should not care about the order". Whichever lands second arms it, and
+    // the stand-still Shift that L may be holding lets go.
+    const bool bothShoulders = (c.buttons & B_L) && (c.buttons & B_R);
+    if (!alt_ && bothShoulders && ((down & B_L) || (down & B_R)) && !interact_ && castSlot_ < 0) {
+        out.push(A_KEYDOWN, 0x12); alt_ = true;
+        shiftOwn(SH_L, false, out);
+    }
     if (alt_ && ((up & B_L) || (up & B_R))) { out.push(A_KEYUP, 0x12); alt_ = false; }
 }
 
@@ -420,6 +434,25 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
                                       : aim_from_cursor(v, cx_, cy_, &ax, &ay);
     int ti = -1;
     if (cfg_.aim) { ti = pick_hostile(u, n, v, ax, ay, aimed, cfg_, findId(u, n, tgtId_, 1), T_HOSTILE, &rej_); tgtId_ = ti >= 0 ? u[ti].id : 0; }
+
+    // ---- learn scenery without spending a press ----
+    // The cursor is sitting inside a type-2 box and the game reports no hover
+    // on it: after a few frames that is a statement, not a race. Restricted to
+    // scenery on purpose -- a creature's box is generous and its sprite may
+    // simply not fill it, which is a different problem with its own handling
+    // when Cross is actually held on it.
+    if (!alt_ && !interact_ && castSlot_ < 0) {
+        const int ci = pick_at(u, n, cx_, cy_, &rej_);
+        if (ci < 0 || u[ci].type != 2) { coldId_ = 0; coldTicks_ = 0; }
+        else {
+            const Unit& cu = u[ci];
+            const bool hov = x.selValid && x.selId == cu.id && x.selType == cu.type;
+            if (hov) { coldId_ = 0; coldTicks_ = 0; }
+            else if (coldId_ == cu.id && coldType_ == cu.type) {
+                if (++coldTicks_ >= kColdTicks) { rej_.add(cu); coldId_ = 0; coldTicks_ = 0; }
+            } else { coldId_ = cu.id; coldType_ = cu.type; coldTicks_ = 1; }
+        }
+    }
 
     // ---- cast: faces = slots 1-4, R + faces = 5-8 ----
     if (castSlot_ < 0 && !interact_ && !alt_) {
@@ -537,6 +570,21 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             interact_ = false; interId_ = 0; interArm_ = 0;
             moveTo(userX_, userY_, out);                // borrowed, now handed back
         } else {
+            // Movement is suspended for as long as Cross is held, so the left
+            // stick is free to steer the TARGET instead (console request,
+            // 21/09). Creatures only: a chest does not move and neither
+            // should the intent to open it.
+            const float stickM = std::sqrt(c.lx * c.lx + c.ly * c.ly);
+            if (stickM > cfg_.deadzone && interType_ == 1) {
+                float sxd, syd; to_iso(c.lx, c.ly, &sxd, &syd);
+                const int ni = pick_hostile(u, n, v, sxd, syd, true, cfg_, -1, T_HOSTILE, &rej_);
+                if (ni >= 0 && !(u[ni].id == interId_ && u[ni].type == interType_)) {
+                    if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+                    interId_ = u[ni].id; interType_ = u[ni].type; interCls_ = u[ni].cls;
+                    interAttempt_ = 0; interArm_ = 1;
+                    interH_ = hover_.get(interType_, interCls_, cfg_.hoverH);
+                }
+            }
             const int ii = findId(u, n, interId_, interType_);
             if (ii < 0) interArm_ = 0;                        // gone: pressing now would be a walk order
             else {
@@ -561,7 +609,7 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
                     // all: this unit is not selectable. Remember it and let
                     // go, so the next press reaches what is behind it.
                     if (interArm_ > kHoverGiveUp) {
-                        rej_.add(interId_, interType_);
+                        { const int ri = findId(u, n, interId_, interType_); if (ri >= 0) rej_.add(u[ri]); }
                         if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
                         interact_ = false; interId_ = 0; interArm_ = 0;
                         interAttempt_ = 0;
