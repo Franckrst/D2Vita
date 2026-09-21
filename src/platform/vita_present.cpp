@@ -1831,6 +1831,19 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
             // to find the one behind "panel X is not detected".
             for (int i = 0; i < 38 && lines < 2000; i++) if (s.uiVars[i] != lastUi[i]) { lastUi[i] = s.uiVars[i];
                 snprintf(m, sizeof m, "pad: uivar[%d]=%u", i, s.uiVars[i]); d2vita_progress(m); ++lines; }
+            // Which rule Cross applied, every time it changes. The branch is
+            // what turns "we are not hitting the nearest mob" into a fact.
+            {
+                const pad::Scheme::Pick pk = g_scheme->lastPick();
+                static uint32_t lastPickId = 0xffffffffu; static int lastBranch = -2;
+                if ((pk.id != lastPickId || pk.branch != lastBranch) && lines < 2000) {
+                    lastPickId = pk.id; lastBranch = pk.branch;
+                    static const char* kWhy[6] = { "cadavre", "sous_curseur", "cone", "objet_proche", "hostile_proche", "rien" };
+                    snprintf(m, sizeof m, "pad: croix -> id=%u type=%u dist=%d via=%s",
+                             pk.id, pk.type, pk.dist, kWhy[pk.branch < 0 ? 5 : pk.branch]);
+                    d2vita_progress(m); ++lines;
+                }
+            }
             // One line a second while the left stick is pushed: did the walk
             // click go out at all, and did it land on a monster? A left click
             // on a monster is ATTACK, not move, which is the leading theory

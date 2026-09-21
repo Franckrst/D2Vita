@@ -1145,7 +1145,7 @@ static void test_own_corpse_outranks_everything() {
     pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[2] = { mkMon(1, 470, 300) };
-    u[1].id = 7; u[1].type = 0; u[1].cls = 4; u[1].sx = 620; u[1].sy = 300;
+    u[1].id = 7; u[1].type = 0; u[1].cls = 4; u[1].sx = 620; u[1].sy = 300;   // 220, within reach
     u[1].interact = true; u[1].ownCorpse = true;
     s.setCursor(470, 280);                            // cursor parked ON the monster
     s.tick(c, x, v, u, 2, a);
@@ -1227,6 +1227,52 @@ static void test_walking_out_of_a_crowd_finds_clear_ground() {
     CHECK(px > 400);                                  // and it still goes where the stick points
 }
 
+static void test_a_far_corpse_does_not_outrank_what_is_on_us() {
+    // "Absolute priority" for our own body was taken literally and it is
+    // wrong at range: console, 21/09, the corpse won while it was far across
+    // the screen and a monster was in our face. It wins within reach, where
+    // pressing Cross can only mean "pick my gear back up".
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[2] = { mkMon(1, 440, 300) };                  // 40 in the world
+    u[1].id = 7; u[1].type = 0; u[1].cls = 4; u[1].sx = 780; u[1].sy = 300;   // 380 away
+    u[1].interact = true; u[1].ownCorpse = true;
+    s.tick(c, x, v, u, 2, a);
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    CHECK(hasAct(a, pad::A_MOVE, 440, 272));                  // the monster, not the far body
+    // brought within reach, it wins again
+    pad::Config cfg2; pad::Scheme s2(cfg2); pad::Ctx x2; x2.inGame = true;
+    pad::Ctl c2; pad::Actions a2;
+    u[1].sx = 600;                                            // 200 away, inside reach
+    s2.tick(c2, x2, v, u, 2, a2);
+    c2.buttons = pad::B_CROSS; a2 = pad::Actions{}; s2.tick(c2, x2, v, u, 2, a2);
+    CHECK(hasAct(a2, pad::A_MOVE, 600, 272));
+}
+
+static void test_the_nearest_wins_between_an_object_and_a_monster() {
+    // The chain used to put ANY interactable within reach ahead of the
+    // nearest enemy, by fixed precedence. With the targetable bit now
+    // filtering the scenery out, what is left are real doors and chests --
+    // and opening one instead of hitting the monster on top of us is not
+    // what the button should mean. Compare distances instead.
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[2] = { mkMon(1, 430, 300) };                  // monster, 30 in the world
+    u[1].id = 8; u[1].type = 2; u[1].cls = 7; u[1].sx = 600; u[1].sy = 300;   // door, 200
+    u[1].interact = true;
+    s.tick(c, x, v, u, 2, a);
+    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    CHECK(hasAct(a, pad::A_MOVE, 430, 272));                  // the monster is nearer: hit it
+    // and the other way round, the door wins
+    pad::Config cfg2; pad::Scheme s2(cfg2); pad::Ctx x2; x2.inGame = true;
+    pad::Ctl c2; pad::Actions a2;
+    pad::Unit w[2] = { mkMon(1, 700, 300) };                  // monster, 300
+    w[1] = u[1]; w[1].sx = 450;                               // door, 50
+    s2.tick(c2, x2, v, w, 2, a2);
+    c2.buttons = pad::B_CROSS; a2 = pad::Actions{}; s2.tick(c2, x2, v, w, 2, a2);
+    CHECK(hasAct(a2, pad::A_MOVE, 450, 280));
+}
+
 int main() {
     test_projection();
     test_clamp_and_box();
@@ -1286,6 +1332,8 @@ int main() {
     test_left_stick_breaks_off_and_walks();
     test_right_stick_switches_target_while_cross_is_held();
     test_own_corpse_outranks_everything();
+    test_a_far_corpse_does_not_outrank_what_is_on_us();
+    test_the_nearest_wins_between_an_object_and_a_monster();
     test_interact_reach_is_configurable();
     test_offscreen_units_are_not_targets();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);

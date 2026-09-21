@@ -571,14 +571,32 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
         // intent there is, so it comes first -- ahead of the cone, which used
         // to win and made the stash unreachable however carefully it was
         // pointed at (console, 21/09).
+        int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
+        auto dist = [&](int k) { return iso_len((float)(u[k].sx - psx), (float)(u[k].sy - psy)); };
         // Our own body, with all our gear on it, outranks anything else the
-        // button could mean -- console, 21/09, and it is hard to argue with.
-        int ii = -1;
-        for (int k = 0; k < n; ++k) if (u[k].ownCorpse) { ii = k; break; }
-        if (ii < 0) ii = pick_at(u, n, cx_, cy_, &rej_);
-        if (ii < 0 && aimed) ii = ti;                  // ti already skips the rejects
-        if (ii < 0) ii = pick_interact(u, n, v, cfg_, &rej_);
-        if (ii < 0) ii = ti;
+        // button could mean -- but only WITHIN REACH. Taken as an absolute it
+        // hijacked Cross from across the screen while a monster was in our
+        // face (console, 21/09).
+        int ii = -1, branch = -1;
+        for (int k = 0; k < n; ++k)
+            if (u[k].ownCorpse && dist(k) <= (float)cfg_.reach) { ii = k; branch = 0; break; }
+        if (ii < 0) { ii = pick_at(u, n, cx_, cy_, &rej_); if (ii >= 0) branch = 1; }
+        if (ii < 0 && aimed) { ii = ti; if (ii >= 0) branch = 2; }   // ti already skips the rejects
+        if (ii < 0) {
+            // Not aiming at anything: take whichever is actually NEAREST,
+            // rather than letting a door win on precedence alone. Now that
+            // the targetable bit keeps the scenery out, what is left here is
+            // real -- and opening a real door instead of hitting the monster
+            // on top of us is still not what the button should mean.
+            const int io = pick_interact(u, n, v, cfg_, &rej_);
+            if (io >= 0 && ti >= 0)      ii = dist(io) <= dist(ti) ? io : ti;
+            else if (io >= 0)            ii = io;
+            else                         ii = ti;
+            if (ii >= 0) branch = (ii == io) ? 3 : 4;
+        }
+        pick_ = Pick{};
+        pick_.branch = branch;
+        if (ii >= 0) { pick_.id = u[ii].id; pick_.type = u[ii].type; pick_.dist = (int)dist(ii); }
         if (ii >= 0) {
             interact_ = true; interId_ = u[ii].id; interType_ = u[ii].type; interCls_ = u[ii].cls;
             interAttempt_ = 0; interArm_ = 1;

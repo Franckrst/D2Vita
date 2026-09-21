@@ -199,6 +199,14 @@ public:
         int  px = 0, py = 0, nUnits = 0;
     };
     Walk walk() const { return walk_; }
+    // What the last Cross press chose, and by which rule. "We are not hitting
+    // the nearest mob" needs the branch, not another round of reasoning.
+    struct Pick {
+        uint32_t id = 0, type = 0; int dist = 0;
+        int branch = -1;     // 0 corpse, 1 under cursor, 2 aim cone, 3 nearest object,
+                             // 4 nearest hostile, -1 nothing
+    };
+    Pick lastPick() const { return pick_; }
 
 private:
     enum Mode { M_NONE, M_WORLD, M_PANEL };
@@ -251,6 +259,7 @@ private:
     // game to report the hover before pressing (see the L block).
     int      interAttempt_ = 0, interH_ = 0, interArm_ = 0;
     Walk     walk_;
+    Pick     pick_;
     Reject   rej_;                     // units the game would not hover
     // Passive learning: the cursor is sitting inside a unit's box and the game
     // reports no hover for it. After a few frames that is a statement, not a
