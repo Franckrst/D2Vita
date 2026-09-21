@@ -27,6 +27,7 @@
 #include "runtime/phase_hooks.h"    // phase hooks
 #include "runtime/native_hooks_codec.h"  // codec/DCC/Fog-raise hooks
 #include "runtime/native_hooks_cellengine.h"  // cell-loop/light-grid/blend/RLE/collision hooks
+#include "runtime/native_hooks_resolution.h"  // resolution de jeu native (D2_RES)
 #include "runtime/guest_atomics.h"           // atomics over guest memory -> winx86
 #include "runtime/guest_thread_ctx.h"        // current-thread TIB + last error -> winx86
 #include "runtime/guest_sync.h"              // kernel objects + handle table + observer -> winx86
@@ -3922,6 +3923,11 @@ int main(int argc,char**argv){
     native_hooks_cellengine_install_rest(cpu,br);
 
     native_hooks_codec_install_post(cpu,br,&g_frame);
+
+    // Resolution de jeu native (D2_RES=960x544). ABSENT PAR DEFAUT. Pose en
+    // DERNIER : ses quatre crochets sont independants des autres, et ca rend
+    // le recensement d'alternates ci-dessous lisible.
+    native_hooks_resolution_install(cpu,br);
 
     // ALTERNATES CENSUS. The dynarec's redirect table (the primitive all our
     // native ports hook through) has no bound anymore, but a LOST counter

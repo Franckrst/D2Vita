@@ -29,6 +29,12 @@
 #endif
 using namespace d2rt;
 extern "C" void r60_gxm_arm();
+// Override de resolution de jeu (src/runtime/native_hooks_resolution.cpp).
+// FAIBLES : l'anneau Glide se compile aussi seul (tools/build_glide_ring.sh),
+// sans le runtime. Nuls dans ce cas, et grSstWinOpen garde la table Glide.
+extern "C" { __attribute__((weak)) int d2res_active(void);
+             __attribute__((weak)) int d2res_w(void);
+             __attribute__((weak)) int d2res_h(void); }
 #ifdef __vita__
 extern "C" int d2vita_pin_self(int mask, unsigned* relu);
 #endif
@@ -1014,7 +1020,16 @@ static void gx_state(uint32_t op, uint32_t len, const uint32_t* rp){
       case 0x25:                                                  // grSstWinOpen
         { static const uint16_t RW[16]={320,320,400,512,640,640,640,640,800,960,856,512,1024,1280,1600,400};
           static const uint16_t RH[16]={200,240,256,384,200,350,400,480,600,720,480,256, 768,1024,1200,300};
-          if(a[1]<16){ g_gxResW=RW[a[1]]; g_gxResH=RH[a[1]];
+          // D2 ne demande jamais que l'index 7 (640x480) ou 8 (800x600). Avec
+          // D2_RES arme, on ouvre la taille demandee par l'override quel que
+          // soit l'index : c'est legitime parce que NOUS sommes le pilote
+          // Glide (meme modele que D2DX), et les crochets de
+          // native_hooks_resolution ont deja mis les globals du jeu d'accord.
+          // Sans l'override (defaut), rien ne change.
+          if(d2res_active && d2res_active()){
+              g_gxResW=(uint16_t)d2res_w(); g_gxResH=(uint16_t)d2res_h();
+              r60_gxm_lock(); d2gxm_set_window((int)g_gxResW,(int)g_gxResH); r60_gxm_unlock(); }
+          else if(a[1]<16){ g_gxResW=RW[a[1]]; g_gxResH=RH[a[1]];
               r60_gxm_lock(); d2gxm_set_window((int)g_gxResW,(int)g_gxResH); r60_gxm_unlock(); } }
         break;
       case 0x30: g_gxClear=a[1]; break;                           // grBufferClear

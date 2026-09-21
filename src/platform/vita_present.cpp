@@ -237,7 +237,12 @@ inline void draw_keyboard(uint32_t* fb){ d2kb::draw(g_kb, fb, SCR_W, SCR_H, kb_a
 //      a default.
 // The palette (1 KB) is always copied on the producer side in every mode: it
 // costs nothing, and pulling it out of the race removes a risk for no gain.
-struct PresentSlot { uint8_t px[800*600]; uint8_t pal[1024]; int w,h,bpp,fps10;
+// Dimensionne sur l'ECRAN (960x544 = 522 240 o), pas sur 800x600 : avec
+// D2_RES le jeu dessine desormais jusqu'a la taille de la dalle, et l'ancien
+// tampon de 480 000 o faisait tomber l'image dans la garde SILENCIEUSE plus
+// bas. +42 Ko par emplacement, deux emplacements.
+constexpr size_t PRESENT_PX_MAX = 960u * 544u;
+struct PresentSlot { uint8_t px[PRESENT_PX_MAX]; uint8_t pal[1024]; int w,h,bpp,fps10;
                      const uint8_t* src; };   // src==px => already copied by the producer
 PresentSlot g_slot[2];
 volatile int g_pub = 0;        // slot index published for the consumer
@@ -696,7 +701,18 @@ void d2vita_present(const uint8_t* pixels, int w, int h, int bpp,
                     const uint8_t* palette) {
     if (!g_inited) d2vita_present_init();
     if (!pixels || w <= 0 || h <= 0 || !g_fb[0]) return;
-    if ((size_t)w * h * (bpp / 8) > sizeof g_slot[0].px) return;   // staging bound
+    // Borne du tampon de transit. Elle ETAIT SILENCIEUSE : une image plus
+    // grande disparaissait sans une ligne de journal, ce qui se presente comme
+    // un ecran noir sans cause. On le dit maintenant, une fois.
+    if ((size_t)w * h * (bpp / 8) > sizeof g_slot[0].px) {
+        static bool dit = false;
+        if (!dit) { dit = true;
+            char m[128]; std::snprintf(m, sizeof m,
+                "present: IMAGE JETEE %dx%dx%d (%zu o) > tampon %zu o",
+                w, h, bpp, (size_t)w * h * (bpp / 8), sizeof g_slot[0].px);
+            d2vita_progress(m); }
+        return;
+    }
     static int g_frames = 0;
     static int g_lastw = 0, g_lasth = 0;
     if (g_frames == 0) { char m[64]; std::snprintf(m, sizeof m, "first frame presented: %dx%d %dbpp", w, h, bpp); d2vita_progress(m);
