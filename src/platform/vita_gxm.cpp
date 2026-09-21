@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 #include <psp2/gxm.h>
 #include <psp2/display.h>
 #include <psp2/types.h>
@@ -1822,14 +1823,23 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
         const int alpha = d2vita_kb_alpha();
         const d2kb::State* kb = (alpha > 0 && alpha < 100) ? d2vita_kb_state() : nullptr;
         if (kb && uiVb + 4 <= MAXV && uiIb + 6 <= MAXI) {
-            // Dessin OPAQUE (comme toujours) dans le tampon du clavier -- en
-            // RAM/VRAM ordinaire, jamais la CDRAM du framebuffer visible : un
-            // memset+draw complets ici coûtent l'équivalent d'un clavier
-            // opaque normal (déjà mesuré rapide), pas 200 000 lectures CDRAM.
-            uint32_t* tex = (uint32_t*)g_kbTexBlk[slot].p;
+            // Rasterise ET retague dans un tampon RAM ORDINAIRE, jamais la
+            // texture GPU directement -- le premier essai lisait la texture
+            // pour savoir quels pixels retaguer, et a mesuré la MEME chute
+            // d'images/s qu'avant : g_kbTexBlk préfère la CDRAM (comme
+            // l'atlas du menu radial, gpu_alloc_best), et lire depuis le CPU
+            // coûte ~814 ns/pixel QUELLE QUE SOIT la texture visée -- ce
+            // n'est pas propre au framebuffer visible. Écrire y est en
+            // revanche toujours bon marché (c'est tout ce qu'un clavier
+            // opaque a jamais fait) : tout le travail qui a besoin de RELIRE
+            // se fait ici, sur un tampon RAM normal (aucun coût à le lire),
+            // et SEULE la copie finale touche la texture GPU -- en écriture
+            // seule, donc rapide même si gpu_alloc_best l'a mise en CDRAM.
+            static std::vector<uint32_t> scratch;
             const size_t npx = (size_t)g_kbTexW * (size_t)g_kbTexH;
-            std::memset(tex, 0, npx * 4);
-            d2kb::draw(*kb, tex, g_kbTexW, g_kbTexH, 100);
+            if (scratch.size() != npx) scratch.assign(npx, 0);
+            else std::memset(scratch.data(), 0, npx * 4);
+            d2kb::draw(*kb, scratch.data(), g_kbTexW, g_kbTexH, 100);
             // d2kb::draw ne pose jamais que 0xFF au canal alpha (jamais autre
             // chose, jamais mélangé : appelé à 100 ci-dessus) : un pixel non
             // dessiné reste à 0 (le memset). Retague chaque pixel DESSINÉ
@@ -1837,7 +1847,8 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
             // s'occupe du mélange à l'écran, jamais le CPU.
             const uint32_t aByte = (uint32_t)alpha * 255u / 100u;
             for (size_t i = 0; i < npx; ++i)
-                if ((tex[i] >> 24) == 0xFFu) tex[i] = (tex[i] & 0x00FFFFFFu) | (aByte << 24);
+                if ((scratch[i] >> 24) == 0xFFu) scratch[i] = (scratch[i] & 0x00FFFFFFu) | (aByte << 24);
+            std::memcpy(g_kbTexBlk[slot].p, scratch.data(), npx * 4);
 
             d2gr::Vtx* kv = (d2gr::Vtx*)g_vtxBuf[slot].p + uiVb;
             uint16_t*  ki = (uint16_t*)g_idxBuf[slot].p + uiIb;
