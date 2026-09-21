@@ -868,6 +868,11 @@ extern "C" size_t d2rt_box86_custommalloc_kb(void);   // custommem.c: box86 allo
 extern "C" size_t d2rt_box86_jmptbl_kb(void);
 extern "C" unsigned int dyn86_jitpool_size, dyn86_jitpool_used;   // JIT pool (mman_vita.c)
 extern "C" unsigned int dyn86_jit_cur, dyn86_rw_cur;   // live JIT/RW memblock bytes (mman_vita)
+// Refus du tas de METADONNEES de box86 (dynablock.c). Publie ici parce que
+// c'est le seul poste memoire encore demande au noyau en pleine partie :
+// tant qu'il ne figurait nulle part, un refus se lisait comme un crash sans
+// cause (hfault_sys|SceLibKernel|0x120) au lieu d'un manque de RAM.
+extern "C" unsigned int dyn86_meta_allocfail;
 // Optional per-guest-thread dump, registered by rt_boot once the scheduler
 // exists; called from the watchdog when the frame counter stalls.
 void (*d2vita_wd_threads)(void) = nullptr;
@@ -1232,10 +1237,10 @@ int watchdog_thread(SceSize, void*) {
             // anyone in particular.
             char mm[288];   // must fit "dont box86: ..." without truncating
             std::snprintf(mm, sizeof mm,
-              "MEM: libre user=%d Ko cdram=%d Ko phycont=%d Ko (rc=%d) | tas newlib: en-cours=%d Ko reserve=%d/%u Ko libre=%d Ko | dont box86: custom=%u Ko sauts=%u Ko | piscine JIT %u/%u Ko",
+              "MEM: libre user=%d Ko cdram=%d Ko phycont=%d Ko (rc=%d) | tas newlib: en-cours=%d Ko reserve=%d/%u Ko libre=%d Ko | dont box86: custom=%u Ko (refus=%u) sauts=%u Ko | piscine JIT %u/%u Ko",
               fi.size_user>>10, fi.size_cdram>>10, fi.size_phycont>>10, r,
               (int)(mi.uordblks>>10), (int)(mi.arena>>10), _newlib_heap_size_user>>10, (int)(mi.fordblks>>10),
-              (unsigned)d2rt_box86_custommalloc_kb(), (unsigned)d2rt_box86_jmptbl_kb(),
+              (unsigned)d2rt_box86_custommalloc_kb(), dyn86_meta_allocfail, (unsigned)d2rt_box86_jmptbl_kb(),
               dyn86_jitpool_used>>10, dyn86_jitpool_size>>10);
             d2vita_progress(mm); }
           // D2_NATPROF: TIME per trap slot within the window (native ports +
