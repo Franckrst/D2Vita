@@ -15,6 +15,21 @@ constexpr int MAX_LABELS = 32;       // the game's own array is exactly 32 entri
 
 struct Unit {
     uint32_t id, type, cls, mode;
+    // UnitAny+0xC4, raw. Bit 1 (0x02) is UNITFLAG_TARGETABLE, which the game
+    // maintains from ObjectTxt.Selectable[dwMode] and reads in its own hover
+    // path -- so it answers "will the cursor be allowed to hover this?"
+    // BEFORE we offer it, instead of the assist learning it by wasting a
+    // press on every decorative fire. +0xC4 sits in the 0x94..0xF3 window
+    // that is common to client and server units in the merged 1.14d binary,
+    // unlike 0x64..0x93; the neighbouring ownerType/ownerId reads below use
+    // that same safe window.
+    uint32_t flags;
+    // Type 2 only, diagnostics: the ObjectTxt record reached two independent
+    // ways -- UnitAny+0x14 -> ObjectData+0x00, and the txt table base indexed
+    // by class. They must agree; txtAgree says whether they did. objName is
+    // the record's ASCII name, so a console log reads "chest" or "torch1"
+    // rather than a plausible-looking number that proves nothing.
+    uint32_t txtA, txtB; uint8_t txtAgree; char objName[12];
     int32_t  fx, fy;                 // 16.16 fine world position (what GetUnitX/Y return)
     uint32_t ownerType, ownerId;     // UnitAny+0x94 / +0x98 (type 1 only, else 0)
 };

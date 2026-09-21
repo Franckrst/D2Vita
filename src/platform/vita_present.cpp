@@ -1725,6 +1725,10 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
     const bool town = pad_is_town(s.levelType);
 
     static pad::Unit units[padst::MAX_UNITS]; int n = 0;
+    // Raw UnitAny+0xC4 kept alongside, for the diagnostic only: `units` is
+    // filtered and compacted, so its indices do NOT line up with s.units.
+    static uint32_t rawFlags[padst::MAX_UNITS];
+    static const padst::Unit* rawUnit[padst::MAX_UNITS];
     for (int i = 0; i < s.nUnits && n < padst::MAX_UNITS; i++) {
         const padst::Unit& q = s.units[i];
         if (q.type == 0 && q.id == s.playerId) continue;              // never box/target ourselves
@@ -1741,8 +1745,20 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
             // revive, raise skeleton). OUR OWN summons' corpses count too --
             // the game lets you explode those as readily as any other.
             o.corpse   = !alive && !town;
-        } else if (q.type == 2) o.interact = true;                    // chests, corpses, stashes
+        } else if (q.type == 2) {
+            // Ask the GAME whether this object can be hovered at all, instead
+            // of offering every torch and shadow and learning the hard way.
+            // UNITFLAG_TARGETABLE, maintained from ObjectTxt.Selectable for
+            // the object's current mode -- which is also why a looted chest
+            // stops being offered once it is open.
+            // Game+0x66870 requires BOTH: bit 1 set, and bit 21 clear. Bit 21
+            // is a suppression bit whose setter was not located, so it is
+            // mirrored rather than assumed clear -- one extra AND for a
+            // condition the game really does test.
+            o.interact = (q.flags & 0x00200002u) == 0x00000002u;
+        }
         else if (q.type == 4) o.interact = true;                      // items: browsed with Alt, never an L target
+        rawFlags[n] = q.flags; rawUnit[n] = &q;
         if (q.type == 4) {
             // Exact label rect, keyed by unit id -- no proximity, no geometry.
             for (int j = 0; j < s.nLabels; j++) {
@@ -1795,6 +1811,26 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
             // to find the one behind "panel X is not detected".
             for (int i = 0; i < 38 && lines < 2000; i++) if (s.uiVars[i] != lastUi[i]) { lastUi[i] = s.uiVars[i];
                 snprintf(m, sizeof m, "pad: uivar[%d]=%u", i, s.uiVars[i]); d2vita_progress(m); ++lines; }
+            // One line the first time each kind of unit is seen, so a console
+            // run says outright whether the targetable bit tracks what the
+            // game actually lets the cursor hover: a chest should read 1 and
+            // a torch 0, with the same class reading the same way every time.
+            {
+                static uint32_t seen[48]; static int nSeen = 0;
+                for (int i = 0; i < n && lines < 2000; i++) {
+                    const uint32_t key = (units[i].type << 16) | (units[i].cls & 0xffffu);
+                    bool known = false;
+                    for (int k = 0; k < nSeen; k++) if (seen[k] == key) { known = true; break; }
+                    if (known || nSeen >= 48) continue;
+                    seen[nSeen++] = key;
+                    snprintf(m, sizeof m, "pad: vu type=%u cls=%u drapeaux=%08x ciblable=%d interactif=%d nom=%s accord=%d",
+                             units[i].type, units[i].cls, rawFlags[i],
+                             (int)((rawFlags[i] & 0x00200002u) == 2u), (int)units[i].interact,
+                             units[i].type == 2 ? rawUnit[i]->objName : "-",
+                             units[i].type == 2 ? (int)rawUnit[i]->txtAgree : -1);
+                    d2vita_progress(m); ++lines;
+                }
+            }
             // The only window onto the HoverTable's learn/verify loop.
             if (t.id != lastTgt) { lastTgt = t.id;
                 int ti = -1; for (int i = 0; i < n; i++) if (units[i].id == t.id) ti = i;

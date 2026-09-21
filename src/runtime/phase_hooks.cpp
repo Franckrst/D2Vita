@@ -458,6 +458,22 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
                     if(padOn){
                         padst::Unit pu; std::memset(&pu,0,sizeof pu);
                         pu.id=id; pu.type=type; pu.mode=mode; pu.cls=c.read_u32(u+4);
+                        pu.flags=c.read_u32(u+0xc4);            // see padst::Unit::flags
+                        if(type==2){
+                            // Two independent routes to the same ObjectTxt record.
+                            // A: the unit's own pObjectData (UnitAny+0x14, proven by
+                            // Game+0x2219c0, which type-checks then derefs exactly this).
+                            // B: the txt table base indexed by class, bounds-checked
+                            // against its own count. Agreement between two unrelated
+                            // paths is what makes the console line trustworthy.
+                            const uint32_t od=c.read_u32(u+0x14);
+                            pu.txtA = od?c.read_u32(od):0u;
+                            const uint32_t base=c.read_u32(g_d2base+0x0056d470u);
+                            const uint32_t cnt =c.read_u32(g_d2base+0x0056d474u);
+                            pu.txtB = (base && pu.cls<cnt && cnt<0x10000u) ? base+pu.cls*0x1c0u : 0u;
+                            pu.txtAgree = (pu.txtA && pu.txtA==pu.txtB) ? 1u : 0u;
+                            if(pu.txtA){ for(int k=0;k<11;k++) pu.objName[k]=(char)(c.read_u32(pu.txtA+(uint32_t)k)&0xffu); pu.objName[11]=0; }
+                        }
                         // DYNAMIC units (player, monsters): pPath+0/+4, the same
                         // two words the camera hook reads for the player -- a
                         // dynamic Path packs xOffset/xPos and yOffset/yPos as the
