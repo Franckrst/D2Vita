@@ -873,6 +873,10 @@ extern "C" unsigned int dyn86_jit_cur, dyn86_rw_cur;   // live JIT/RW memblock b
 // tant qu'il ne figurait nulle part, un refus se lisait comme un crash sans
 // cause (hfault_sys|SceLibKernel|0x120) au lieu d'un manque de RAM.
 extern "C" unsigned int dyn86_meta_allocfail;
+// Piscine RW des metadonnees de box86 (mman_vita.c). Publiee parce que
+// c'est la seule facon de voir, sur une console qui n'est pas la mienne,
+// si la reserve a bien ete prise et en quelle partition.
+extern "C" unsigned int dyn86_rwpool_size, dyn86_rwpool_used;
 // Optional per-guest-thread dump, registered by rt_boot once the scheduler
 // exists; called from the watchdog when the frame counter stalls.
 void (*d2vita_wd_threads)(void) = nullptr;
@@ -1237,10 +1241,11 @@ int watchdog_thread(SceSize, void*) {
             // anyone in particular.
             char mm[288];   // must fit "dont box86: ..." without truncating
             std::snprintf(mm, sizeof mm,
-              "MEM: libre user=%d Ko cdram=%d Ko phycont=%d Ko (rc=%d) | tas newlib: en-cours=%d Ko reserve=%d/%u Ko libre=%d Ko | dont box86: custom=%u Ko (refus=%u) sauts=%u Ko | piscine JIT %u/%u Ko",
+              "MEM: libre user=%d Ko cdram=%d Ko phycont=%d Ko (rc=%d) | tas newlib: en-cours=%d Ko reserve=%d/%u Ko libre=%d Ko | dont box86: custom=%u Ko (refus=%u) sauts=%u Ko | piscine RW %u/%u Ko | piscine JIT %u/%u Ko",
               fi.size_user>>10, fi.size_cdram>>10, fi.size_phycont>>10, r,
               (int)(mi.uordblks>>10), (int)(mi.arena>>10), _newlib_heap_size_user>>10, (int)(mi.fordblks>>10),
               (unsigned)d2rt_box86_custommalloc_kb(), dyn86_meta_allocfail, (unsigned)d2rt_box86_jmptbl_kb(),
+              dyn86_rwpool_used>>10, dyn86_rwpool_size>>10,
               dyn86_jitpool_used>>10, dyn86_jitpool_size>>10);
             d2vita_progress(mm); }
           // D2_NATPROF: TIME per trap slot within the window (native ports +
