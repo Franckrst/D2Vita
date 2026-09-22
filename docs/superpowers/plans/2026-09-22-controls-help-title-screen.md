@@ -43,6 +43,7 @@ against the existing `d2res_active()` latch's known behavior.
 - Modify: `src/runtime/scripted_input.h:13`
 - Modify: `src/platform/vita_present.cpp:1680` (function definition) and its top-of-file includes
 - Modify: `src/runtime/win32_shims_user32_d2.cpp:213`
+- Modify: `tools/rt_boot.cpp` (a second call site, inside `dumpFrame`, and — Step 5 — the actual smoke-test read, corrected below: `vita_present.cpp` is `__vita__`-only and is NOT linked into the qemu-arm oracle at all, per `tools/rt_boot_srcs.sh`; `tools/rt_boot.cpp` is, and already has a per-frame `Cpu&c` in `dumpFrame`, which is the file this task's actual qemu-arm verification runs against)
 
 - [ ] **Step 1: Widen the weak declaration**
 
@@ -96,6 +97,13 @@ lambda that captures `Cpu&c`:
 if(d2vita_input_tick) d2vita_input_tick(&c);
 ```
 
+**A second call site exists and needs the identical fix**: `tools/rt_boot.cpp`'s
+`dumpFrame` lambda (~line 3424) also calls `d2vita_input_tick()` with no
+argument, inside a scope that already has `Cpu&c` in scope (`{ FuScope
+_s(&g_fuInput); if(d2vita_input_tick) d2vita_input_tick(&c); }`) — this is
+the qemu-arm-side counterpart of the same call. Without this fix the build
+fails to link ("too few arguments"). Apply the same one-line change there.
+
 - [ ] **Step 4: Build and boot-check**
 
 ```bash
@@ -111,30 +119,59 @@ reference.
 
 - [ ] **Step 5: Smoke-test the read, cross-checked against the trusted signal**
 
-Temporarily add, inside `d2vita_input_tick` in `vita_present.cpp` (right after
-the function's opening brace, before the existing body — this block is
-removed again at the end of this step):
+**Correction found during implementation:** `src/platform/vita_present.cpp`
+is compiled only for the real Vita target (`__vita__`, real `sceCtrl*`/
+`sceTouch*`) — `tools/rt_boot_srcs.sh` (the shared source list for both
+`rt_boot_arm_check.sh` and `rt_gameplay_arm_check.sh`) does **not** include
+it; only `tools/build_rt_boot_vpk.sh` does. So `d2vita_input_tick`'s real
+body (defined in `vita_present.cpp`) never runs under qemu-arm at all — the
+weak symbol resolves to null there and `if(d2vita_input_tick) ...` is a
+no-op by construction. A smoke test placed inside it, as originally written
+here, can never execute under qemu-arm.
+
+What IS linked into both the qemu-arm oracle and the VPK build is
+`tools/rt_boot.cpp`, which already has its own per-frame `Cpu&c` in the
+`dumpFrame` lambda (~line 3400-3430) — the same lambda that already calls
+`{ FuScope _s(&g_fuInput); if(d2vita_input_tick) d2vita_input_tick(&c); }`.
+Put the smoke test there instead, right after that existing line:
 
 ```cpp
-    // TEMPORARY (Task 1 smoke test, removed before commit): cross-check the
-    // new Cpu* against the already-trusted "in a game" signal.
-    {
-        static bool s_last = false;
-        extern uint32_t g_d2base;
-        extern const bool g_114;
-        bool in_game = false;
-        if (cpu && g_114 && g_d2base) {
-            uint32_t pl = 0;
-            cpu->read(g_d2base + 0x003a6a70u, &pl, 4);
-            in_game = (pl != 0);
+        { FuScope _s(&g_fuInput); if(d2vita_input_tick) d2vita_input_tick(&c); }   // physical controls (Vita)
+        // TEMPORARY (Task 1 smoke test, removed before commit): cross-check
+        // Cpu::read against the already-trusted "in a game" signal, from a
+        // TU that IS linked into the qemu-arm oracle (unlike vita_present.cpp).
+        {
+            static bool s_last = false;
+            extern uint32_t g_d2base;
+            extern const bool g_114;
+            bool in_game = false;
+            if (g_114 && g_d2base) {
+                uint32_t pl = 0;
+                c.read(g_d2base + 0x003a6a70u, &pl, 4);
+                in_game = (pl != 0);
+            }
+            if (in_game != s_last) {
+                s_last = in_game;
+                std::printf(in_game ? "task1-smoke: player pointer NON-NUL (en jeu)\n"
+                                     : "task1-smoke: player pointer NUL (menu)\n");
+            }
         }
-        if (in_game != s_last) {
-            s_last = in_game;
-            d2vita_progress(in_game ? "task1-smoke: player pointer NON-NUL (en jeu)"
-                                     : "task1-smoke: player pointer NUL (menu)");
-        }
-    }
 ```
+
+(`std::printf` here, not `d2vita_progress` — `tools/rt_boot.cpp` is the
+qemu-arm orchestrator itself and prints straight to its own captured log,
+same as the surrounding diagnostics in `dumpFrame`; `d2vita_progress` is the
+Vita-only boot-progress-file writer and isn't what this TU's other probes
+use.)
+
+This still fully proves what Task 1 needs to prove: that `Cpu::read` at
+`Game+0x3a6a70` correctly reflects "in a game" vs "at a menu" — the same
+read `d2vita_input_tick` will perform for real once it's linked into the
+actual VPK build. `vita_present.cpp`'s Steps 1-4 changes (the signature
+widening itself) stay exactly as specified above and are still real,
+needed, and already verified by the Step 4 qemu-arm PASS (compiles, doesn't
+regress) — Step 5 only moves *where the temporary proof read runs*, not
+what Steps 1-4 changed.
 
 Build and run the title-only check, then a run that reaches a game (the
 existing gameplay gate, which already drives D2SCRIPT far enough to create/
@@ -155,10 +192,13 @@ guest memory from the tick.
 
 - [ ] **Step 6: Remove the temporary block and commit**
 
-Delete the smoke-test block added in Step 5 (keep the signature change).
+Delete the smoke-test block added in Step 5 from `tools/rt_boot.cpp` (keep
+the signature change in the other three files, and keep `tools/rt_boot.cpp`'s
+own `d2vita_input_tick(&c)` call-site fix — see the note below).
 
 ```bash
-git add src/runtime/scripted_input.h src/platform/vita_present.cpp src/runtime/win32_shims_user32_d2.cpp
+git add src/runtime/scripted_input.h src/platform/vita_present.cpp \
+        src/runtime/win32_shims_user32_d2.cpp tools/rt_boot.cpp
 git commit -m "$(cat <<'EOF'
 input: d2vita_input_tick recoit le Cpu du pompe de messages
 
@@ -168,7 +208,9 @@ naturel pour lire de la memoire invitee depuis le cote presentation, qui
 n'y touchait pas jusqu'ici. Verifie par une lecture jetable du pointeur
 joueur deja documente comme fiable, comparee au comportement connu de
 d2res_active() : NUL a l'ecran-titre (rt_boot_arm_check), NON-NUL une
-fois en jeu (rt_gameplay_arm_check).
+fois en jeu (rt_gameplay_arm_check) — lecture faite depuis dumpFrame()
+dans tools/rt_boot.cpp, seule unite liee a la fois dans l'oracle qemu-arm
+et le build VPK (vita_present.cpp est __vita__ seulement).
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01Xgm4MrSgSUDrUAFqVXvVN9
@@ -191,7 +233,10 @@ fully deterministic and gets a real TDD oracle (no guest/qemu dependency).
 **Files:**
 - Modify: `src/runtime/scripted_input.h`
 - Modify: `src/runtime/scripted_input.cpp:132`
-- Modify: `src/platform/vita_present.cpp` (consume the flag inside `d2vita_input_tick`)
+- Modify: `tools/rt_boot.cpp` (consume the flag inside `dumpFrame` — **not**
+  `vita_present.cpp`/`d2vita_input_tick`: per Task 1 Step 5's correction,
+  that TU is `__vita__`-only and never runs under qemu-arm, which is exactly
+  where this spike needs to run)
 - Create: `tools/screen_scan_diff.py`
 - Create: `tools/tests/screen_scan_diff_test.py`
 
@@ -218,42 +263,44 @@ And next to the `"snap"` dispatch (line 132):
     else if(act=="memscan"){ g_memscan=true; }
 ```
 
-- [ ] **Step 2: Consume the flag in `d2vita_input_tick` and write the snapshot**
+- [ ] **Step 2: Consume the flag in `dumpFrame` and write the snapshot**
 
-In `src/platform/vita_present.cpp`, inside `d2vita_input_tick`, add (this
-block stays — it is env-gated and inert unless `D2_SCREENSCAN_LABEL` is set,
-consistent with every other diagnostic in this codebase, e.g. `D2_LAGMARK`):
+In `tools/rt_boot.cpp`, inside the `dumpFrame` lambda, add (right after the
+`d2vita_input_tick(&c)` line Task 1 Step 3 already touched — this block
+stays permanently, it is env-gated and inert unless `D2_SCREENSCAN_LABEL` is
+set, consistent with every other diagnostic in this codebase, e.g.
+`D2_LAGMARK`):
 
 ```cpp
     // D2_SCREENSCAN: one-shot guest-memory snapshot, armed by D2SCRIPT
     // "memscan" and env-gated so it costs nothing when unset. Used only by
     // the Task 3 title-screen-signal spike; not part of the shipped feature.
+    // Lives here (not vita_present.cpp) because this TU is linked into both
+    // the qemu-arm oracle and the VPK build — see Task 1 Step 5.
     if (g_memscan) {
         g_memscan = false;
         extern uint32_t g_d2base;
         const char* label = getenv("D2_SCREENSCAN_LABEL");
         const char* baseS  = getenv("D2_SCREENSCAN_BASE");
         const char* lenS   = getenv("D2_SCREENSCAN_LEN");
-        if (cpu && label && baseS) {
+        if (label && baseS) {
             uint32_t base = (uint32_t)strtoul(baseS, nullptr, 16);
             uint32_t len  = lenS ? (uint32_t)strtoul(lenS, nullptr, 16) : 0x20000u;
             std::vector<uint8_t> buf(len);
-            cpu->read(g_d2base + base, buf.data(), len);
+            c.read(g_d2base + base, buf.data(), len);
             char path[256];
             snprintf(path, sizeof path, "ux0:data/d2vita/screenscan_%s.bin", label);
             FILE* f = fopen(path, "wb");
             if (f) { fwrite(buf.data(), 1, len, f); fclose(f); }
-            char m[128];
-            snprintf(m, sizeof m, "screenscan: %s (%u Ko a Game+0x%x) -> %s",
-                      label, len >> 10, base, path);
-            d2vita_progress(m);
+            std::printf("screenscan: %s (%u Ko a Game+0x%x) -> %s\n",
+                        label, len >> 10, base, path);
         }
     }
 ```
 
-(`<vector>` is already available transitively in this file via other
-standard includes; if the build complains, add `#include <vector>` next to
-the other `<c...>` includes at the top.)
+(`<vector>` may need an explicit `#include <vector>` at the top of
+`tools/rt_boot.cpp` if the build complains it's missing — check first, this
+file is large and may already pull it in transitively.)
 
 - [ ] **Step 3: Write the diff tool's failing tests first**
 
@@ -412,7 +459,7 @@ Expected: PASS (3 tests).
 
 ```bash
 tools/rt_boot_arm_check.sh
-git add src/runtime/scripted_input.h src/runtime/scripted_input.cpp src/platform/vita_present.cpp \
+git add src/runtime/scripted_input.h src/runtime/scripted_input.cpp tools/rt_boot.cpp \
         tools/screen_scan_diff.py tools/tests/screen_scan_diff_test.py
 git commit -m "$(cat <<'EOF'
 diag: memscan (D2SCRIPT) + diff hors-ligne pour le spike ecran-titre
@@ -529,9 +576,10 @@ real hex literals, not this placeholder text.
 
 - [ ] **Step 5: Smoke-test it the same way Task 1 did**
 
-Temporarily call `d2_title_screen_active(cpu)` from `d2vita_input_tick` and
-log on change (same throwaway-block technique as Task 1 Step 5), run
-`tools/rt_boot_arm_check.sh` (expect it stays true the whole title-screen
+Temporarily call `d2_title_screen_active(&c)` from `dumpFrame` in
+`tools/rt_boot.cpp` (same location as Task 1 Step 5's smoke test, for the
+same reason: `vita_present.cpp` never runs under qemu-arm) and log on change,
+run `tools/rt_boot_arm_check.sh` (expect it stays true the whole title-screen
 run) and the character-select/options/game scripts from Step 1 (expect false
 throughout each). Remove the temporary block once confirmed.
 
