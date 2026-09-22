@@ -26,6 +26,12 @@ the source of truth for the public repository.
       raised to 38 MiB)
 - [x] GPU rendering (sceGxm) via a guest-side reconstructed Glide3x ring,
       asynchronous submission
+- [x] Native 960×544 resolution (`D2_RES`, on by default; `D2_RES=0` or
+      `D2_RES=WxH`, 640×480 to 1280×1024, to override): the engine's own
+      mode→size table is patched at 3 hooked sites, so the 126 interface
+      centering sites downstream follow without their own changes. 4:3
+      aspect preserved by default (no stretch; `D2_ASPECT=etire` for the
+      old stretched behavior)
 - [x] DirectSound audio (host mixer, natively-ported Storm codecs) —
       implemented, **enabled by default**; `D2_SON=0` opts back out to
       `DSERR_NODRIVER`, faithful to a machine with no sound card
