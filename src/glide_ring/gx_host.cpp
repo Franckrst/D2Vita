@@ -653,7 +653,10 @@ bool d2gxm_frame_target(d2gr::Vtx** vo, uint32_t* maxv, uint16_t** io, uint32_t*
 // own vectors. Called once per frame, right after the builder is reset, so a
 // change of mind can never split a half-built frame across two buffers.
 static void gx_set_frame_target(){
-    if(!(ringfast()&16)){ g_gxBuild.setTarget(nullptr,nullptr); ++g_rfZeroOff; return; }
+    // Knob off: do not even call setTarget(). The builder was pointed at its
+    // own vectors by init() and nothing here may touch it — an OFF knob has
+    // to be a no-op, not "a call that happens to be harmless".
+    if(!(ringfast()&16)) return;
     // D2_REPLAY60 re-reads every vertex of every frame to resubmit it: on
     // write-combined GPU memory that read-back is ~814 ns per line here, so
     // the two are not combined. The MEASUREMENT knobs that also read back
@@ -810,10 +813,16 @@ static void gx_lazy_init(){
     if(!d2gxm_init((int)g_gxResW,(int)g_gxResH)){ g_gxDead=true; 
         d2vita_progress("gxm: init KO — le flush retombe sur le puits"); return; }
 #endif
-    g_gxAtlas.init(mio<<20, dim, gx_page_upload_cb, gx_page_make_cb, gx_fence_cb, gx_drain_cb);
-    g_gxStDirty=true;              // the atlas was just created: batch state must be recomposed
+    // THE BUILDER FIRST, THE ATLAS SECOND. Every writer gates on
+    // g_gxAtlas.ready(), and with D2_FLUSHFIL=1 the writer is ANOTHER THREAD:
+    // between "atlas ready" and "builder initialised" there was a window in
+    // which gx_draw could run with the builder's storage pointers still
+    // unset. Building the builder first closes it, and costs nothing —
+    // Builder::init does not look at the atlas.
     g_gxBuild.init(65535, 196608, 8192);   // caps raised (see vita_gxm.cpp MAXV)
     g_gxBuild.splitByPalette(gxpal_on());
+    g_gxAtlas.init(mio<<20, dim, gx_page_upload_cb, gx_page_make_cb, gx_fence_cb, gx_drain_cb);
+    g_gxStDirty=true;              // the atlas was just created: batch state must be recomposed
     gx_set_frame_target();         // first frame: the builder may already aim at a GXM slot
     char m[208];
     std::snprintf(m,sizeof m,"gxm: atlas %u Mio, pages %ux%u (max %u), fenetre %ux%u, lots coupes par palette=%s",
@@ -842,24 +851,42 @@ static std::unordered_map<uint32_t,GxBind> g_gxBindAt;
 // std::unordered_map::find is a modulo, a bucket-list walk and at least two
 // dependent cache misses, where linear probing over a power-of-two table is
 // a multiply, a mask and usually one hit line.
-// BOTH structures are kept in step on every write, and only the READ is
-// switched by the knob: that is what makes the A/B a comparison of two lookup
-// strategies over identical data rather than of two different tables. Writes
-// are rare (one per texture bind), so the doubled insert costs nothing
-// measurable. There is no erase anywhere on this table (checked), so no
-// tombstones are needed.
+// ⚠️ THE TABLE IS ONLY BUILT WHEN bit1 IS ARMED, and that is not a detail.
+// The first version kept both structures in step UNCONDITIONALLY, so that the
+// A/B would compare two lookups over identical data. It FROZE THE CONSOLE AT
+// BOOT with the knob absent: the first put() allocates, malloc extends the
+// heap by 64 KB, and on the real console that extension fails
+// (`mmap FAIL RW 64 KB: ... free user=-2048 KB` in boot_progress.txt) —
+// operator new then throws, nothing catches, and the process dies silently.
+// A knob that is OFF must allocate NOTHING. D2_RINGFAST is read once and
+// never changes during a run, so gating the writes on it keeps the table
+// complete from the first bind whenever it IS armed.
+//
+// AND IT NEVER THROWS. calloc + an explicit failure path, not std::vector:
+// when the allocation is refused the table marks itself dead and every
+// lookup goes back to the map, which is always maintained. The ANSWERS are
+// then identical, so `ordre=`/`repli=`/`perimees=` do not move — a graceful
+// fallback, not a different behaviour.
+// There is no erase anywhere on this table (checked), so no tombstones.
 struct GxBindTab {
     struct Slot { uint32_t key, live; int32_t cell; uint32_t gen; };   // live: 0 = empty
-    std::vector<Slot> s; uint32_t mask=0, n=0;
-    void grow(){
+    Slot* s=nullptr; uint32_t mask=0, n=0; bool dead=false;
+    static const uint32_t CAP_MAX = 1u<<16;      // 1 MiB; past that, the map does the work
+    bool grow(){
         const uint32_t cap = mask? (mask+1u)*2u : 1024u;
-        std::vector<Slot> old; old.swap(s);
-        s.assign(cap,Slot{0,0,0,0}); mask=cap-1u; n=0;
-        for(size_t i=0;i<old.size();i++) if(old[i].live) put(old[i].key,old[i].cell,old[i].gen);
+        if(cap > CAP_MAX){ dead=true; return false; }
+        Slot* ns = (Slot*)std::calloc(cap, sizeof(Slot));   // calloc: live=0 everywhere
+        if(!ns){ dead=true; return false; }
+        Slot* old = s; const uint32_t oldcap = mask? mask+1u : 0u;
+        s = ns; mask = cap-1u; n = 0;
+        for(uint32_t i=0;i<oldcap;i++) if(old[i].live) put(old[i].key,old[i].cell,old[i].gen);
+        std::free(old);
+        return true;
     }
     static inline uint32_t hash(uint32_t k){ return k*2654435761u; }
     // Probe. Returns the slot for `k` (live) or the first free slot for it.
-    inline Slot* probe(uint32_t k){
+    // Terminates because the load factor is held under 1/2.
+    inline Slot* probe(uint32_t k) const {
         uint32_t i = (hash(k)>>16) & mask;                  // high bits: the low ones of a
         for(;;){                                            // multiplicative hash are the worst
             Slot& e = s[i];
@@ -868,12 +895,13 @@ struct GxBindTab {
         }
     }
     const Slot* find(uint32_t k) const {
-        if(!mask) return nullptr;
-        const Slot* e = const_cast<GxBindTab*>(this)->probe(k);
+        if(dead || !s) return nullptr;
+        const Slot* e = probe(k);
         return e->live? e : nullptr;
     }
     void put(uint32_t k, int32_t cell, uint32_t gen){
-        if(!mask || (n+1u)*2u > mask+1u) grow();
+        if(dead) return;
+        if(!s || (n+1u)*2u > mask+1u) { if(!grow()) return; }
         Slot* e = probe(k);
         if(!e->live){ e->live=1; e->key=k; ++n; }
         e->cell=cell; e->gen=gen;
@@ -881,8 +909,8 @@ struct GxBindTab {
 };
 static GxBindTab g_gxBindTab;
 static inline void gx_bind_set(uint32_t addr, int32_t cell, uint32_t gen){
-    g_gxBindAt[addr] = GxBind{ cell, gen };      // authority for the control leg
-    g_gxBindTab.put(addr, cell, gen);            // twin, read under D2_RINGFAST bit1
+    g_gxBindAt[addr] = GxBind{ cell, gen };                  // always: the reference
+    if(ringfast()&2) g_gxBindTab.put(addr, cell, gen);       // only when bit1 will read it
 }
 static uint64_t g_gxBindOrdered=0, g_gxBindFallback=0, g_gxBindStale=0;
 static void gx_sync_state(){
@@ -895,7 +923,7 @@ static void gx_sync_state(){
             // stale": the two cases the reference code distinguishes (absent
             // vs stale) have to stay distinguishable, because they feed two
             // DIFFERENT counters — repli= and perimees=.
-            if(ringfast()&2){ const GxBindTab::Slot* e=g_gxBindTab.find(g_gxTexAddr);
+            if((ringfast()&2) && !g_gxBindTab.dead){ const GxBindTab::Slot* e=g_gxBindTab.find(g_gxTexAddr);
                 if(e){ found=true; ci=e->cell;
                        if(ci>=0 && g_gxAtlas.cell(ci).gen!=e->gen) ci=-2; }
                 // D2_RINGVERIFY: ask the map the same question. `e` is only
@@ -1997,12 +2025,13 @@ static void gx_line(uint32_t frames){
         (unsigned long long)(dE/n),(unsigned long long)g_grpClockNs,(unsigned long long)(dRec*2/n),
         (unsigned long long)g_gxSyncDone,(unsigned long long)g_gxSyncSkipped);
       d2vita_progress(f); std::printf("[%s]\n",f); }
-    // ARMING OF D2_RINGFAST. A leg that reads `ringfast=0 sequences=0` is the
-    // control; anything else must show a non-zero run count, or the A/B
-    // compared the same code with itself. `nonalignes=` counts the draws whose
-    // vertex data was not 4-byte aligned and went back through the byte-wise
-    // loop — it is expected to be 0, and it is published rather than assumed.
-    { char f[300];
+    // ARMING OF D2_RINGFAST — printed only for a leg that armed something, so
+    // the control leg's output is byte-for-byte what it was before this patch.
+    // An armed leg must show a non-zero run count, or the A/B compared the
+    // same code with itself. `nonalignes=` counts the draws whose vertex data
+    // was not 4-byte aligned and went back through the byte-wise loop — it is
+    // expected to be 0, and it is published rather than assumed.
+    if(ringfast()||ringverify()){ char f[300];
       const bool rd = lotshash_on()||cacheprobe_on()||gxod_on()||gxcov_on();
       std::snprintf(f,sizeof f,"gxm-rapide: ringfast=%d sequences=%llu nonalignes=%llu liaisons-table=%u/%u"
         " | sans-recopie: images=%llu refusees=%llu soumissions=%llu"
@@ -2049,15 +2078,18 @@ static void gr_final_cumul(){
         std::printf(" | ordre=%llu repli=%llu perimees=%llu hors-atlas=%llu",
             (unsigned long long)g_gxBindOrdered,(unsigned long long)g_gxBindFallback,
             (unsigned long long)g_gxBindStale,(unsigned long long)g_gxTexNoAtlas);
-        std::printf(" | ringfast=%d sequences=%llu nonalignes=%llu sans-recopie=%llu/%llu"
+        if(ringfast()||ringverify())
+        {   std::printf(" | ringfast=%d sequences=%llu nonalignes=%llu sans-recopie=%llu/%llu liaisons-table=%u/%u%s"
                     " verif-sommets=%llu/%llu verif-liaisons=%llu/%llu verif-mots=%llu/%llu verif-etats=%llu/%llu verif-prep=%llu/%llu",
             ringfast(),(unsigned long long)g_rfVtxRuns,(unsigned long long)g_rfUnaligned,
             (unsigned long long)g_rfZeroOn,(unsigned long long)(g_rfZeroOn+g_rfZeroOff),
+            g_gxBindTab.n, g_gxBindTab.mask? g_gxBindTab.mask+1u : 0u,
+            g_gxBindTab.dead? " (TABLE ABANDONNEE, repli sur la map)":"",
             (unsigned long long)g_rfVerBad,(unsigned long long)g_rfVerN,
             (unsigned long long)g_rfBindVerBad,(unsigned long long)g_rfBindVerN,
             (unsigned long long)g_rfRdVerBad,(unsigned long long)g_rfRdVerN,
             (unsigned long long)g_rfStVerBad,(unsigned long long)g_rfStVerN,
-            (unsigned long long)g_rfPreBad,(unsigned long long)g_rfPreN);
+            (unsigned long long)g_rfPreBad,(unsigned long long)g_rfPreN); }
         if(grprof_on()) std::printf(" | fins: etat=%llu dessins=%llu (recomp=%llu sommets=%llu) fin=%llu us/img horloge-ns=%llu hachage-tex=%llu us/img (%llu us/tele)",
             (unsigned long long)(g_grpStateUs/f),(unsigned long long)(g_grpDrawUs/f),(unsigned long long)(g_grpSyncUs/f),
             (unsigned long long)(g_grpVtxUs/f),(unsigned long long)(g_grpEndUs/f),(unsigned long long)g_grpClockNs,

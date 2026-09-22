@@ -368,6 +368,9 @@ public:
     //     (gx_lots_hash, Replay60::push, gx_overdraw, gx_coverage) would read
     //     it back uncached, so the caller keeps those on the copied path.
     // Passing null restores the builder's own vectors.
+    // Null restores the builder's own vectors — pv_/pi_ are NEVER left null,
+    // because vertexPre and tri write through them without checking and a
+    // store to address 0 on the Vita is a silent death at the first frame.
     void setTarget(Vtx* v, uint16_t* i) {
         pv_ = v ? v : v_.data();
         pi_ = i ? i : i_.data();
