@@ -33,7 +33,13 @@ the source of truth for the public repository.
       D2's 800-wide HUD bar then opens two `(W-800)/2` px gaps (80 px each
       at 960), which the bar fills with its own stone re-sampled from the
       texture the game already loaded — no Blizzard art is added or
-      shipped. `D2_HUDFILL=0` shows the gaps again.
+      shipped. `D2_HUDFILL=0` shows the gaps again. The gap fill is
+      **confirmed on console** (2026-09-22); the qemu gate
+      `tools/hudfill_arm_check.sh` only proves the hook and its numbers,
+      since GPU submission there is a sink.
+- [ ] **Interface at 960×544 beyond the HUD bar**: the inventory and other
+      panels still misbehave after the resolution change. Reported from
+      play on 2026-09-22, not yet diagnosed.
 - [x] DirectSound audio (host mixer, natively-ported Storm codecs) —
       implemented, **enabled by default**; `D2_SON=0` opts back out to
       `DSERR_NODRIVER`, faithful to a machine with no sound card
