@@ -351,8 +351,28 @@ public:
     void init(uint32_t maxVerts, uint32_t maxIdx, uint32_t maxBatches) {
         maxV_ = maxVerts; maxI_ = maxIdx; maxB_ = maxBatches;
         v_.resize(maxV_); i_.resize(maxI_); b_.resize(maxB_);
+        pv_ = v_.data(); pi_ = i_.data();
         reset();
     }
+    // ---- BUILD STRAIGHT INTO SOMEONE ELSE'S MEMORY -------------------------
+    // The vertices and indices this builder produces are handed to the GPU as
+    // they are; on the Vita they then get memcpy'd into the GXM slot's
+    // GPU-visible block — about 408 KB per frame, i.e. ~816 KB of bus traffic
+    // (read + write) for a buffer nothing has read in between. Pointing the
+    // builder AT that block removes the copy entirely.
+    // Two conditions make this legal and they are the caller's to check:
+    //   * the target must hold at least maxV_ vertices and maxI_ indices —
+    //     the caps are not renegotiated here, so drop accounting is unchanged;
+    //   * the memory may be WRITE-COMBINED. vertexPre/vertexPreRun/tri only
+    //     ever WRITE, which suits it; every READER of vdata()/idata()
+    //     (gx_lots_hash, Replay60::push, gx_overdraw, gx_coverage) would read
+    //     it back uncached, so the caller keeps those on the copied path.
+    // Passing null restores the builder's own vectors.
+    void setTarget(Vtx* v, uint16_t* i) {
+        pv_ = v ? v : v_.data();
+        pi_ = i ? i : i_.data();
+    }
+    bool targeted() const { return pv_ != v_.data(); }
     void reset() { nv_ = 0; ni_ = 0; nb_ = 0; open_ = false; dropped_ = 0; }
     // SPLITTING BATCHES BY PALETTE. Default is FALSE: the palette slot isn't
     // part of the split key, so batches merge as if it didn't exist. True
@@ -361,12 +381,14 @@ public:
     // this adds is visible under qemu in "batches/frame".
     void splitByPalette(bool on) { splitPal_ = on; }
     bool splitsByPalette() const { return splitPal_; }
+    uint32_t maxVerts() const { return maxV_; }
+    uint32_t maxIndices() const { return maxI_; }
     uint32_t verts() const { return nv_; }
     uint32_t indices() const { return ni_; }
     uint32_t batches() const { return nb_; }
     uint32_t dropped() const { return dropped_; }
-    const Vtx*   vdata() const { return v_.data(); }
-    const uint16_t* idata() const { return i_.data(); }
+    const Vtx*   vdata() const { return pv_; }
+    const uint16_t* idata() const { return pi_; }
     const Batch* bdata() const { return b_.data(); }
 
     // Opens (or extends) a batch for the current state.
@@ -391,12 +413,38 @@ public:
         p.invS = 1.0f / (float)st.sNorm; p.invT = 1.0f / (float)st.tNorm;
         p.invDim = invDim; p.palv = st.palv;
     }
+    // 1/sNorm WITHOUT THE DIVIDE (D2_RINGFAST bit0). sNorm and tNorm are only
+    // ever 256>>k with k = 0..3 (gx_sync_state, from the Glide aspect ratio),
+    // so the four reciprocals are exact powers of two and the table returns
+    // the SAME IEEE value the divide would have produced — not an
+    // approximation. Anything else falls back to the divide, so the function
+    // is exact for every input, not just the four expected ones.
+    // WHY IT MATTERS: `vdiv.f32` is ~15 non-pipelined cycles on Cortex-A9 and
+    // prep() runs once per DRAW, twice — about 1700 draws per frame.
+    static inline float invPow2(uint32_t v) {
+        switch (v) {
+            case 256u: return 1.0f / 256.0f;
+            case 128u: return 1.0f / 128.0f;
+            case  64u: return 1.0f /  64.0f;
+            case  32u: return 1.0f /  32.0f;
+            default:   return 1.0f / (float)v;
+        }
+    }
+    void prepFast(VtxPre& p, const BuildState& st, const Atlas& at, float invDim) const {
+        p.tex = st.cell >= 0;
+        if (p.tex) {
+            const Cell& c = at.cell(st.cell);
+            p.cx = (float)c.x; p.cy = (float)c.y; p.cw = (float)c.w; p.ch = (float)c.h;
+        }
+        p.invS = invPow2(st.sNorm); p.invT = invPow2(st.tNorm);
+        p.invDim = invDim; p.palv = st.palv;
+    }
     // Adds a transformed vertex. Returns its index, or 0xFFFF if full.
     // Division-free: same operations, same order, same bits (x * 1.0f and
     // y * 1.0f are the IEEE identity).
     uint16_t vertexPre(const VtxPre& p, float x, float y, uint32_t argb, float s, float t) {
         if (nv_ >= maxV_ || nv_ >= 0xFFFFu) { ++dropped_; return 0xFFFFu; }
-        Vtx& o = v_[nv_];
+        Vtx& o = pv_[nv_];
         o.x = x; o.y = y;
         if (p.tex) {
             o.u = (p.cx + (s * p.invS) * p.cw) * p.invDim;
@@ -407,11 +455,161 @@ public:
     }
     void tri(uint16_t a, uint16_t b, uint16_t c) {
         if (!open_ || ni_ + 3 > maxI_ || a == 0xFFFFu || b == 0xFFFFu || c == 0xFFFFu) { ++dropped_; return; }
-        i_[ni_++] = a; i_[ni_++] = b; i_[ni_++] = c;
+        pi_[ni_++] = a; pi_[ni_++] = b; pi_[ni_++] = c;
         b_[nb_-1].count += 3;
     }
+    // ---- BULK FORM OF vertexPre (D2_RINGFAST bit0) -------------------------
+    // Same arithmetic, same order, same bits — see the per-vertex form above;
+    // what changes is only what surrounds it. The scalar loop in gx_draw cost
+    // ~49 ARM instructions per vertex because the compiler could not hoist
+    // anything out of it:
+    //   * `nv_` was reloaded and stored back through memory on EVERY vertex
+    //     (the store into v_[nv_] may alias the counter), which serializes the
+    //     loop on a store->load forward;
+    //   * `p.tex`, `p.palv`, `maxV_`, `v_.data()`, `oargb>=0` and the two
+    //     diagnostic knobs were re-read from the stack every iteration;
+    //   * two of the four ring floats went ARM reg -> stack -> VFP
+    //     (str [sp] followed by vldr), a store-to-load stall on Cortex-A9.
+    // Here the whole run is allocated ONCE, the invariants live in registers,
+    // and the ring is read straight into VFP.
+    //
+    // DROP ACCOUNTING IS IDENTICAL. The scalar form refuses a vertex when
+    // `nv_ >= maxV_ || nv_ >= 0xFFFF`; that predicate is MONOTONE in nv_, so
+    // refusing the tail past `cap = min(maxV_, 0xFFFF)` — one `dropped_`
+    // increment and one 0xFFFF index each — is the same sequence of effects.
+    //
+    // ALIGNMENT IS THE CALLER'S PROBLEM. `stride` comes from the guest
+    // (grDrawVertexArrayContiguous passes D2's true vertex size) and is NOT
+    // guaranteed to be a multiple of 4; neither are the grVertexLayout
+    // offsets. gx_draw checks ptr|stride|offsets before calling this and falls
+    // back to the byte-wise loop otherwise — a `vldr` on an odd address would
+    // fault on the Vita.
+    //
+    // `pld` = cache lines to prefetch ahead in the ring (0 = none): the ring
+    // is a ~750 KB/frame streaming read and Cortex-A9 has no L1 prefetcher.
+    // NO SLP HERE. x,y,u,v are four adjacent words of Vtx, so gcc's SLP pass
+    // gathers them into a stack scratch and replays them as one 16-byte
+    // `vst1.32 {d16-d17}` — which puts BACK the store-to-load round trip this
+    // whole function exists to remove (x,y arrive in ARM registers, u,v in
+    // VFP ones, and the reload sits four instructions after the store).
+    // Measured on the real compile line: 34 instructions per vertex with SLP,
+    // 27 without. The attribute is the narrowest way to say it — a
+    // command-line flag would hit every loop in the unit.
+#if defined(__GNUC__) && !defined(__clang__)
+    __attribute__((optimize("no-tree-slp-vectorize")))
+#endif
+    void vertexPreRun(const VtxPre& p, const uint8_t* __restrict q, uint32_t n,
+                      uint32_t stride, uint32_t oxy, uint32_t ost0, int oargb,
+                      uint16_t* __restrict idx, uint32_t pld) {
+        const uint32_t cap  = maxV_ < 0xFFFFu ? maxV_ : 0xFFFFu;
+        const uint32_t base = nv_;
+        const uint32_t room = cap > base ? cap - base : 0u;
+        const uint32_t lim  = n < room ? n : room;
+        Vtx* __restrict out = pv_ + base;
+        // Every invariant in a local: none of these is address-taken, so a
+        // store through `out` cannot force the compiler to reload them.
+        const float cx = p.cx, cy = p.cy, cw = p.cw, ch = p.ch;
+        const float iS = p.invS, iT = p.invT, iD = p.invDim, pv = p.palv;
+        const uint32_t ahead = pld * stride;
+        const uint32_t ocol  = oargb >= 0 ? (uint32_t)oargb : 0u;
+        // TEX, COL and PLD are draw-invariant; left as runtime tests they cost
+        // a load, a compare and two predicated slots on EVERY vertex, and gcc
+        // will not version the loop on its own. Dispatching once per draw over
+        // the eight bodies costs one jump table and leaves 24 instructions in
+        // the loop — down from 49 in the scalar form.
+        const int k = (p.tex?4:0) | (oargb>=0?2:0) | (pld?1:0);
+        const VtxRunArgs a{ out, q, idx, lim, stride, oxy, ost0, ocol, base,
+                            cx, cy, cw, ch, iS, iT, iD, pv, ahead };
+        switch (k) {
+            case 0: run_<false,false,false>(a); break;
+            case 1: run_<false,false,true >(a); break;
+            case 2: run_<false,true ,false>(a); break;
+            case 3: run_<false,true ,true >(a); break;
+            case 4: run_<true ,false,false>(a); break;
+            case 5: run_<true ,false,true >(a); break;
+            case 6: run_<true ,true ,false>(a); break;
+            default:run_<true ,true ,true >(a); break;
+        }
+        nv_ = base + lim;
+        if (lim < n) { dropped_ += n - lim;
+            for (uint32_t i = lim; i < n; ++i) idx[i] = 0xFFFFu; }
+    }
+    // ---- SHADOW VERIFIER (D2_RINGVERIFY=1) ---------------------------------
+    // Re-runs the REFERENCE path — the same predicate and the same arithmetic
+    // as vertexPre(), written out here so it cannot silently drift — over the
+    // same input, and compares it with what vertexPreRun() just wrote. Returns
+    // the number of differences (0 = identical), vertices, indices, the vertex
+    // counter and the drop counter all included.
+    // WHY THIS AND NOT A RUN-TO-RUN HASH: the qemu bench's GUEST is not
+    // deterministic across processes (the game issues a few dozen more or
+    // fewer grTexDownloadMipMap calls from one run to the next, which moves
+    // every atlas cell and therefore every u,v), so two runs cannot be
+    // compared by `lh=` alone. This compares the two implementations on THE
+    // SAME input, inside one run — which is the property that actually has to
+    // hold.
+    // Call AFTER vertexPreRun, with `base`/`dropped0` captured before it.
+    uint32_t verifyRun(const VtxPre& p, const uint8_t* q, uint32_t n, uint32_t stride,
+                       uint32_t oxy, uint32_t ost0, int oargb,
+                       const uint16_t* idx, uint32_t base, uint32_t dropped0) const {
+        uint32_t nv = base, drop = dropped0, bad = 0;
+        for (uint32_t i = 0; i < n; ++i) {
+            const uint8_t* r = q + (size_t)i * stride;
+            union { uint32_t u; float f; } X, Y, S, T;
+            memcpy(&X.u, r + oxy,     4); memcpy(&Y.u, r + oxy + 4, 4);
+            memcpy(&S.u, r + ost0,    4); memcpy(&T.u, r + ost0 + 4, 4);
+            uint32_t col = 0xFFFFFFFFu;
+            if (oargb >= 0) memcpy(&col, r + (uint32_t)oargb, 4);
+            uint16_t want;
+            if (nv >= maxV_ || nv >= 0xFFFFu) { ++drop; want = 0xFFFFu; }
+            else {
+                Vtx o;
+                o.x = X.f; o.y = Y.f;
+                if (p.tex) {
+                    o.u = (p.cx + (S.f * p.invS) * p.cw) * p.invDim;
+                    o.v = (p.cy + (T.f * p.invT) * p.ch) * p.invDim;
+                } else { o.u = 0.0f; o.v = 0.0f; }
+                o.argb = col; o.pal = p.palv;
+                if (memcmp(&o, &pv_[nv], sizeof o) != 0) ++bad;
+                want = (uint16_t)nv; ++nv;
+            }
+            if (idx[i] != want) ++bad;
+        }
+        if (nv != nv_ || drop != dropped_) ++bad;
+        return bad;
+    }
+private:
+    struct VtxRunArgs {
+        Vtx* __restrict out; const uint8_t* __restrict q; uint16_t* __restrict idx;
+        uint32_t lim, stride, oxy, ost0, ocol, base;
+        float cx, cy, cw, ch, iS, iT, iD, pv;
+        uint32_t ahead;
+    };
+    // ONE vertex body, three compile-time switches. The arithmetic is
+    // character-for-character the arithmetic of vertexPre(): same operands,
+    // same order, same rounding steps — gcc emits the same vmul/vmla pair.
+    template<bool TEX, bool COL, bool PLD>
+    static __attribute__((always_inline)) inline void run_(const VtxRunArgs& a) {
+        for (uint32_t i = 0; i < a.lim; ++i) {
+            const uint8_t* r = a.q + (size_t)i * a.stride;
+            if (PLD) __builtin_prefetch(r + a.ahead);
+            Vtx& o = a.out[i];
+            o.x = *(const float*)(const void*)(r + a.oxy);
+            o.y = *(const float*)(const void*)(r + a.oxy + 4);
+            if (TEX) {
+                const float S = *(const float*)(const void*)(r + a.ost0);
+                const float T = *(const float*)(const void*)(r + a.ost0 + 4);
+                o.u = (a.cx + (S * a.iS) * a.cw) * a.iD;
+                o.v = (a.cy + (T * a.iT) * a.ch) * a.iD;
+            } else { o.u = 0.0f; o.v = 0.0f; }
+            o.argb = COL ? *(const uint32_t*)(const void*)(r + a.ocol) : 0xFFFFFFFFu;
+            o.pal  = a.pv;
+            a.idx[i] = (uint16_t)(a.base + i);
+        }
+    }
+public:
 private:
     std::vector<Vtx> v_; std::vector<uint16_t> i_; std::vector<Batch> b_;
+    Vtx* pv_ = nullptr; uint16_t* pi_ = nullptr;   // where vertices/indices actually land
     uint32_t maxV_ = 0, maxI_ = 0, maxB_ = 0, nv_ = 0, ni_ = 0, nb_ = 0, dropped_ = 0;
     bool open_ = false, splitPal_ = false;
 };

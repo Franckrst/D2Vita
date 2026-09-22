@@ -768,6 +768,7 @@ void display_cb(const void* data) {
 // GPU has already had the whole next frame's compute time, so the wait is
 // normally zero), draws overlays, presents, and PUBLISHES the frame number.
 // All on the game thread: no third thread, no shared lock.
+uint64_t g_zeroCopyN = 0;
 void retire_one() {
     if (g_pendN <= 0) return;
     const Pend pd = g_pend[0];
@@ -850,6 +851,43 @@ void d2gxm_drain() {
     ++g_drains;
     if (g_asyncMode == 2) { while (g_pendN > 0) retire_one(); }
     else                  { sceGxmDisplayQueueFinish(); }
+}
+
+uint64_t d2gxm_zerocopy() { return g_zeroCopyN; }
+
+// ---- ZERO-COPY TARGET (see vita_gxm.h) -------------------------------------
+// Hands out the slot the NEXT submit will pick — (g_back + 1) % g_ring, the
+// same expression d2gxm_submit uses, and g_back only moves at the end of a
+// submit, so the two always agree.
+//
+// WHEN IT IS SAFE. d2gxm_submit already writes this block before
+// sceGxmBeginScene, so the slot is expected to be free at that point; what
+// changes here is that the writing starts a whole frame EARLIER. That extra
+// exposure is only taken where the slot's freedom can be established:
+//   mode 0 (synchronous) — the previous frame was finished and presented
+//     before submit returned, so nothing is reading anything;
+//   mode 2 (deferred)    — the in-flight list is ours; the same retire loop
+//     submit runs is run here instead, one frame earlier;
+//   mode 1 (display queue) — the queue owns the frame and we cannot prove
+//     anything about it, so the slot is only handed out when the carousel is
+//     at least 3 deep (the async default is 4): the GPU then finished this
+//     slot two or more frames ago. With a shallower carousel we refuse and
+//     the caller copies, exactly as before.
+bool d2gxm_frame_target(d2gr::Vtx** vo, uint32_t* maxv, uint16_t** io, uint32_t* maxi) {
+    if (!g_ready) return false;
+    const int slot = (g_back + 1) % g_ring;
+    if (!g_vtxBuf[slot].p || !g_idxBuf[slot].p) return false;
+    if (g_asyncMode == 2) {
+        for (int guard = 0; guard <= MAXRING; ++guard) {
+            bool busy = false;
+            for (int i = 0; i < g_pendN; ++i) if (g_pend[i].slot == slot) busy = true;
+            if (!busy) break;
+            retire_one();
+        }
+    } else if (g_asyncMode == 1 && g_ring < 3) return false;
+    *vo = (d2gr::Vtx*)g_vtxBuf[slot].p;   *maxv = MAXV;
+    *io = (uint16_t*)g_idxBuf[slot].p;    *maxi = MAXI;
+    return true;
 }
 
 bool d2gxm_init(int gameW, int gameH) {
@@ -1638,8 +1676,15 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
     }
     if (ni > MAXI - 30) { ni = MAXI - 30; }
     const uint64_t tCopy0 = sceKernelGetProcessTimeWide();
-    std::memcpy(g_vtxBuf[slot].p, v, (size_t)nv * sizeof(d2gr::Vtx));
-    std::memcpy(g_idxBuf[slot].p, idx, (size_t)ni * 2);
+    // ZERO-COPY. When the builder was handed this very slot by
+    // d2gxm_frame_target(), the bytes are already where they belong: copying
+    // them onto themselves would cost ~816 KB of bus traffic per frame on a
+    // machine whose three cores share one memory bus. The test is a pointer
+    // comparison, so the copied path is bit-for-bit what it always was.
+    if (g_vtxBuf[slot].p != (const void*)v) {
+        std::memcpy(g_vtxBuf[slot].p, v, (size_t)nv * sizeof(d2gr::Vtx));
+        std::memcpy(g_idxBuf[slot].p, idx, (size_t)ni * 2);
+    } else ++g_zeroCopyN;
 
     // Palettes: this slot's copy is only refreshed if a palette changed since
     // it was last used. Uploads are rare in practice, so this 16 KiB copy

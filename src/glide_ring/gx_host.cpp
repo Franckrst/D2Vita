@@ -523,6 +523,50 @@ static uint64_t g_gxSubmitUs=0;     // d2gxm_submit as seen from the caller side
 //                      per frame, published as `lh=` — the oracle for the GPU
 //                      half of the walk, which `h=` (the raw ring) can't see.
 bool grprof_on(){ static int v=-1; if(v<0){ const char* e=getenv("D2_GRPROF"); v=(e&&*e&&strcmp(e,"0"))?1:0; } return v!=0; }
+// ---- D2_RINGFAST — RING WALK SPEEDUPS, OFF BY DEFAULT ----------------------
+// A BITMASK, not a ladder: every bit is a separate rewrite of one line item of
+// the walk, so the same binary can carry the control leg (D2_RINGFAST absent)
+// and any subset of the treatments, and a console A/B can charge the gain to
+// the right place. NONE of them may change a single bit of what leaves for the
+// GPU — the proof is `lh=`/`lu=` (D2_GXMLOTSHASH=1) and the `gxm:` counters,
+// which must be identical down to the count. See tools/oracle_ringwalk.sh.
+//   1 : VERTEX LOOP (gx_draw). Bulk form of Builder::vertexPre — invariants in
+//       registers, one allocation per draw instead of one per vertex, ring
+//       read straight into VFP. ~77% of the walk sits here.
+//   2 : ORDERED BINDING TABLE (gx_sync_state). Open-addressed table in place of
+//       std::unordered_map<uint32_t,GxBind>: no chaining, no allocation.
+//   4 : STATE RECORDS (gr_replay / gx_state). The record is already a host
+//       pointer: stop re-deriving it through the ring mask for the signature
+//       and for grVertexLayout, and hoist the per-record knob reads.
+//   8 : RING PREFETCH (needs bit 1). PLD ahead in the ring inside the vertex
+//       loop. Separate bit so its share is measurable on its own.
+// Bits 1 and 8 both need the vertex data to be 4-byte aligned; when it is not
+// (the guest's stride is free-form) the old loop runs, and `nonalignes=` in
+// the gxm-ring line counts those draws instead of hiding them.
+//  16 : ZERO-COPY SUBMISSION. The batch builder writes its vertices and
+//       indices STRAIGHT into the GXM slot the next submit will use, instead
+//       of into its own vectors that d2gxm_submit then memcpy's — ~408 KB
+//       copied per frame, ~816 KB of bus traffic. On this machine the three
+//       cores share one L2 and one memory bus, so bytes matter more than
+//       instructions once the walk moves to its own core (D2_FLUSHFIL=1).
+static int ringfast(){ static int v=-1; if(v<0){ const char* e=getenv("D2_RINGFAST");
+        v=(e&&*e)?atoi(e):0; if(v<0) v=0; } return v; }
+// D2_RINGVERIFY=1 — SHADOW CHECK, never a play leg. Every draw that took the
+// fast vertex path is recomputed by the reference path and compared byte for
+// byte (Builder::verifyRun), and every ordered-binding lookup answered by the
+// open table is re-asked of the unordered_map. This is the proof that bit0,
+// bit1 and bit4 change nothing: the qemu bench's GUEST is NOT deterministic
+// across processes — the game issues a few dozen more or fewer texture
+// uploads from one run to the next, which moves every atlas cell and with it
+// every u,v — so `lh=` cannot be compared between two runs. Comparing the two
+// implementations INSIDE one run does not depend on that at all.
+// It roughly doubles the vertex work: measurement only.
+static bool ringverify(){ static int v=-1; if(v<0){ const char* e=getenv("D2_RINGVERIFY");
+        v=(e&&*e&&strcmp(e,"0"))?1:0; } return v!=0; }
+static uint64_t g_rfVerN=0, g_rfVerBad=0, g_rfBindVerN=0, g_rfBindVerBad=0;
+static uint64_t g_rfRdVerN=0, g_rfRdVerBad=0, g_rfStVerN=0, g_rfStVerBad=0;
+static uint64_t g_rfPreN=0, g_rfPreBad=0;
+static uint64_t g_rfVtxRuns=0, g_rfUnaligned=0, g_rfZeroOn=0, g_rfZeroOff=0;
 static int  lotshash_mode(){ static int v=-1; if(v<0){ const char* e=getenv("D2_GXMLOTSHASH"); v=(e&&*e)?atoi(e):0; } return v; }
 static bool lotshash_on(){ return lotshash_mode()!=0; }   // 2 = additionally, one `gxlh:` line PER FRAME (that frame's hash alone): locates the first frame that diverges
 static uint64_t g_grpStateUs=0, g_grpDrawUs=0, g_grpSyncUs=0, g_grpVtxUs=0, g_grpEndUs=0, g_grpClockNs=0;
@@ -587,6 +631,40 @@ static bool g_gxStDirty=true;                     // batch state must be recompo
 // context lock (r60_gxm_lock, a no-op while the replay thread doesn't exist).
 static void gx_page_upload_cb(int page,int x,int y,int w,int h,const uint8_t* src,int pitch){
     r60_gxm_lock(); d2gxm_page_upload(page,x,y,w,h,src,pitch); r60_gxm_unlock();
+}
+#ifndef __vita__
+// OFF-VITA STAND-IN for the GXM slot carousel. There is no GPU memory here,
+// but the zero-copy PATH still has to be provable: what `lh=`/`lu=` must show
+// is that a frame built into a FOREIGN, ROTATING buffer is byte-identical to
+// one built into the builder's own vectors. Two host buffers, rotated the way
+// the real carousel rotates, exercise exactly that — and the oracle runs
+// under qemu instead of only on the console.
+bool d2gxm_frame_target(d2gr::Vtx** vo, uint32_t* maxv, uint16_t** io, uint32_t* maxi){
+    static const uint32_t MV=65535, MI=196608;
+    static std::vector<d2gr::Vtx> v[2]; static std::vector<uint16_t> ix[2];
+    static int slot=-1;
+    if(v[0].empty()){ for(int k=0;k<2;k++){ v[k].resize(MV); ix[k].resize(MI); } }
+    slot=(slot+1)&1;
+    *vo=v[slot].data(); *maxv=MV; *io=ix[slot].data(); *maxi=MI;
+    return true;
+}
+#endif
+// Points the builder at the next GXM slot (D2_RINGFAST bit4) or back at its
+// own vectors. Called once per frame, right after the builder is reset, so a
+// change of mind can never split a half-built frame across two buffers.
+static void gx_set_frame_target(){
+    if(!(ringfast()&16)){ g_gxBuild.setTarget(nullptr,nullptr); ++g_rfZeroOff; return; }
+    // D2_REPLAY60 re-reads every vertex of every frame to resubmit it: on
+    // write-combined GPU memory that read-back is ~814 ns per line here, so
+    // the two are not combined. The MEASUREMENT knobs that also read back
+    // (D2_GXMLOTSHASH, D2_CACHEPROBE, D2_GXMOVERDRAW, D2_GXMCOVER) are left
+    // alone on purpose — the oracle needs them, they are never a play leg,
+    // and the `gxm-rapide` line says when one is armed with bit4.
+    d2gr::Vtx* tv=nullptr; uint16_t* ti=nullptr; uint32_t mv=0, mi=0;
+    if(!g_r60Active && d2gxm_frame_target(&tv,&mv,&ti,&mi)
+       && mv>=g_gxBuild.maxVerts() && mi>=g_gxBuild.maxIndices()){
+        g_gxBuild.setTarget(tv,ti); ++g_rfZeroOn;
+    } else { g_gxBuild.setTarget(nullptr,nullptr); ++g_rfZeroOff; }
 }
 static int gx_page_make_cb(int page,int dim){ r60_gxm_lock(); const int r=d2gxm_page_create(page,dim); r60_gxm_unlock(); return r; }
 // EVICTION FENCE. Returns the oldest frame the GPU hasn't finished reading.
@@ -736,6 +814,7 @@ static void gx_lazy_init(){
     g_gxStDirty=true;              // the atlas was just created: batch state must be recomposed
     g_gxBuild.init(65535, 196608, 8192);   // caps raised (see vita_gxm.cpp MAXV)
     g_gxBuild.splitByPalette(gxpal_on());
+    gx_set_frame_target();         // first frame: the builder may already aim at a GXM slot
     char m[208];
     std::snprintf(m,sizeof m,"gxm: atlas %u Mio, pages %ux%u (max %u), fenetre %ux%u, lots coupes par palette=%s",
                   mio,dim,dim,g_gxAtlas.maxPages(),g_gxResW,g_gxResH, gxpal_on()?"OUI":"non");
@@ -757,16 +836,81 @@ static void gx_lazy_init(){
 static bool bindorder_on(){ static int v=-1; if(v<0){ const char* e=getenv("D2_GXBINDORDER"); v=(e&&*e&&!strcmp(e,"0"))?0:1; } return v!=0; }
 struct GxBind { int32_t cell; uint32_t gen; };
 static std::unordered_map<uint32_t,GxBind> g_gxBindAt;
+// ---- OPEN-ADDRESSED TWIN OF g_gxBindAt (D2_RINGFAST bit1) -------------------
+// Same contents, same answers — only the lookup differs. The map is queried
+// once per RECOMPOSED draw (~680 per frame on console); an
+// std::unordered_map::find is a modulo, a bucket-list walk and at least two
+// dependent cache misses, where linear probing over a power-of-two table is
+// a multiply, a mask and usually one hit line.
+// BOTH structures are kept in step on every write, and only the READ is
+// switched by the knob: that is what makes the A/B a comparison of two lookup
+// strategies over identical data rather than of two different tables. Writes
+// are rare (one per texture bind), so the doubled insert costs nothing
+// measurable. There is no erase anywhere on this table (checked), so no
+// tombstones are needed.
+struct GxBindTab {
+    struct Slot { uint32_t key, live; int32_t cell; uint32_t gen; };   // live: 0 = empty
+    std::vector<Slot> s; uint32_t mask=0, n=0;
+    void grow(){
+        const uint32_t cap = mask? (mask+1u)*2u : 1024u;
+        std::vector<Slot> old; old.swap(s);
+        s.assign(cap,Slot{0,0,0,0}); mask=cap-1u; n=0;
+        for(size_t i=0;i<old.size();i++) if(old[i].live) put(old[i].key,old[i].cell,old[i].gen);
+    }
+    static inline uint32_t hash(uint32_t k){ return k*2654435761u; }
+    // Probe. Returns the slot for `k` (live) or the first free slot for it.
+    inline Slot* probe(uint32_t k){
+        uint32_t i = (hash(k)>>16) & mask;                  // high bits: the low ones of a
+        for(;;){                                            // multiplicative hash are the worst
+            Slot& e = s[i];
+            if(!e.live || e.key==k) return &e;
+            i = (i+1u) & mask;
+        }
+    }
+    const Slot* find(uint32_t k) const {
+        if(!mask) return nullptr;
+        const Slot* e = const_cast<GxBindTab*>(this)->probe(k);
+        return e->live? e : nullptr;
+    }
+    void put(uint32_t k, int32_t cell, uint32_t gen){
+        if(!mask || (n+1u)*2u > mask+1u) grow();
+        Slot* e = probe(k);
+        if(!e->live){ e->live=1; e->key=k; ++n; }
+        e->cell=cell; e->gen=gen;
+    }
+};
+static GxBindTab g_gxBindTab;
+static inline void gx_bind_set(uint32_t addr, int32_t cell, uint32_t gen){
+    g_gxBindAt[addr] = GxBind{ cell, gen };      // authority for the control leg
+    g_gxBindTab.put(addr, cell, gen);            // twin, read under D2_RINGFAST bit1
+}
 static uint64_t g_gxBindOrdered=0, g_gxBindFallback=0, g_gxBindStale=0;
 static void gx_sync_state(){
     ++g_gxSyncDone;
     int32_t cell = -1;
     if(g_gxAtlas.ready()){
         if(bindorder_on()){
-            auto it=g_gxBindAt.find(g_gxTexAddr);
-            if(it!=g_gxBindAt.end()){
-                const int32_t ci=it->second.cell;
-                if(ci>=0 && g_gxAtlas.cell(ci).gen==it->second.gen){ cell=ci; ++g_gxBindOrdered; }
+            int32_t ci=-1; bool found=false;
+            // ci = -2 marks "the key IS in the table but its generation is
+            // stale": the two cases the reference code distinguishes (absent
+            // vs stale) have to stay distinguishable, because they feed two
+            // DIFFERENT counters — repli= and perimees=.
+            if(ringfast()&2){ const GxBindTab::Slot* e=g_gxBindTab.find(g_gxTexAddr);
+                if(e){ found=true; ci=e->cell;
+                       if(ci>=0 && g_gxAtlas.cell(ci).gen!=e->gen) ci=-2; }
+                // D2_RINGVERIFY: ask the map the same question. `e` is only
+                // dereferenced when found is true, which is exactly when it
+                // is non-null.
+                if(ringverify()){ ++g_rfBindVerN;
+                    auto jt=g_gxBindAt.find(g_gxTexAddr);
+                    const bool f2 = jt!=g_gxBindAt.end();
+                    if(f2!=found || (f2 && (jt->second.cell!=e->cell || jt->second.gen!=e->gen)))
+                        ++g_rfBindVerBad; } }
+            else { auto it=g_gxBindAt.find(g_gxTexAddr);
+                if(it!=g_gxBindAt.end()){ found=true; ci=it->second.cell;
+                       if(ci>=0 && g_gxAtlas.cell(ci).gen!=it->second.gen) ci=-2; } }
+            if(found){
+                if(ci>=0){ cell=ci; ++g_gxBindOrdered; }
                 else { ++g_gxBindStale; cell=g_gxAtlas.resolve(g_gxTexAddr); }
             } else { ++g_gxBindFallback; cell=g_gxAtlas.resolve(g_gxTexAddr); }
         } else cell=g_gxAtlas.resolve(g_gxTexAddr);
@@ -943,7 +1087,7 @@ static void gx_tex_apply(uint32_t tmuAddr, uint32_t w, uint32_t h, uint32_t nb,
     const int32_t ci=g_gxAtlas.upload(hsh,tmuAddr,w,h,p,g_gxFrame);
     if(ci>=0 && bindorder_on()){
         if(emit){ const uint32_t rec[3]={tmuAddr,(uint32_t)ci,g_gxAtlas.cell(ci).gen}; gr_emit(*emit,D2GR_OP_TEXBIND,rec,3); }
-        else      g_gxBindAt[tmuAddr]=GxBind{ ci, g_gxAtlas.cell(ci).gen };
+        else      gx_bind_set(tmuAddr, ci, g_gxAtlas.cell(ci).gen);
     }
     if(!emit) g_gxTexUs += rt_now_us()-ta;
 }
@@ -992,16 +1136,28 @@ static void gx_tex_upload_inner(d2rt::Cpu& c, uint32_t tmuAddr, uint32_t info){
 }
 // A STATE record -> the GPU path's current state. `rp` = host view of the
 // record (word 0 = header).
-static void gx_state(uint32_t op, uint32_t len, const uint32_t* rp){
-    uint32_t a[8]={0,0,0,0,0,0,0,0};
-    for(uint32_t i=1;i<len && i<8;i++) a[i]=rp[i];
+static void gx_state(uint32_t op, uint32_t len, const uint32_t* rp, bool fast=false){
+    uint32_t a[8];
+    // `a[0]` is never read below (word 0 is the record header): with the knob
+    // on, the zero fill of eight words followed by a copy of up to seven
+    // becomes exactly eight writes with no overlap. a[1..7] hold the same
+    // values either way — a word past `len` still reads 0.
+    if(fast){ uint32_t i=1; const uint32_t m = len<8u? len : 8u;
+              for(; i<m; i++) a[i]=rp[i];
+              for(; i<8u; i++) a[i]=0u; a[0]=0u;
+              if(ringverify()){ uint32_t ref[8]={0,0,0,0,0,0,0,0};
+                  for(uint32_t k=1;k<len && k<8;k++) ref[k]=rp[k];
+                  ++g_rfStVerN;
+                  for(uint32_t k=1;k<8;k++) if(a[k]!=ref[k]){ ++g_rfStVerBad; break; } } }
+    else { a[0]=a[1]=a[2]=a[3]=a[4]=a[5]=a[6]=a[7]=0u;
+           for(uint32_t i=1;i<len && i<8;i++) a[i]=rp[i]; }
     g_gxStDirty=true;
     switch(op){
       case 0x10:                                  // grTexSource
         if(a[1]==0){ g_gxTexAddr=a[3]; g_gxLod=a[5]; g_gxAspect=(int32_t)a[6]; g_gxFmt=a[7]; }
         break;
       case D2GR_OP_TEXBIND:                       // ordered binding (emitted by the host)
-        g_gxBindAt[a[1]] = GxBind{ (int32_t)a[2], a[3] };
+        gx_bind_set(a[1], (int32_t)a[2], a[3]);
         break;
       case D2GR_OP_TEXUP: {                       // OFFLOADED upload (D2_FLUSHFIL): emitted by the host at
         // crossing time, executed HERE — the exact place the TEXBIND occupies
@@ -1113,6 +1269,56 @@ static uint64_t g_cpDrawA=0, g_cpDrawS=0, g_cpDrawG=0; static uint32_t g_cpDrawV
 static float g_cpX0=0,g_cpY0=0; static bool g_cpFirst=false;
 static uint64_t g_cpFrameBytes=0;
 static int g_cpDumpF=-2, g_cpDumpN=0, g_cpDump2=-1, g_cpDump2N=0, g_cpLastBk=0;
+// ---- D2_RINGFAST bit0: the whole fast vertex run, OUT OF LINE --------------
+// Out of line on purpose. Inlined into gx_draw it costs the CONTROL loop its
+// registers — gcc then spills the seven VtxPre fields and reloads them on
+// every vertex — and an A/B whose control leg the patch itself slowed down
+// measures the wrong thing.
+// Returns false when the run could not be taken, and the caller falls back to
+// the byte-wise loop: `stride` is the guest's own vertex size and the
+// grVertexLayout offsets are free-form bytes, so neither is guaranteed to be
+// a multiple of 4 — and a `vldr` on an odd address faults on the Vita.
+static __attribute__((noinline)) bool gx_vtx_fast(
+        uint32_t mode, uint32_t n, uint32_t stride, const uint8_t* vh,
+        int oxy, int ost0, int oargb, float invDim,
+        uint16_t* idx, int rf, float* lx, float* ly, float* ls, float* lt, uint32_t* lc){
+    const uint32_t amask = (uint32_t)((uintptr_t)vh) | stride | (uint32_t)oxy
+                         | (uint32_t)ost0 | (oargb>=0?(uint32_t)oargb:0u);
+    if(amask&3u){ ++g_rfUnaligned; return false; }
+    ++g_rfVtxRuns;
+    // Its OWN VtxPre. Handing it gx_draw's would take that object's address,
+    // and an address-taken VtxPre can no longer live in gx_draw's registers:
+    // the control loop would then reload its seven fields on every vertex.
+    d2gr::VtxPre pre; g_gxBuild.prepFast(pre,g_gxSt,g_gxAtlas,invDim);
+    if(ringverify()){            // prepFast's table must equal prep's divide, bit for bit
+        d2gr::VtxPre ref; g_gxBuild.prep(ref,g_gxSt,g_gxAtlas,invDim);
+        if(std::memcmp(&ref,&pre,sizeof ref)!=0) ++g_rfPreBad;
+        ++g_rfPreN; }
+    const uint32_t vbase=g_gxBuild.verts(), vdrop=g_gxBuild.dropped();
+    g_gxBuild.vertexPreRun(pre,vh,n,stride,(uint32_t)oxy,(uint32_t)ost0,oargb,idx,
+                           (rf&8)?2u:0u);
+    if(ringverify()){
+        const uint32_t bad=g_gxBuild.verifyRun(pre,vh,n,stride,(uint32_t)oxy,
+                                               (uint32_t)ost0,oargb,idx,vbase,vdrop);
+        ++g_rfVerN;
+        if(bad){ ++g_rfVerBad;
+            if(g_rfVerBad<=3){ char m[176];
+                std::snprintf(m,sizeof m,"ringfast: DIVERGENCE image=%llu mode=%u n=%u stride=%u differences=%u",
+                    (unsigned long long)g_gxFrame,mode,n,stride,bad);
+                d2vita_progress(m); std::printf("[%s]\n",m); } } }
+    // lx/ly/ls/lt/lc are read by ONE case of gx_draw's switch (0xFF =
+    // grDrawLine/grDrawPoint, n <= 2). Filling them for every draw would put
+    // a compare and a branch back in the loop for nothing, so they are filled
+    // only where they are read.
+    if(mode==0xFFu) for(uint32_t i=0;i<n&&i<2;i++){
+        const uint8_t* r = vh+(size_t)i*stride;
+        union{uint32_t u;float f;} X,Y,S,T;
+        std::memcpy(&X.u,r+oxy,4);  std::memcpy(&Y.u,r+oxy+4,4);
+        std::memcpy(&S.u,r+ost0,4); std::memcpy(&T.u,r+ost0+4,4);
+        lx[i]=X.f; ly[i]=Y.f; ls[i]=S.f; lt[i]=T.f;
+        lc[i]=0xFFFFFFFFu; if(oargb>=0) std::memcpy(&lc[i],r+(uint32_t)oargb,4); }
+    return true;
+}
 // A draw record -> triangles. `vh` = host view of the FIRST vertex (the
 // following cnt*stride bytes are contiguous: a record never straddles the
 // end of the ring).
@@ -1121,6 +1327,7 @@ static void gx_draw(uint32_t mode, uint32_t cnt, uint32_t stride, const uint8_t*
     const int oxy=g_grVLoff[0x01], oargb=g_grVLoff[0x30], ost0=g_grVLoff[0x40];
     if(oxy<0 || ost0<0) return;
     const bool prof=grprof_on();
+    const int rf = ringfast();
     const uint64_t tS = prof? rt_now_us() : 0;
     gx_sync_for_draw();
     const uint64_t tV = prof? rt_now_us() : 0;
@@ -1137,13 +1344,26 @@ static void gx_draw(uint32_t mode, uint32_t cnt, uint32_t stride, const uint8_t*
     float sMin=1e30f,sMax=-1e30f,tMin=1e30f,tMax=-1e30f;
     const float sx=(float)960.0f/(float)g_gxResW, sy=(float)544.0f/(float)g_gxResH;
     (void)sx;(void)sy;
-    const float invDim = g_gxAtlas.dim()? 1.0f/(float)g_gxAtlas.dim() : 0.0f;
+    // ATLAS DIMENSION RECIPROCAL. `vdiv.f32` is ~15 non-pipelined cycles on
+    // Cortex-A9 and dim() is fixed for the whole run: with the knob on it is
+    // divided once and remembered. Same expression, same bits — only the
+    // number of times it is evaluated changes.
+    float invDim;
+    if(rf&1){ static uint32_t lastDim=0; static float lastInv=0.0f;
+        const uint32_t d=g_gxAtlas.dim();
+        if(d!=lastDim){ lastDim=d; lastInv = d? 1.0f/(float)d : 0.0f; }
+        invDim=lastInv;
+    } else invDim = g_gxAtlas.dim()? 1.0f/(float)g_gxAtlas.dim() : 0.0f;
     uint16_t idx[4096];
     const uint32_t n = cnt<4096?cnt:4096;
     // Coordinates stay in the game's WINDOW space: the 960x544 scaling is done
     // by the vertex shader's matrix (uScale), not here — otherwise it would be
     // recomputed thousands of times per frame.
-    d2gr::VtxPre pre; g_gxBuild.prep(pre,g_gxSt,g_gxAtlas,invDim);
+    // Filled just before whichever vertex loop runs (the fast run builds its
+    // own, inside gx_vtx_fast) — `preSkipped` records that this local one was
+    // NOT filled, which only the rare grDrawLine/grDrawPoint case below cares
+    // about.
+    d2gr::VtxPre pre; bool preSkipped=false;
     // Reads one word of vertex i: host view (one ldr).
     auto ld=[&](uint32_t i,int off)->uint32_t{
         uint32_t w; std::memcpy(&w, vh+(size_t)i*stride+(uint32_t)off, 4); return w; };
@@ -1167,6 +1387,19 @@ static void gx_draw(uint32_t mode, uint32_t cnt, uint32_t stride, const uint8_t*
         g_cpDrawA=h; g_cpDrawS=h; g_cpDrawV=n; g_cpFirst=false;
     }
     float cpXmin=1e30f,cpXmax=-1e30f,cpYmin=1e30f,cpYmax=-1e30f;
+    // ---- FAST RUN (D2_RINGFAST bit0) ---------------------------------------
+    // Taken only when nothing else has to be observed per vertex: the two
+    // diagnostic knobs each add a load, a compare and a branch INSIDE the
+    // loop (gcc does not version it), and both are measurement legs, never
+    // play. Everything it needs lives in gx_vtx_fast(), which is NOT inlined:
+    // folding it in here changes gx_draw's register pressure enough that the
+    // CONTROL loop loses its VtxPre fields to the stack (measured: 7 extra
+    // `vldr` per vertex). The A/B must compare a fast leg against the control
+    // leg as it actually is, not against one this patch made slower.
+    if((rf&1) && !cprobe && !dumpLots
+       && gx_vtx_fast(mode,n,stride,vh,oxy,ost0,oargb,invDim,idx,rf,lx,ly,ls,lt,lc)){
+        preSkipped=true; goto vtx_done; }
+    g_gxBuild.prep(pre,g_gxSt,g_gxAtlas,invDim);
     for(uint32_t i=0;i<n;i++){
         union{uint32_t u;float f;} X,Y,S,T;
         X.u=ld(i,oxy); Y.u=ld(i,oxy+4); S.u=ld(i,ost0); T.u=ld(i,ost0+4);
@@ -1188,6 +1421,7 @@ static void gx_draw(uint32_t mode, uint32_t cnt, uint32_t stride, const uint8_t*
             if(Y.f<cpYmin)cpYmin=Y.f; if(Y.f>cpYmax)cpYmax=Y.f;
         }
     }
+    vtx_done:
     if(cprobe && g_cpDump2>=-1){
         if(g_cpDump2==-1){ const char* e=getenv("D2_CACHEDUMP2"); g_cpDump2=(e&&*e)?atoi(e):-2; }
     }
@@ -1234,6 +1468,7 @@ static void gx_draw(uint32_t mode, uint32_t cnt, uint32_t stride, const uint8_t*
         // batch state). D2_GXLINES=0 reverts to ignoring them.
         static int lines=-1; if(lines<0){ const char* e=getenv("D2_GXLINES"); lines=(e&&*e&&!strcmp(e,"0"))?0:1; }
         if(!lines || n<1){ ++g_gxSkipMode; break; }
+        if(preSkipped) g_gxBuild.prep(pre,g_gxSt,g_gxAtlas,invDim);   // the fast run kept its own copy
         const float hw=0.75f;
         float x0=lx[0],y0=ly[0],x1=(n>=2)?lx[1]:lx[0],y1=(n>=2)?ly[1]:ly[0];
         float dx=x1-x0, dy=y1-y0; const float L=std::sqrt(dx*dx+dy*dy);
@@ -1499,6 +1734,26 @@ static uint32_t gr_replay(uint32_t head){
     auto RD=[&](uint32_t absoff)->uint32_t{
         uint32_t w; std::memcpy(&w, rh+(absoff&g_grMask), 4); return w; };
     const bool prof=grprof_on();
+    // ---- D2_RINGFAST bit2: the record is ALREADY a host pointer -------------
+    // `rp` points at word 0 of the record and a record never straddles the end
+    // of the ring (glide3x_ring.c pads with a NOP), so rp[i] and
+    // RD(g_grTail+4*i) are the SAME BYTES for i < len — the draw case has
+    // relied on that since the host-pointer walk landed (`rh+off+16`). What
+    // RD costs on top is a mask and an add per word, seven of them for every
+    // state signature.
+    // The four knob predicates are also lifted out of the loop: grgx_on() is
+    // an EXTERNAL function, so each of its four call sites is a real `bl` per
+    // record — and a call barrier for the register allocator on top.
+    const bool rfS = (ringfast()&4)!=0;
+    const bool rfV = ringverify();   // hoisted: one test per record, not one call
+    const bool k_gx = rfS? grgx_on()      : false;
+    const bool k_iv = rfS? grinv_on()     : false;
+    const bool k_cp = rfS? cacheprobe_on(): false;
+    const bool k_du = rfS? grdup_on()     : false;
+    #define RF_GX (rfS? k_gx : grgx_on())
+    #define RF_IV (rfS? k_iv : grinv_on())
+    #define RF_CP (rfS? k_cp : cacheprobe_on())
+    #define RF_DU (rfS? k_du : grdup_on())
     uint32_t n=0;
     while((int32_t)(head-g_grTail)>0){
         const uint32_t off=g_grTail&g_grMask;
@@ -1522,20 +1777,29 @@ static uint32_t gr_replay(uint32_t head){
               if(e2&&*e2&&atoi(e2)==(int)n){ for(uint32_t i=0;i<len;i+=8){ char c[160]; int j=std::snprintf(c,sizeof c,"grw: %4u:",i);
                     for(uint32_t q=i;q<len&&q<i+8;q++) j+=std::snprintf(c+j,sizeof c-j," %08x",rp[q]);
                     std::printf("%s\n",c); } } } } }
+        // D2_RINGVERIFY: the ONE substantive claim of bit2 is that the host
+        // pointer `rp` and the masked re-read RD(g_grTail+4*i) name the same
+        // bytes — true because a record never straddles the end of the ring.
+        // Checked here rather than argued, on every word of every record.
+        if(rfV){ ++g_rfRdVerN;
+            const uint32_t m = len<8u? len : 8u;
+            for(uint32_t i=0;i<m;i++){ uint32_t w2;
+                std::memcpy(&w2, rh+((g_grTail+4u*i)&g_grMask), 4);
+                if(rp[i]!=w2){ ++g_rfRdVerBad; break; } } }
         const uint64_t tRec = prof? rt_now_us() : 0;
         switch(op){
           case 0x31: case 0x32: {                          // DRAWVERTEXARRAY(_CONT)
             // Ring format: p[1]=mode, p[2]=count, p[3]=stride
             // (src/glide_ring/glide3x_ring.c).
-            const uint32_t md =RD(g_grTail+4);
-            const uint32_t cnt=RD(g_grTail+8);
-            const uint32_t str=RD(g_grTail+12);
+            const uint32_t md = rfS? rp[1] : RD(g_grTail+4);
+            const uint32_t cnt= rfS? rp[2] : RD(g_grTail+8);
+            const uint32_t str= rfS? rp[3] : RD(g_grTail+12);
             ++g_grDraws; g_grVerts+=cnt; gr_mix(((uint64_t)cnt<<32)|str);
             if(g_grStateSig!=g_grLastDrawSig){ ++g_grBatches; g_grLastDrawSig=g_grStateSig; }
-            if(grinv_on()){ char b[96]; const char* nm=gl_drawmode(md);
+            if(RF_IV){ char b[96]; const char* nm=gl_drawmode(md);
                 std::snprintf(b,sizeof b,"mode=%s count=%u stride=%u",nm?nm:"?",cnt,str);
                 g_grInv[op][b]++; grinv_vertices(g_grTail+16,cnt,str); }
-            if(grgx_on()) gx_draw(md,cnt,str, rh+off+16);
+            if(RF_GX) gx_draw(md,cnt,str, rh+off+16);
             r60_on_draw(cnt); cp_phase_draw();
             if(prof) g_grpDrawUs += rt_now_us()-tRec;
             break; }
@@ -1543,23 +1807,23 @@ static uint32_t gr_replay(uint32_t head){
             const uint32_t nv = op==0x33?3u : op==0x34?2u : 1u;
             ++g_grDraws; g_grVerts+=nv;
             if(g_grStateSig!=g_grLastDrawSig){ ++g_grBatches; g_grLastDrawSig=g_grStateSig; }
-            if(grinv_on()){ const uint32_t str=RD(g_grTail+4);
+            if(RF_IV){ const uint32_t str= rfS? rp[1] : RD(g_grTail+4);
                 char b[96]; std::snprintf(b,sizeof b,"stride=%u sommets=%u",str,nv);
                 g_grInv[op][b]++; grinv_vertices(g_grTail+8,nv,str); }
-            if(grgx_on()){ const uint32_t str=RD(g_grTail+4);
+            if(RF_GX){ const uint32_t str= rfS? rp[1] : RD(g_grTail+4);
                 gx_draw(op==0x33?6u:0xFFu,nv,str, rh+off+8); }
             r60_on_draw(nv); cp_phase_draw();
             if(prof) g_grpDrawUs += rt_now_us()-tRec;
             break; }
           case 0x3f:                                       // FRAME_END
             ++g_grFrames; ++g_grDupCur;
-            if(grgx_on()){
+            if(RF_GX){
                 gx_lazy_init();
                 if(!g_gxDead && g_gxAtlas.ready()){
                     g_gxVertsAcc+=g_gxBuild.verts(); g_gxLotsAcc+=g_gxBuild.batches(); ++g_gxFramesAcc;
                     if(gxod_on()) gx_overdraw();
                     if(lotshash_on()) gx_lots_hash();
-                    if(cacheprobe_on()) gx_cache_probe();
+                    if(RF_CP) gx_cache_probe();
                     const uint64_t tsub=rt_now_us();
                     if(gxcov_on()) gx_coverage();
                     if(g_r60Active){
@@ -1598,9 +1862,11 @@ static uint32_t gr_replay(uint32_t head){
                                  g_gxBuild.bdata(),g_gxBuild.batches(),g_gxClear,g_gxFrame);
                     g_gxSubmitUs += rt_now_us()-tsub;
                     if(prof) g_grpEndUs += tsub-tRec;
-                    g_gxDroppedWin+=g_gxBuild.dropped(); g_gxBuild.reset(); ++g_gxFrame; }
+                    g_gxDroppedWin+=g_gxBuild.dropped(); g_gxBuild.reset();
+                    gx_set_frame_target();   // aim the NEXT frame (D2_RINGFAST bit4)
+                    ++g_gxFrame; }
             }
-            if(cacheprobe_on()) cp_phase_frame();
+            if(RF_CP) cp_phase_frame();
             r60_frame_reset();
             break;
           case 0x00: break;                                // end-of-buffer padding
@@ -1611,7 +1877,7 @@ static uint32_t gr_replay(uint32_t head){
             break;
           default: {                                       // state: enters the signature
             ++g_grState;
-            if(grdup_on() && op<0x30 && len<=8 && op!=0x21 && op!=0x22){   // redundant? (mirrors the DLL's deduplication)
+            if(RF_DU && op<0x30 && len<=8 && op!=0x21 && op!=0x22){   // redundant? (mirrors the DLL's deduplication)
                 bool same = g_grDupGen[op]==g_grDupCur;
                 for(uint32_t i=1;i<len;i++){ if(same && g_grDupLast[op][i]!=rp[i]) same=false; g_grDupLast[op][i]=rp[i]; }
                 g_grDupGen[op]=g_grDupCur; if(same) ++g_grStateDup;
@@ -1619,22 +1885,28 @@ static uint32_t gr_replay(uint32_t head){
             // Vertex layout is tracked UNCONDITIONALLY: the GPU path depends
             // on it, and gating it on the inventory knob would draw from zero
             // offsets whenever the inventory is off.
-            if(op==0x20){ const uint32_t pa=RD(g_grTail+4);
-                const uint32_t of=RD(g_grTail+8);
-                const uint32_t md=RD(g_grTail+12);
+            if(op==0x20){ const uint32_t pa= rfS? rp[1] : RD(g_grTail+4);
+                const uint32_t of= rfS? rp[2] : RD(g_grTail+8);
+                const uint32_t md= rfS? rp[3] : RD(g_grTail+12);
                 if(pa<0x60) g_grVLoff[pa]= md? (int)of : -1; }
-            if(grgx_on()) gx_state(op,len,rp);
-            if(grinv_on()) grinv_state(op,g_grTail,len);
+            if(RF_GX) gx_state(op,len,rp,rfS);
+            if(RF_IV) grinv_state(op,g_grTail,len);
             uint64_t sig=g_grStateSig;
-            for(uint32_t i=1;i<len&&i<8;i++){ sig^=RD(g_grTail+4*i); sig*=1099511628211ull; }
+            if(rfS){ const uint32_t m = len<8u? len : 8u;
+                     for(uint32_t i=1;i<m;i++){ sig^=rp[i]; sig*=1099511628211ull; } }
+            else for(uint32_t i=1;i<len&&i<8;i++){ sig^=RD(g_grTail+4*i); sig*=1099511628211ull; }
             g_grStateSig=sig; gr_mix(sig);
-            if(cacheprobe_on()) for(int pi=0;pi<g_rphN;pi++) if(g_rph[pi].open)
+            if(RF_CP) for(int pi=0;pi<g_rphN;pi++) if(g_rph[pi].open)
                 for(uint32_t i=0;i<len&&i<64;i++){ g_rph[pi].hA=cp_mix(g_rph[pi].hA,rp[i]); g_rph[pi].hR=cp_mix(g_rph[pi].hR,rp[i]); }
             if(prof) g_grpStateUs += rt_now_us()-tRec;
             break; }
         }
         g_grTail+=bytes;
     }
+    #undef RF_GX
+    #undef RF_IV
+    #undef RF_CP
+    #undef RF_DU
     return n;
 }
 // GPU path line, in the same 10s window as the rest of the profile.
@@ -1725,6 +1997,27 @@ static void gx_line(uint32_t frames){
         (unsigned long long)(dE/n),(unsigned long long)g_grpClockNs,(unsigned long long)(dRec*2/n),
         (unsigned long long)g_gxSyncDone,(unsigned long long)g_gxSyncSkipped);
       d2vita_progress(f); std::printf("[%s]\n",f); }
+    // ARMING OF D2_RINGFAST. A leg that reads `ringfast=0 sequences=0` is the
+    // control; anything else must show a non-zero run count, or the A/B
+    // compared the same code with itself. `nonalignes=` counts the draws whose
+    // vertex data was not 4-byte aligned and went back through the byte-wise
+    // loop — it is expected to be 0, and it is published rather than assumed.
+    { char f[300];
+      const bool rd = lotshash_on()||cacheprobe_on()||gxod_on()||gxcov_on();
+      std::snprintf(f,sizeof f,"gxm-rapide: ringfast=%d sequences=%llu nonalignes=%llu liaisons-table=%u/%u"
+        " | sans-recopie: images=%llu refusees=%llu soumissions=%llu"
+        " | verif: sommets=%llu/%llu liaisons=%llu/%llu mots=%llu/%llu etats=%llu/%llu prep=%llu/%llu%s",
+        ringfast(),(unsigned long long)g_rfVtxRuns,(unsigned long long)g_rfUnaligned,
+        g_gxBindTab.n, g_gxBindTab.mask? g_gxBindTab.mask+1u : 0u,
+        (unsigned long long)g_rfZeroOn,(unsigned long long)g_rfZeroOff,
+        (unsigned long long)d2gxm_zerocopy(),
+        (unsigned long long)g_rfVerBad,(unsigned long long)g_rfVerN,
+        (unsigned long long)g_rfBindVerBad,(unsigned long long)g_rfBindVerN,
+        (unsigned long long)g_rfRdVerBad,(unsigned long long)g_rfRdVerN,
+        (unsigned long long)g_rfStVerBad,(unsigned long long)g_rfStVerN,
+        (unsigned long long)g_rfPreBad,(unsigned long long)g_rfPreN,
+        ((ringfast()&16)&&rd)? " | ATTENTION un oracle relit les sommets : chiffre de perf a jeter":"");
+      d2vita_progress(f); std::printf("[%s]\n",f); }
     if(lotshash_on()){ char f[96];
       std::snprintf(f,sizeof f,"gxm-lots: images=%llu lh=0x%016llx",(unsigned long long)g_gxLotsHashN,(unsigned long long)g_gxLotsHash);
       d2vita_progress(f); std::printf("[%s]\n",f); }
@@ -1749,6 +2042,22 @@ static void gr_final_cumul(){
             (unsigned long long)g_grState,(unsigned long long)g_grStateDup,g_grDedupDll,
             (unsigned long long)g_gxTexHashN,(unsigned long long)(g_gxTexHashN? g_gxTexHashB/g_gxTexHashN:0ull),
             (unsigned long long)(g_gxTexHashN? g_gxTexUs/g_gxTexHashN:0ull),texhash_mode());
+        // The ordered-binding classification, in the FINAL line and not only
+        // in the 10 s `gxm:` window: under qemu the virtual clock never opens
+        // that window, so this was the one set of counters an oracle could
+        // not read back. They must not move.
+        std::printf(" | ordre=%llu repli=%llu perimees=%llu hors-atlas=%llu",
+            (unsigned long long)g_gxBindOrdered,(unsigned long long)g_gxBindFallback,
+            (unsigned long long)g_gxBindStale,(unsigned long long)g_gxTexNoAtlas);
+        std::printf(" | ringfast=%d sequences=%llu nonalignes=%llu sans-recopie=%llu/%llu"
+                    " verif-sommets=%llu/%llu verif-liaisons=%llu/%llu verif-mots=%llu/%llu verif-etats=%llu/%llu verif-prep=%llu/%llu",
+            ringfast(),(unsigned long long)g_rfVtxRuns,(unsigned long long)g_rfUnaligned,
+            (unsigned long long)g_rfZeroOn,(unsigned long long)(g_rfZeroOn+g_rfZeroOff),
+            (unsigned long long)g_rfVerBad,(unsigned long long)g_rfVerN,
+            (unsigned long long)g_rfBindVerBad,(unsigned long long)g_rfBindVerN,
+            (unsigned long long)g_rfRdVerBad,(unsigned long long)g_rfRdVerN,
+            (unsigned long long)g_rfStVerBad,(unsigned long long)g_rfStVerN,
+            (unsigned long long)g_rfPreBad,(unsigned long long)g_rfPreN);
         if(grprof_on()) std::printf(" | fins: etat=%llu dessins=%llu (recomp=%llu sommets=%llu) fin=%llu us/img horloge-ns=%llu hachage-tex=%llu us/img (%llu us/tele)",
             (unsigned long long)(g_grpStateUs/f),(unsigned long long)(g_grpDrawUs/f),(unsigned long long)(g_grpSyncUs/f),
             (unsigned long long)(g_grpVtxUs/f),(unsigned long long)(g_grpEndUs/f),(unsigned long long)g_grpClockNs,

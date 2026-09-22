@@ -53,6 +53,23 @@ uint64_t d2gxm_busy_from();
 // the atlas when the barrier rules out its last possible eviction — a
 // measured wait beats a wrong sprite.
 void d2gxm_drain();
+// ---- ZERO-COPY SUBMISSION (D2_RINGFAST bit4) -------------------------------
+// Hands out the GPU-VISIBLE vertex/index blocks of the slot the NEXT
+// d2gxm_submit will use, so the batch builder can write its frame straight
+// into them. Without this, d2gxm_submit memcpy's ~408 KB of vertices and
+// indices per frame into that same block — about 816 KB of bus traffic
+// (read + write) for data nobody looked at in between, and the Vita's three
+// cores share one L2 and one memory bus.
+//   * It also takes over the "is the GPU still reading this slot?" wait that
+//     d2gxm_submit does, because the writing now starts a whole frame
+//     earlier. It REFUSES (returns false) whenever it cannot prove the slot
+//     is free that early, and the caller then falls back to the copy.
+//   * The memory handed out may be write-combined: WRITE ONLY.
+// d2gxm_submit detects that the pointers it was given are already the slot's
+// and skips the copies.
+bool d2gxm_frame_target(d2gr::Vtx** v, uint32_t* maxv, uint16_t** idx, uint32_t* maxi);
+// Frames submitted without the copy, since boot.
+uint64_t d2gxm_zerocopy();
 // Counter line for the 10 s window. Returns the number of bytes written.
 int  d2gxm_counters(char* out, unsigned n);
 // Vrai quand l'incrustation GPU (menu radial) est armée : shader présent ET
@@ -81,6 +98,13 @@ static inline void d2gxm_submit(const d2gr::Vtx*, uint32_t, const uint16_t*, uin
 static inline bool d2gxm_async() { return false; }
 static inline uint64_t d2gxm_busy_from() { return ~(uint64_t)0; }
 static inline void d2gxm_drain() {}
+// Off Vita there is no GPU memory, but the zero-copy PATH still has to be
+// testable: the builder writing into a foreign, rotating buffer is exactly
+// what `lh=`/`lu=` must prove bit-identical. So the stub hands out a small
+// carousel of ordinary host buffers — same code path, same rotation, and an
+// oracle that runs under qemu instead of only on the console.
+bool d2gxm_frame_target(d2gr::Vtx** v, uint32_t* maxv, uint16_t** idx, uint32_t* maxi);
+static inline uint64_t d2gxm_zerocopy() { return 0; }
 static inline int  d2gxm_counters(char*, unsigned) { return 0; }
 static inline bool d2gxm_ui_active() { return false; }
 static inline bool d2gxm_kb_active() { return false; }
