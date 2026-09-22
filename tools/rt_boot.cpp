@@ -348,6 +348,19 @@ wx86::GuestRegion g_heapA, g_vaA;   // extern: see rt_host.h (for kernel32_filem
 // VA-arena occupancy for the Vita watchdog's "alive" heartbeat — a growth curve
 // that never comes back down across a session is the signature of a leak.
 extern "C" uint32_t d2rt_va_used_mb(void){ return g_vaA.used_bytes()>>20; }
+// POINT HAUT de la fenetre VirtualAlloc. La jauge d'a cote est l'usage
+// COURANT, releve toutes les 10 s par le chien de garde : elle rate par
+// construction les pointes, et les pointes de cette fenetre-la sont
+// exactement ce qui decide de sa taille — le tampon que SCOMP double
+// pendant un chargement de niveau vit quelques secondes. GuestRegion tient
+// deja ce point haut (peak_, mis a jour a chaque alloc) ; il n'etait
+// publie nulle part, si bien que le seul chiffre connu, 200,2 Mio, venait
+// d'un soak sur l'acte I et n'a jamais ete confirme au-dela.
+// La vue complete des deux regions (cur/peak/largest-free) existe deja dans
+// la ligne [ALLOC] plus bas — mais elle n'est imprimee QU'AU HALT, donc
+// seulement quand la fenetre a deja casse. Une decision de dimensionnement a
+// besoin du contraire : de combien les sessions qui TIENNENT sont passees pres.
+extern "C" uint32_t d2rt_va_peak_mb(void){ return g_vaA.peak()>>20; }
 // Counters for the native ports, exposed to the Vita watchdog: on console
 // there is no stdout, so the "alive" line from boot_progress is the only
 // channel — without them there is no way to tell whether the native ports ran at all.

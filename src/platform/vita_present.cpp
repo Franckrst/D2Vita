@@ -813,6 +813,7 @@ extern "C" uint32_t dyn86_fill_fail;
 // blind window -- too late to be evidence of anything. jitp= shows it coming.
 extern "C" unsigned int dyn86_jitpool_size, dyn86_jitpool_used;
 extern "C" uint32_t d2rt_va_used_mb(void);              // VA-arena occupancy (B3 growth curve)
+extern "C" uint32_t d2rt_va_peak_mb(void);              // et son point haut (rt_boot.cpp)
 extern "C" unsigned long long d2rt_hot_stat(int);      // native-port counters
 extern "C" uint32_t d2rt_sprite_cache_kb(int which);   // D2's own sprite-cache accounting
 extern "C" unsigned long long d2rt_cs_stat(int k);     // critical sections served intrinsically
@@ -1007,7 +1008,7 @@ int watchdog_thread(SceSize, void*) {
         sceKernelDelayThread(periode_us);
         sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DEFAULT);   // no idle dim/suspend mid-game
         char m[512];   // + champs fam=/gil=/run= (run= : 10 runners x <id>:<etat>:<blocs>)
-        std::snprintf(m, sizeof m, "alive: pump=%llu frames=%d reads=%llu eip=%08x sw=%llu io=%llums jit=%llums n=%u sync=%llums fail=%u jitp=%u/%uMB va=%uMB spr=%u/%uMB cel=%u/%uKB big=%u jm=%uMB",
+        std::snprintf(m, sizeof m, "alive: pump=%llu frames=%d reads=%llu eip=%08x sw=%llu io=%llums jit=%llums n=%u sync=%llums fail=%u jitp=%u/%uMB va=%u/%uMB spr=%u/%uMB cel=%u/%uKB big=%u jm=%uMB",
                       g_wd_pump ? (unsigned long long)*g_wd_pump : 0ull,
                       g_wd_frames ? *g_wd_frames : -1,
                       g_wd_reads ? (unsigned long long)*g_wd_reads : 0ull,
@@ -1019,7 +1020,7 @@ int watchdog_thread(SceSize, void*) {
                       (unsigned long long)(dyn86_sync_us / 1000ull),
                       dyn86_fill_fail,
                       dyn86_jitpool_used >> 20, dyn86_jitpool_size >> 20,
-                      d2rt_va_used_mb(),
+                      d2rt_va_used_mb(), d2rt_va_peak_mb(),
                       d2rt_sprite_cache_kb(0) >> 10, d2rt_sprite_cache_kb(1) >> 10,
                       // cel=<usage>/<ceiling> KB: the CelData cache, hard-capped
                       // at 512,000 bytes — the only cache in the game that
