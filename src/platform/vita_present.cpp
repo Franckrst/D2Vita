@@ -19,6 +19,7 @@ extern "C" int d2_tlswrap_dump(char*, unsigned);
 #include "platform/vita_host.h"        // engine: log, cores, sleep (CONSOLE-specific)
 #include "runtime/host_clock.h"           // engine: monotonic host clock
 #include "runtime/scripted_input.h"       // inj_set_bounds : le curseur injecte suit la taille du jeu
+#include "runtime/cpu.h"                  // d2rt::Cpu — screen-state reads (controls_help)
 #include "platform/present_scale.h"   // engine: generic scaling (D2_PRESENT_WX86)
 
 #include <cstdlib>
@@ -1677,7 +1678,7 @@ void kb_open_now(){
 }
 } // namespace
 
-extern "C" void d2vita_input_tick(void){
+extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
     if (!g_ctl_init){
         g_ctl_init=true;
         sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);

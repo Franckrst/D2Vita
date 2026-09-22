@@ -3421,7 +3421,7 @@ int main(int argc,char**argv){
         if(g_nocapFrom && !g_nocapDone && (uint32_t)g_frame>=g_nocapFrom) nocap_apply();
         ep_tick(g_frame);   // D2_EIPPROF_FROM/TO: profiling window (no-op without the knobs)
         { FuScope _s(&g_fuCmd);   cmd_poll(); }      // vision-driven runtime injection ($D2CMDFILE)
-        { FuScope _s(&g_fuInput); if(d2vita_input_tick) d2vita_input_tick(); }   // physical controls (Vita)
+        { FuScope _s(&g_fuInput); if(d2vita_input_tick) d2vita_input_tick(&c); }   // physical controls (Vita)
 #ifdef D2V_CRASHTEST
         d2crashtest_tick(c, br, g_frame);
 #endif
