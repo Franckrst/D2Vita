@@ -531,8 +531,8 @@ static uint64_t g_grpTexHashUs=0, g_gxTexHashN=0, g_gxTexHashB=0;   // hashed P8
 // average) with a WORD-BY-WORD 64-bit FNV-1a costs real per-frame CPU time,
 // because FNV-64 is a SERIAL CHAIN of 64-bit multiplications (umull+2 mla per
 // word on ARMv7).
-//   0 (default): 64-bit FNV-1a over the words, then folded with (w<<32|h).
-//   1          : 4 independent 32-bit multiply lanes (xxHash32-style rounds:
+//   0          : 64-bit FNV-1a over the words, then folded with (w<<32|h).
+//   1 (default): 4 independent 32-bit multiply lanes (xxHash32-style rounds:
 //                v = rotl(v + w*P2, 13) * P1), FULL COVERAGE, folded into 64
 //                bits by two distinct avalanches of the 4 lanes (+ w,h,nb).
 //                Same information hashed as mode 0, without the serial chain.
@@ -542,7 +542,17 @@ static uint64_t g_grpTexHashUs=0, g_gxTexHashN=0, g_gxTexHashB=0;   // hashed P8
 //                textures differing only in unread bytes would be conflated):
 //                measurement only, never used during play.
 // Required validation (qemu bench): `hits=` and `lh=` must not change across modes.
-static int texhash_mode(){ static int v=-1; if(v<0){ const char* e=getenv("D2_TEXHASH"); v=(e&&*e)?atoi(e):0; if(v<0||v>2) v=0; } return v; }
+// Mode 1 became the default on 2026-09-22 (it had been in the validated game
+// env since 06/09, but the VPK ships no env.txt so no player ran it).
+// Console, patrol bench: 8.16 -> 5.05 ns per hashed byte, +2.7 % frames/s ON
+// ITS OWN (22.08 vs 21.49). Honest caveat: it buys NOTHING on top of
+// D2_FLUSHFIL (23.82 vs 23.92, inside the noise) because the hashing then runs
+// on the flush thread, which has ~23 ms of idle per frame. Kept as the default
+// because it is strictly less work, not because it shows up in frames/s.
+// NOT a collision risk: over a full run it produces 4499 atlas misses against
+// the control's 4475 — MORE, not fewer. A collision would conflate two
+// textures and produce fewer.
+static int texhash_mode(){ static int v=-1; if(v<0){ const char* e=getenv("D2_TEXHASH"); v=(e&&*e)?atoi(e):1; if(v<0||v>2) v=1; } return v; }
 static inline uint32_t rotl32(uint32_t x,int r){ return (x<<r)|(x>>(32-r)); }
 static uint64_t tex_hash(const uint8_t* p, uint32_t nb, uint32_t w, uint32_t h){
     const int mode=texhash_mode();
@@ -837,7 +847,17 @@ static inline void gx_sync_for_draw(){
 //      grBufferSwap, for the previous batch to be consumed (`waits=`): at most
 //      ONE frame in flight, so at most TWO frames' worth of ring occupancy —
 //      double the synchronous case, on a ring that holds about 10.
-static bool ff_on(){ static int v=-1; if(v<0){ const char* e=getenv("D2_FLUSHFIL"); v=(e&&*e&&strcmp(e,"0"))?1:0; } return v!=0; }
+// ON by default since 2026-09-22, D2_FLUSHFIL=0 to disable. It had been in the
+// validated game env since 06/09, but the VPK ships no env.txt, so no player
+// ever ran it. Console, patrol bench on the real save (4 controls dispersed by
+// 0.3 % over 8 hours): 21.49 -> 23.92 frames/s (+11.3 %), and — the reason it
+// matters more than the average — frames taking 50-100 ms drop from 1480 to 68
+// out of 6200. The game thread's time inside the flush goes from 9600 us to 3.
+// ⚠️ Removing 12-13 ms from the game thread only returns ~4.7 ms of frame time:
+// the three cores share L2 and memory bandwidth, and the walk moves ~1 MB per
+// frame. Deporting MEMORY-bound work to another core recovers about a third of
+// it, not all. Do not size future work on the un-deported figure.
+static bool ff_on(){ static int v=-1; if(v<0){ const char* e=getenv("D2_FLUSHFIL"); v=(e&&*e&&!strcmp(e,"0"))?0:1; } return v!=0; }
 static bool g_ffArmed=false;                 // the thread is running: the async path is active
 static volatile int      g_ffPending=0;      // 1 = a batch is waiting to be consumed
 static volatile uint32_t g_ffHead=0;         // handed-off head (absolute byte counter)
@@ -847,6 +867,12 @@ static uint64_t g_ffStgWaits=0, g_ffStgFallback=0, g_ffCopyUs=0, g_ffCopyB=0;
 static uint32_t g_ffOccMax=0;                // max ring occupancy (bytes)
 // Texture staging buffer, in HOST memory (not in the guest arena).
 // D2_FLUSHFIL_STG = size in MiB (default 4, forced to a power of two).
+// 4 MiB costs ~3.3 MB of the newlib heap, taking its room to grow from 11.1 to
+// 8.6 MB. 2 MiB was measured on console (patrol, 6200 frames): same frames/s
+// (24.00 vs 23.92, noise) but it recovers only ~500 KB at the high-water mark
+// and it produced one `attentes-tampon` stall where 4 MiB produced none. Kept
+// at 4; drop to 2 via the knob if heap pressure ever becomes the binding
+// constraint (see the ALLOC FAIL / heap-ceiling history).
 static uint8_t*  g_ffStg=nullptr;
 static uint32_t  g_ffStgSize=0, g_ffStgMask=0;
 static volatile uint32_t g_ffStgHead=0, g_ffStgTail=0;   // monotonic byte counters

@@ -428,7 +428,13 @@ void native_hooks_codec_install_post(Cpu* cpu, Bridge& br, int* framePtr){
         std::printf("dccprof: alternate sur 0x%08x (sortie 0x%08x)\n",dec,s_exit);
     }
 
-    // ---- Native DCC decoder: NATIVEDCC=1 (default: off) ----------------------
+    // ---- Native DCC decoder: ON by default, NATIVEDCC=0 to disable ----------
+    // Was env-only (default off) until 2026-09-22, even though it had been in
+    // the validated game env since 06/09 — the fff1904 "game env becomes the
+    // compiled default" pass missed it, and the VPK ships no env.txt, so no
+    // player ever ran it. Oracle replayed before flipping the default
+    // (tools/oracle_dcc.sh, 4000 frames): image fingerprint identical to the
+    // control, 281 decodes served, cross-oracle 281 compares / 0 divergence.
     // Per-thread profiling showed that the frame drops on newly-seen terrain
     // are not caused by Storm itself (sector reads/decrypt: negligible,
     // explode already native) but by D2's DCC decoder (Codec.cpp,
@@ -449,7 +455,7 @@ void native_hooks_codec_install_post(Cpu* cpu, Bridge& br, int* framePtr){
     // D2_DCCVERIFY=1: cross oracle — decodes natively into a host buffer,
     // lets the guest decode too, and compares both byte-for-byte (chain,
     // offset table, size).
-    if(g_114 && !br.module_base("D2gfx.dll") && getenv("NATIVEDCC") && strcmp(getenv("NATIVEDCC"),"0")){
+    if(const char* dccEnv = getenv("NATIVEDCC"); g_114 && !br.module_base("D2gfx.dll") && !(dccEnv && !strcmp(dccEnv,"0"))){
         uint32_t GB=g_d2base;
         const uint32_t entry=GB+0x20bff0;               // VA 0x60bff0
         const uint32_t allocVA=GB+0xb430;               // VA 0x40b430
@@ -583,11 +589,27 @@ void native_hooks_codec_install_post(Cpu* cpu, Bridge& br, int* framePtr){
         d2vita_progress(verify?"dcc: oracle croise D2_DCCVERIFY arme sur 0x60bff0":"dcc: decodeur natif arme sur 0x60bff0 (NATIVEDCC)");
     }
 
-    // ---- CRT memcpy/memset served with NO TRAP: D2_MEMINTRIN (default: off) -
+    // ---- CRT memcpy/memset served with NO TRAP: D2_MEMINTRIN ----------------
+    // DEFAULT = 3 since 2026-09-22 (D2_MEMINTRIN=0 disables). Console, patrol
+    // bench on the real save, 3 controls dispersed by 0.33 %: 20.97 -> 21.93
+    // frames/s (+4.6 %), the largest single gain of the campaign. Arming proven
+    // on hardware: helper calls 24 250 123 -> 4 248 (99.85 % of them served by
+    // the emitted sequence, with no call at all). Mode 1 alone gives +2.8 %, so
+    // avoiding the crossing is worth 1.8 points on its own — the dominant size
+    // bucket is 32-63 bytes, a regime where a fixed call cost is ruinous
+    // (~205 ns per call of pure plumbing, measured by mode 2).
+    // Oracle: tools/oracle_memintrin.sh PASS — 5 identical frame fingerprints,
+    // cross-oracle 4 816 757 calls / 0 divergence.
     // Contract, metrics and guards: src/dynarec86/dyn86_memintrin.h.
     //   D2_MEMINTRIN=1  serve natively
     //   D2_MEMINTRIN=2  PROFILE ONLY: count calls/sizes/alignments, then let
     //                   the guest do the work (no state change)
+    //   D2_MEMINTRIN=3  mode 1 PLUS the INLINE SHORT PATH: the translator
+    //                   emits the copy itself for sizes below 64 bytes, with
+    //                   no call at all (dyn86_memfast.h). 99.85% of memcpy
+    //                   calls and 83.7% of memset calls are that short.
+    //   D2_MEMFASTCHECK=1  arms the oracle OF THE INLINE PATH (guards + byte
+    //                   for byte comparison at each served call)
     //   D2_MEMINTRIN_MAX=<hex> size cap for the native path (default 0x1000000)
     // Recognized AT TRANSLATION TIME (no alternate, no trap): the block that
     // STARTS at the function entry calls a native C helper. 186 direct call
@@ -596,8 +618,8 @@ void native_hooks_codec_install_post(Cpu* cpu, Bridge& br, int* framePtr){
     // catches them all.
     if(g_114 && !br.module_base("D2gfx.dll")){
         const char* mk = getenv("D2_MEMINTRIN");
-        int mode = (mk && mk[0] && strcmp(mk,"0")) ? atoi(mk) : 0;
-        if(mode==1 || mode==2){
+        int mode = (mk && mk[0]) ? atoi(mk) : DYN86_MI_MODE_FAST;
+        if(mode==1 || mode==2 || mode==DYN86_MI_MODE_FAST){
             if(const char* mx = getenv("D2_MEMINTRIN_MAX")){
                 unsigned long v = strtoul(mx,nullptr,16);
                 if(v >= 0x100 && v <= 0x40000000ul) dyn86_mi_maxn = (uint32_t)v; }
@@ -622,7 +644,7 @@ void native_hooks_codec_install_post(Cpu* cpu, Bridge& br, int* framePtr){
                 // address on the guest stack with this trap and falls back;
                 // the guest copies with its own translated code; here we
                 // compare, then resume at the original address.
-                if(mode==1 && getenv("D2_MEMVERIFY")){
+                if((mode==1 || mode==DYN86_MI_MODE_FAST) && getenv("D2_MEMVERIFY")){
                     Shim mv; mv.argc=0; mv.stdcall_cleanup=false; mv.tag="native!memintrin_verify_exit";
                     mv.fn=[&br](Cpu&c)->uint32_t{
                         uint32_t geax=c.reg(R_EAX);
@@ -644,12 +666,18 @@ void native_hooks_codec_install_post(Cpu* cpu, Bridge& br, int* framePtr){
                 if(only && !strcmp(only,"cpy")) okS=false;
                 if(only && !strcmp(only,"set")) okC=false;
                 dyn86_mi_set_sse2va(g_d2base + 0x594c88);   // ds:0x994c88 = CRT SSE2 flag
+                // Read BEFORE dyn86_mi_arm(): the translator reads
+                // dyn86_mi_fastchk when it emits, and arm() is what freezes
+                // the whole set of translation-time flags.
+                if(getenv("D2_MEMFASTCHECK")) dyn86_mi_fastchk = 1;
                 dyn86_mi_arm(mode, okC?cpyVA:0, okS?setVA:0);
-                std::printf("memintrin: mode=%d memcpy=%s memset=%s maxn=0x%x span=0x%x\n",
+                std::printf("memintrin: mode=%d memcpy=%s memset=%s maxn=0x%x span=0x%x enligne=%d oracle-enligne=%d\n",
                             mode, okC?"arme":"ETEINT", okS?"arme":"ETEINT",
-                            (unsigned)dyn86_mi_maxn, (unsigned)dyn86_mi_span);
+                            (unsigned)dyn86_mi_maxn, (unsigned)dyn86_mi_span,
+                            dyn86_mi_fast, dyn86_mi_fastchk);
                 d2vita_progress(mode==2 ? "memintrin: PROFIL SEUL (D2_MEMINTRIN=2)"
-                                        : "memintrin: memcpy/memset natifs armes (D2_MEMINTRIN=1)");
+                              : (dyn86_mi_fast ? "memintrin: memcpy/memset natifs + chemin court EN LIGNE (D2_MEMINTRIN=3)"
+                                               : "memintrin: memcpy/memset natifs armes (D2_MEMINTRIN=1)"));
             }
         }
     }

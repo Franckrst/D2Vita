@@ -5481,17 +5481,33 @@ int main(int argc,char**argv){
                     (unsigned long long)d2_proj_ver_skip);
                 std::printf("  %s\n",m); d2vita_progress(m);
             }
-            if(dyn86_mi_cpy_calls||dyn86_mi_set_calls){
+            // `appels` is served+fb: a dedicated counter used to cost a
+            // 64-bit read-modify-write per call for a number that is the sum
+            // of two others (dyn86_memintrin.h).
+            { const unsigned long long miCpyN = dyn86_mi_cpy_served + dyn86_mi_cpy_fb;
+              const unsigned long long miSetN = dyn86_mi_set_served + dyn86_mi_set_fb;
+            if(miCpyN||miSetN||dyn86_mi_fast_blocks){
                 char m[320]; std::snprintf(m,sizeof m,
                         "[memintrin] memcpy: appels=%llu servis=%llu replis=%llu octets=%llu | memset: appels=%llu servis=%llu replis=%llu octets=%llu | rejets arene=%llu taille=%llu | oracle: compares=%llu divergences=%llu sautes=%llu",
-                        (unsigned long long)dyn86_mi_cpy_calls,(unsigned long long)dyn86_mi_cpy_served,
+                        miCpyN,(unsigned long long)dyn86_mi_cpy_served,
                         (unsigned long long)dyn86_mi_cpy_fb,(unsigned long long)dyn86_mi_cpy_bytes,
-                        (unsigned long long)dyn86_mi_set_calls,(unsigned long long)dyn86_mi_set_served,
+                        miSetN,(unsigned long long)dyn86_mi_set_served,
                         (unsigned long long)dyn86_mi_set_fb,(unsigned long long)dyn86_mi_set_bytes,
                         (unsigned long long)dyn86_mi_rej[0],(unsigned long long)dyn86_mi_rej[1],
                         (unsigned long long)dyn86_mi_ver_n,(unsigned long long)dyn86_mi_ver_bad,
                         (unsigned long long)dyn86_mi_ver_skip);
                 std::printf("  %s\n",m); d2vita_progress(m);
+                // INLINE SHORT PATH (D2_MEMINTRIN=3): those calls never reach
+                // the helper, so they appear NOWHERE in the line above. What
+                // proves they were served is the collapse of `appels` plus
+                // this line: sequences emitted, and the oracle of the inline
+                // path when it is armed.
+                if(dyn86_mi_fast_blocks){
+                    char f[200]; std::snprintf(f,sizeof f,
+                        "[memfast] sequences en ligne emises=%llu | oracle: compares=%llu divergences=%llu sautes=%llu",
+                        (unsigned long long)dyn86_mi_fast_blocks,(unsigned long long)dyn86_mi_fc_n,
+                        (unsigned long long)dyn86_mi_fc_bad,(unsigned long long)dyn86_mi_fc_skip);
+                    std::printf("  %s\n",f); d2vita_progress(f); }
                 // Distribution: the number that decides whether the port is
                 // worth anything (an 8-byte copy gains nothing, a 4 KiB one
                 // does).
@@ -5518,11 +5534,16 @@ int main(int argc,char**argv){
                     std::printf("  [memintrin] deja SSE2 cote invite (ds:%08x=%u) : memcpy %llu appels / %llu o | memset %llu appels / %llu o\n",
                         (unsigned)dyn86_mi_sse2_va, fl?(unsigned)*fl:0u,
                         (unsigned long long)dyn86_mi_cpy_sse[0],(unsigned long long)dyn86_mi_cpy_sse[1],
-                        (unsigned long long)dyn86_mi_set_sse[0],(unsigned long long)dyn86_mi_set_sse[1]); }} } }
+                        (unsigned long long)dyn86_mi_set_sse[0],(unsigned long long)dyn86_mi_set_sse[1]); }} } } }
             if(g_lbServed||g_lbRepli||g_lbVerifN){
                 char m[220]; std::snprintf(m,sizeof m,"[lightmap] natif: servis=%llu replis=%llu cases=%llu poses=%llu | oracle: compares=%llu divergences=%llu",
                         (unsigned long long)g_lbServed,(unsigned long long)g_lbRepli,(unsigned long long)g_lbCells,
                         (unsigned long long)g_lbSplats,(unsigned long long)g_lbVerifN,(unsigned long long)g_lbVerifBad);
+                std::printf("  %s\n",m); d2vita_progress(m); }
+            if(g_loServed||g_loRepli||g_loVerifN){
+                char m[240]; std::snprintf(m,sizeof m,"[lightocc] natif: servis=%llu replis=%llu cases=%llu pas=%llu | oracle: compares=%llu divergences=%llu",
+                        (unsigned long long)g_loServed,(unsigned long long)g_loRepli,(unsigned long long)g_loCells,
+                        (unsigned long long)g_loSteps,(unsigned long long)g_loVerifN,(unsigned long long)g_loVerifBad);
                 std::printf("  %s\n",m); d2vita_progress(m); }
             if(g_fbHashN) std::printf("  [fbhash] frames hachees=%llu  empreinte=0x%016llx\n",
                         (unsigned long long)g_fbHashN,(unsigned long long)g_fbHash);

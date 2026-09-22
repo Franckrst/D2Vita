@@ -74,3 +74,6 @@ STATUS.md
 
 # Harnais de reference CheckRevision : objet de ressource genere par windres
 tools/crref/*.res
+
+# Worktrees git crees par les agents (isolation de build) : jamais versionnes.
+.claude/worktrees/

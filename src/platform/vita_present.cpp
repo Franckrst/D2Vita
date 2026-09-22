@@ -845,11 +845,17 @@ extern "C" {
     // dyn86_memintrin.h, since that header pulls in regs.h /
     // x86emu_private.h, outside the platform layer's include path.
     extern int dyn86_memintrin;
-    extern unsigned long long dyn86_mi_cpy_calls, dyn86_mi_cpy_served,
+    // `appels` is served+fb: the dedicated counter cost a 64-bit
+    // read-modify-write per call for a number that is a sum of two others.
+    extern unsigned long long dyn86_mi_cpy_served,
                               dyn86_mi_cpy_fb,    dyn86_mi_cpy_bytes;
-    extern unsigned long long dyn86_mi_set_calls, dyn86_mi_set_served,
+    extern unsigned long long dyn86_mi_set_served,
                               dyn86_mi_set_fb,    dyn86_mi_set_bytes;
     extern unsigned long long dyn86_mi_rej[4];
+    // D2_MEMINTRIN=3: calls served by the INLINE sequence never reach the
+    // helper, so they are in NONE of the counters above. What says the
+    // mechanism is armed is the number of sequences emitted.
+    extern unsigned long long dyn86_mi_fast_blocks, dyn86_mi_fc_n, dyn86_mi_fc_bad;
     // Generic native intrinsics (src/dynarec86/dyn86_intrin.h) + the D2-target
     // cross-oracle (src/runtime/d2_intrin_114.cpp).
     extern int dyn86_nopend;
@@ -1308,17 +1314,22 @@ int watchdog_thread(SceSize, void*) {
           // knob is armed, so "calls=0" is itself a readable result instead
           // of an unexplained silence.
           if (dyn86_memintrin) {
-              char mi[224];
+              char mi[288];
               std::snprintf(mi, sizeof mi,
                   "memintrin: mode=%d | memcpy appels=%llu servis=%llu replis=%llu octets=%llu"
                   " | memset appels=%llu servis=%llu replis=%llu octets=%llu"
-                  " | rejets arene=%llu taille=%llu",
+                  " | rejets arene=%llu taille=%llu"
+                  " | en-ligne: sequences=%llu oracle=%llu/%llu",
                   dyn86_memintrin,
-                  (unsigned long long)dyn86_mi_cpy_calls, (unsigned long long)dyn86_mi_cpy_served,
+                  (unsigned long long)(dyn86_mi_cpy_served + dyn86_mi_cpy_fb),
+                  (unsigned long long)dyn86_mi_cpy_served,
                   (unsigned long long)dyn86_mi_cpy_fb,    (unsigned long long)dyn86_mi_cpy_bytes,
-                  (unsigned long long)dyn86_mi_set_calls, (unsigned long long)dyn86_mi_set_served,
+                  (unsigned long long)(dyn86_mi_set_served + dyn86_mi_set_fb),
+                  (unsigned long long)dyn86_mi_set_served,
                   (unsigned long long)dyn86_mi_set_fb,    (unsigned long long)dyn86_mi_set_bytes,
-                  (unsigned long long)dyn86_mi_rej[0],    (unsigned long long)dyn86_mi_rej[1]);
+                  (unsigned long long)dyn86_mi_rej[0],    (unsigned long long)dyn86_mi_rej[1],
+                  (unsigned long long)dyn86_mi_fast_blocks,
+                  (unsigned long long)dyn86_mi_fc_bad,    (unsigned long long)dyn86_mi_fc_n);
               d2vita_progress(mi);
           }
           // UNAL: 64-bit x87 "parity" accesses (LDRD/STRD that box86 assumes
