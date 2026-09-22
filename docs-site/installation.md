@@ -107,6 +107,19 @@ Battle.net, which is the default. It's a network-policy choice, not a
 performance lever, so it isn't part of the config above — add it to
 `env.txt` yourself if you want it. Details: [Online play](en-ligne.md).
 
+### The picture
+
+Nothing to set: once you're in a game the game itself draws at the screen's
+own 960×544, one texel per pixel. The knobs exist only to undo that.
+`D2_RES=0` puts the game back to its 800×600 (so back to the side bars);
+`D2_RES=1280x720` forces another size. `D2_ASPECT=etire` stretches the
+menus to full width instead of bordering them — menu art is fixed-size, so
+it is never redrawn at 960×544. `D2_HUDFILL=0` stops the HUD bar from
+filling the two gaps that its 800-wide art leaves on a 960-wide screen.
+
+The wider field of view a native resolution gives is an advantage in play:
+keep it to solo and private servers.
+
 ## Verifying the install
 
 Every boot writes a plain-text log to:

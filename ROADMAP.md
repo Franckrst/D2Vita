@@ -26,6 +26,14 @@ the source of truth for the public repository.
       raised to 38 MiB)
 - [x] GPU rendering (sceGxm) via a guest-side reconstructed Glide3x ring,
       asynchronous submission
+- [x] Native screen resolution in play: the game itself draws 960×544 (one
+      texel = one pixel, no filter, no pillarbox), driven by `alternate`
+      hooks on D2's own resolution plumbing — `D2_RES=0` reverts to its
+      800×600. Menus stay 800×600 pillarboxed: their art is fixed-size.
+      D2's 800-wide HUD bar then opens two `(W-800)/2` px gaps (80 px each
+      at 960), which the bar fills with its own stone re-sampled from the
+      texture the game already loaded — no Blizzard art is added or
+      shipped. `D2_HUDFILL=0` shows the gaps again.
 - [x] DirectSound audio (host mixer, natively-ported Storm codecs) —
       implemented, **enabled by default**; `D2_SON=0` opts back out to
       `DSERR_NODRIVER`, faithful to a machine with no sound card
