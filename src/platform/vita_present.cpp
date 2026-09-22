@@ -18,6 +18,7 @@ extern "C" int d2_tlswrap_dump(char*, unsigned);
 #include "platform/vita_gxm.h"      // d2gxm_ui_active: le menu part-il sur le GPU ?
 #include "platform/vita_host.h"        // engine: log, cores, sleep (CONSOLE-specific)
 #include "runtime/host_clock.h"           // engine: monotonic host clock
+#include "runtime/scripted_input.h"       // inj_set_bounds : le curseur injecte suit la taille du jeu
 #include "platform/present_scale.h"   // engine: generic scaling (D2_PRESENT_WX86)
 
 #include <cstdlib>
@@ -105,7 +106,7 @@ int g_game_w = 800, g_game_h = 600;    // last presented GAME resolution (input 
 extern "C" void d2vita_set_game_size(int w, int h) {
     if (w <= 0 || h <= 0) return;
     if (w == g_game_w && h == g_game_h) return;
-    g_game_w = w; g_game_h = h;
+    g_game_w = w; g_game_h = h; inj_set_bounds(w, h);
     char m[72]; std::snprintf(m, sizeof m, "entree: resolution du jeu -> %dx%d (Glide)", w, h);
     d2vita_progress(m);
 }
@@ -726,7 +727,7 @@ void d2vita_present(const uint8_t* pixels, int w, int h, int bpp,
         d2vita_progress(b); }
     if (w != g_lastw || h != g_lasth) {   // resolution change: 800x600 menu -> 640x480 game world
         char m[80]; std::snprintf(m, sizeof m, "resolution -> %dx%d at frame %d", w, h, g_frames); d2vita_progress(m);
-        g_lastw = w; g_lasth = h; g_game_w = w; g_game_h = h;
+        g_lastw = w; g_lasth = h; g_game_w = w; g_game_h = h; inj_set_bounds(w, h);
     }
     ++g_frames;
     if ((g_frames % 500) == 0) { char m[48]; std::snprintf(m, sizeof m, "frames presented: %d", g_frames); d2vita_progress(m); }

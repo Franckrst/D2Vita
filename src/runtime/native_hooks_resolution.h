@@ -6,13 +6,15 @@
 // (bandes de 117 px). Le faire dessiner en 960x544 supprime le choix : un
 // texel = un pixel, plein ecran, aucun filtre.
 //
-// Quatre crochets `alternate` -- donc poses a la TRADUCTION, jamais en memoire
-// invitee -- plus des ecritures de globals `.data`, c'est-a-dire exactement ce
-// que le jeu ecrit lui-meme. L'invariant « 0 octet de .text modifie » de
+// Dix crochets `alternate` -- donc poses a la TRADUCTION, jamais en memoire
+// invitee -- plus des ecritures de globals `.data` et de pile invitee, c'est-
+// a-dire exactement ce que le jeu ecrit lui-meme. L'invariant « 0 octet de .text modifie » de
 // pristine_audit reste vrai.
 //
 // ACTIF PAR DEFAUT. D2_RES=0 revient au 800x600 du jeu (et donc aux bandes,
 // cf. D2_ASPECT dans vita_gxm.cpp) ; D2_RES=LxH force une autre taille.
+// D2_RES_PANNEAUX=0 garde la bascule mais laisse les tables d'inventaire, la
+// ceinture et le cadre 800BorderFrame la ou le jeu les met (jambe temoin).
 //
 // Le champ de vision elargi est un avantage en jeu : a reserver au solo et au
 // serveur prive.

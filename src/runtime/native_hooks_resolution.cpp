@@ -45,6 +45,69 @@ const uint8_t SIG_GETSIZE[9] = { 0x55,0x8b,0xec,0x8b,0x45,0x08,0x83,0xf8,0x03 };
 const uint8_t SIG_SETRES [4] = { 0x56,0x8b,0xf1,0xe8 };
 const uint8_t SIG_SHIFT  [7] = { 0x55,0x8b,0xec,0x83,0xec,0x0c,0x53 };
 
+// ---- LES TABLES DE MISE EN PAGE, RECALEES SUR LE CENTRE ---------------------
+//
+// inventory.bin et belts.bin portent des coordonnees ECRAN ABSOLUES, en
+// 800x600 pour les lignes « 800 » (grille d'inventaire 419..706 x 315..428,
+// par exemple). Les cinq accesseurs D2Common ci-dessous les recopient telles
+// quelles dans les copies cachees de D2Client (Game+0x835b0), et c'est sur
+// ces copies que se font le dessin des cases, celui des objets ET la detection
+// de clic. Le fond du panneau, lui, est dessine en
+//   x = GeneralDisplayWidth - ScreenShiftX - 320,   y = ScreenShiftY + H - ...
+// pour les onglets d'armes, et le fond du panneau suit la meme logique ; la
+// table, elle, ne bouge pas. A 960x544 les objets et les clics restent donc
+// 160 px a gauche et 56 px trop bas du fond qui les encadre.
+//
+// Le principe est celui de SGD2FreeRes (mir-diablo-ii-tools, patches/inventory) :
+// remplacer les accesseurs et recaler ce qu'ils copient. Les decalages, eux,
+// sont ceux MESURES ici (voir dx_droite/dy_bas plus bas) : SGD2 recale tout
+// sur le centre, mais il neutralise aussi les chemins « mode 800 » du jeu,
+// que nous gardons, et ses fonds ne sont pas ancres comme les notres.
+// Les entrees vides (-1, ou tout a zero) ne bougent pas.
+// Les accesseurs sont remplaces en entier : ce sont de simples copies, dont
+// la disassemblee tient en vingt lignes chacune, et le resultat est ce que
+// le jeu aurait ecrit si sa table etait faite pour cette taille d'ecran.
+constexpr uint32_t RVA_INVPOS  = 0x0025c180;  // GetGlobalInventoryPosition(idx,mode,*rect)        stdcall 0xc
+constexpr uint32_t RVA_INVGRID = 0x0025c1f0;  // GetGlobalInventoryGridLayout(idx,mode,*grid)      stdcall 0xc
+constexpr uint32_t RVA_INVSLOT = 0x0025c270;  // GetGlobalEquipmentSlotLayout(idx,mode,*slot,n)    stdcall 0x10
+constexpr uint32_t RVA_BELTREC = 0x00260cb0;  // GetGlobalBeltRecord(idx,mode,*rec)                stdcall 0xc
+constexpr uint32_t RVA_BELTPOS = 0x00260d10;  // GetGlobalBeltSlotPosition(idx,mode,*rect,n)       stdcall 0x10
+constexpr uint32_t G_INVTBL  = 0x0056d4f4;    // inventory.bin : lignes de 240 o, idx + 16*mode
+constexpr uint32_t G_INVCNT  = 0x0056d4f0;    //   ... et leur nombre
+constexpr uint32_t G_BELTTBL = 0x0056d4f8;    // belts.bin : lignes de 264 o, idx + 7*mode
+constexpr uint32_t INV_ROW = 0xf0, BELT_ROW = 0x108;
+// Signatures SANS adresse absolue : l'image est relogee a l'execution et ses
+// operandes .data ne valent plus ce que dit le fichier.
+const uint8_t SIG_INVGET [8]  = { 0x55,0x8b,0xec,0x8b,0x45,0x0c,0x8b,0x0d };  // les 3 accesseurs inventaire
+const uint8_t SIG_BELTREC[8]  = { 0x55,0x8b,0xec,0x8b,0x4d,0x08,0x8b,0x15 };
+const uint8_t SIG_BELTPOS[12] = { 0x55,0x8b,0xec,0x8b,0x4d,0x0c,0x8d,0x04,0xcd,0x00,0x00,0x00 };
+
+// ---- LE CADRE DECORATIF 800BorderFrame -------------------------------------
+//
+// Deux fonctions de D2Client (Game+0x98630 a gauche, +0x98700 a droite)
+// dessinent les dix morceaux du cadre a des coordonnees IMMEDIATES, celles
+// d'un ecran de 800x600 : le cadre reste donc cale sur 0..800 quand le
+// panneau, lui, a suivi le centre. Les immediats ne se reecrivent pas (0 octet
+// de .text modifie) : on rejoue la fonction depuis l'hote, avec les memes
+// appels invites — chargement du cel s'il manque, puis les cinq blits — et
+// les memes coordonnees, decalees comme le panneau qu'elles encadrent. C'est
+// la lecture que SGD2FreeRes fait du cadre d'origine
+// (DrawOriginal*ScreenBorderFrame), avec nos ancrages.
+constexpr uint32_t RVA_BORDER_L  = 0x00098630;
+constexpr uint32_t RVA_BORDER_R  = 0x00098700;
+constexpr uint32_t RVA_DRAWIMG   = 0x000f6480;  // D2Gfx DrawImage(ctx,x,y,-1,5,0), stdcall 0x18
+constexpr uint32_t RVA_LOADCEL   = 0x000520c0;  // thiscall(ecx = chemin) -> cel*
+constexpr uint32_t RVA_BORDERSTR = 0x002da034;  // "Panel\\800BorderFrame"
+constexpr uint32_t G_BORDERCEL   = 0x003bef18;  // le cel, charge a la premiere demande
+const uint8_t SIG_BORDER_L[13] = { 0x55,0x8b,0xec,0x83,0xec,0x48,0x6a,0x48,0x8d,0x45,0xb8,0x6a,0x00 };
+const uint8_t SIG_BORDER_R[9]  = { 0x55,0x8b,0xec,0x83,0xec,0x48,0x56,0x8b,0x35 };
+const uint8_t SIG_DRAWIMG [6]  = { 0x55,0x8b,0xec,0x8b,0x45,0x1c };
+const uint8_t SIG_LOADCEL [9]  = { 0x55,0x8b,0xec,0x81,0xec,0x04,0x01,0x00,0x00 };
+struct BorderPiece { int frame, x, y; };
+// Releves au desassemblage : (image, x, y) de chaque appel DrawImage.
+const BorderPiece BORDER_L[5] = { {0,0,253}, {1,256,63}, {2,0,484}, {3,0,553}, {4,256,553} };
+const BorderPiece BORDER_R[5] = { {5,400,63}, {6,544,253}, {7,713,484}, {8,544,553}, {9,400,553} };
+
 int g_on = 0, g_applied = 0, g_w = 960, g_h = 544;
 uint32_t g_base = 0;
 
@@ -103,6 +166,179 @@ uint32_t leave(Cpu& c, Bridge& br, Slot& s) {
     c.set_reg(R_ESP, c.reg(R_ESP) - 4);
     br.redirect_next(ret);
     return c.reg(R_EAX);
+}
+// Rend la main au corps original sans trap de sortie : `push ebp` rejoue,
+// puis reprise a entry+1. Sert de repli quand un remplacement ne veut pas
+// s'appliquer (bascule pas encore faite, table absente).
+uint32_t original(Cpu& c, Bridge& br, uint32_t entry) {
+    const uint32_t E = c.reg(R_ESP);
+    c.write_u32(E - 4, c.reg(R_EBP));
+    c.set_reg(R_ESP, E - 8);
+    br.redirect_next(entry + 1);
+    return c.reg(R_EAX);
+}
+
+// Ou le jeu met ses fonds a notre taille, MESURE sur console (jambe A,
+// 960x544, crochets 4-5 coupes) contre la reference 800x600 :
+//   - panneau de droite (inventaire, arbre) : fond en x = 560 = 400 + (W-800),
+//     bord bas en 434 = 60 + 432 + (H-600) ; les objets equipes, eux, restaient
+//     en 421..493 x 124..210 = la ligne rArm brute (420..475 x 107..219) ;
+//   - panneau de gauche (personnage) : fond en x = 80, comme a 800x600 ;
+//   - bandeau de commande : centre, +80 = (W-800)/2, colle en bas.
+// Les tables suivent donc : lignes de droite (W-800, H-600), lignes de gauche
+// (0, H-600), ceinture ((W-800)/2, H-600). Le cadre 800BorderFrame suit son
+// panneau. NB : a 960 de large, W-800 et W/2-320 valent tous deux 160 ; la
+// formule generale de l'ancrage de droite reste a departager a une autre
+// largeur (D2_RES=880x544 : 80 contre 120).
+int dx_droite(uint32_t mode) { return mode ? (g_w - 800)     : (g_w - 640); }
+int dx_centre(uint32_t mode) { return mode ? (g_w - 800) / 2 : (g_w - 640) / 2; }
+int dy_bas(uint32_t mode)    { return mode ? (g_h - 600)     : (g_h - 480); }
+// Une ligne d'inventory.bin est ancree a gauche (coffre, echange, PNJ :
+// invLeft 80) ou a droite (le personnage : invLeft 400 ; 320 en mode 640).
+int dx_ligne(Cpu& c, uint32_t rec, uint32_t mode) {
+    const int32_t l = (int32_t)c.read_u32(rec);
+    if (l < 0) return 0;
+    return l >= (mode ? 400 : 320) ? dx_droite(mode) : 0;
+}
+
+// Un rectangle de table : gauche, droite, haut, bas.
+void copie_rect(Cpu& c, uint32_t src, uint32_t dst, int dx, int dy, bool vide_si_moins1) {
+    int32_t v[4];
+    for (int i = 0; i < 4; ++i) v[i] = (int32_t)c.read_u32(src + 4u * i);
+    bool vide = vide_si_moins1 ? (v[0] == -1 || v[1] == -1 || v[2] == -1 || v[3] == -1)
+                               : (v[0] == 0 && v[1] == 0 && v[2] == 0 && v[3] == 0);
+    if (!vide) { v[0] += dx; v[1] += dx; v[2] += dy; v[3] += dy; }
+    for (int i = 0; i < 4; ++i) c.write_u32(dst + 4u * i, (uint32_t)v[i]);
+}
+
+// Ligne d'inventory.bin demandee par un accesseur, ou 0 s'il faut laisser
+// l'original faire (et lever son erreur).
+uint32_t inv_ligne(Cpu& c, uint32_t idx, uint32_t mode) {
+    const uint32_t tbl = c.read_u32(g_base + G_INVTBL), n = c.read_u32(g_base + G_INVCNT);
+    const uint32_t row = idx + mode * 16u;
+    if (!tbl || row > n) return 0;
+    return tbl + row * INV_ROW;
+}
+uint32_t belt_ligne(Cpu& c, uint32_t idx, uint32_t mode) {
+    const uint32_t tbl = c.read_u32(g_base + G_BELTTBL);
+    if (!tbl) return 0;
+    return tbl + (idx + mode * 7u) * BELT_ROW;
+}
+
+uint32_t inv_pos(Cpu& c, Bridge& br) {
+    const uint32_t E = c.reg(R_ESP);
+    const uint32_t idx = c.read_u32(E + 4), mode = c.read_u32(E + 8), out = c.read_u32(E + 12);
+    const uint32_t rec = g_applied ? inv_ligne(c, idx, mode) : 0;
+    if (!rec) { original(c, br, g_base + RVA_INVPOS); return 0; }
+    copie_rect(c, rec, out, dx_ligne(c, rec, mode), dy_bas(mode), true);
+    return 1;
+}
+uint32_t inv_grille(Cpu& c, Bridge& br) {
+    const uint32_t E = c.reg(R_ESP);
+    const uint32_t idx = c.read_u32(E + 4), mode = c.read_u32(E + 8), out = c.read_u32(E + 12);
+    const uint32_t rec = g_applied ? inv_ligne(c, idx, mode) : 0;
+    if (!rec) { original(c, br, g_base + RVA_INVGRID); return 0; }
+    // [0] colonnes|lignes (octets), [1..4] rectangle, [5] taille de case.
+    const uint32_t dims = c.read_u32(rec + 0x10);
+    c.write_u32(out, dims);
+    const bool vide = !(dims & 0xff) || !((dims >> 8) & 0xff);
+    copie_rect(c, rec + 0x14, out + 4, vide ? 0 : dx_ligne(c, rec, mode), vide ? 0 : dy_bas(mode), true);
+    c.write_u32(out + 0x14, c.read_u32(rec + 0x24));
+    return 1;
+}
+uint32_t inv_case(Cpu& c, Bridge& br) {
+    const uint32_t E = c.reg(R_ESP);
+    const uint32_t idx = c.read_u32(E + 4), mode = c.read_u32(E + 8), out = c.read_u32(E + 12), n = c.read_u32(E + 16);
+    const uint32_t rec = g_applied ? inv_ligne(c, idx, mode) : 0;
+    if (!rec) { original(c, br, g_base + RVA_INVSLOT); return 0; }
+    const uint32_t slot = rec + 0x28 + n * 0x14;   // dix emplacements de 5 mots : rectangle + largeur|hauteur
+    copie_rect(c, slot, out, dx_ligne(c, rec, mode), dy_bas(mode), true);
+    c.write_u32(out + 0x10, c.read_u32(slot + 0x10));
+    return 1;
+}
+uint32_t belt_rec(Cpu& c, Bridge& br) {
+    const uint32_t E = c.reg(R_ESP);
+    const uint32_t idx = c.read_u32(E + 4), mode = c.read_u32(E + 8), out = c.read_u32(E + 12);
+    const uint32_t rec = g_applied ? belt_ligne(c, idx, mode) : 0;
+    if (!rec) { original(c, br, g_base + RVA_BELTREC); return 0; }
+    // 264 o : nombre de cases, un mot, puis 16 rectangles.
+    c.write_u32(out, c.read_u32(rec)); c.write_u32(out + 4, c.read_u32(rec + 4));
+    const uint32_t n = c.read_u32(rec);
+    for (uint32_t i = 0; i < 16; ++i)
+        copie_rect(c, rec + 8 + i * 16, out + 8 + i * 16, i < n ? dx_centre(mode) : 0, i < n ? dy_bas(mode) : 0, false);
+    return 1;
+}
+uint32_t belt_pos(Cpu& c, Bridge& br) {
+    const uint32_t E = c.reg(R_ESP);
+    const uint32_t idx = c.read_u32(E + 4), mode = c.read_u32(E + 8), out = c.read_u32(E + 12), n = c.read_u32(E + 16);
+    const uint32_t rec = g_applied ? belt_ligne(c, idx, mode) : 0;
+    if (!rec) { original(c, br, g_base + RVA_BELTPOS); return 0; }
+    copie_rect(c, rec + 8 + n * 16, out, dx_centre(mode), dy_bas(mode), false);
+    return 1;
+}
+
+// ---- Le cadre : rejoue depuis l'hote ------------------------------------
+//
+// Le shim d'entree prend la place de la fonction. Chaque appel invite
+// (chargement du cel, puis un blit par morceau) se fait en posant ses
+// arguments et un trap de retour sur la pile, puis en redirigeant vers la
+// fonction du jeu ; le trap rappelle border_suite, qui enchaine. Au bout,
+// ESP est remis comme apres le `ret` de l'original et l'on reprend a
+// l'adresse de retour. La pile sous ESP est du brouillon (pas de zone rouge
+// en x86) : le contexte de dessin (0x48 o) et les arguments y vivent.
+struct BorderRun {
+    bool busy = false, chargement = false;
+    uint32_t esp0 = 0, ret = 0, ctx = 0;
+    int etape = 0;
+    const BorderPiece* pieces = nullptr;
+};
+BorderRun s_bord;
+uint32_t s_trapBord = 0;
+
+void border_suite(Cpu& c, Bridge& br) {
+    BorderRun& s = s_bord;
+    if (s.chargement) {           // retour du chargeur : eax = cel
+        s.chargement = false;
+        c.write_u32(g_base + G_BORDERCEL, c.reg(R_EAX));
+    }
+    const uint32_t cel = c.read_u32(g_base + G_BORDERCEL);
+    const uint32_t A = s.ctx - 0x1c;          // trap + 6 arguments, juste sous le contexte
+    if (!cel) {                               // premiere fois : charger le cel
+        s.chargement = true;
+        c.set_reg(R_ECX, g_base + RVA_BORDERSTR);
+        c.write_u32(A, s_trapBord);
+        c.set_reg(R_ESP, A - 4);              // +4 au retour du shim -> ESP = A
+        br.redirect_next(g_base + RVA_LOADCEL);
+        return;
+    }
+    if (s.etape < 5) {
+        const BorderPiece& p = s.pieces[s.etape++];
+        for (uint32_t i = 0; i < 0x48; i += 4) c.write_u32(s.ctx + i, 0);
+        c.write_u32(s.ctx + 0x00, (uint32_t)p.frame);
+        c.write_u32(s.ctx + 0x34, cel);
+        c.write_u32(A + 0x00, s_trapBord);
+        c.write_u32(A + 0x04, s.ctx);
+        c.write_u32(A + 0x08, (uint32_t)(p.x + (s.pieces == BORDER_R ? dx_droite(1) : 0)));
+        c.write_u32(A + 0x0c, (uint32_t)(p.y + dy_bas(1)));
+        c.write_u32(A + 0x10, 0xffffffffu);
+        c.write_u32(A + 0x14, 5u);
+        c.write_u32(A + 0x18, 0u);
+        c.set_reg(R_ESP, A - 4);
+        br.redirect_next(g_base + RVA_DRAWIMG);
+        return;
+    }
+    s.busy = false;                           // fini : comme apres le `ret` de l'original
+    c.set_reg(R_ESP, s.esp0);
+    br.redirect_next(s.ret);
+}
+uint32_t border_entree(Cpu& c, Bridge& br, uint32_t entry, const BorderPiece* pieces) {
+    if (!g_applied || s_bord.busy) return original(c, br, entry);
+    BorderRun& s = s_bord;
+    s.busy = true; s.chargement = false; s.etape = 0; s.pieces = pieces;
+    s.esp0 = c.reg(R_ESP); s.ret = c.read_u32(s.esp0);
+    s.ctx = s.esp0 - 0x50;
+    border_suite(c, br);
+    return 0;
 }
 
 }  // namespace
@@ -196,6 +432,76 @@ void native_hooks_resolution_install(Cpu* cpu, Bridge& br) {
         cpu->set_alternate(g_base + RVA_SHIFT, br.shim_trap("native.hook", "d2_shift_114"));
     }
 
+    // D2_RES_PANNEAUX=0 : garde la bascule (crochets 1-3) mais laisse les
+    // panneaux tels que le jeu les place — la jambe temoin d'un A/B a meme
+    // eboot, et un repli si un jour une table modifiee ne se recale pas bien.
+    const char* pn = getenv("D2_RES_PANNEAUX");
+    const bool panneaux = !(pn && *pn && (!std::strcmp(pn, "0") || !std::strcmp(pn, "non") || !std::strcmp(pn, "off")));
+    int poses = 3;
+    if (!panneaux) jpline("res: panneaux laisses au jeu (D2_RES_PANNEAUX=%s)", pn);
+
+    // 4. Les cinq accesseurs de table : remplaces, recales sur le centre.
+    //    Tout ou rien, comme ci-dessus.
+    if (panneaux) {
+        auto get_ok = [&](uint32_t rva, const uint8_t* want, size_t n, const char* who, uint8_t b4b) {
+            if (!sig_ok(cpu, rva, want, n, who)) return false;
+            uint8_t k; cpu->read(g_base + rva + 0x4b, &k, 1);   // le mot qui distingue les 3 accesseurs inventaire
+            if (b4b && k != b4b) { jpline("res: REFUS %s Game+0x%x — corps inattendu", who, (unsigned)rva); return false; }
+            return true; };
+        if (get_ok(RVA_INVPOS,  SIG_INVGET,  sizeof SIG_INVGET,  "GetGlobalInventoryPosition",   0x8b) &&
+            get_ok(RVA_INVGRID, SIG_INVGET,  sizeof SIG_INVGET,  "GetGlobalInventoryGridLayout", 0x8b) &&
+            get_ok(RVA_INVSLOT, SIG_INVGET,  sizeof SIG_INVGET,  "GetGlobalEquipmentSlotLayout", 0x8b) &&
+            get_ok(RVA_BELTREC, SIG_BELTREC, sizeof SIG_BELTREC, "GetGlobalBeltRecord",          0)    &&
+            get_ok(RVA_BELTPOS, SIG_BELTPOS, sizeof SIG_BELTPOS, "GetGlobalBeltSlotPosition",    0)) {
+            struct G { uint32_t rva; uint32_t argc; const char* nom; uint32_t (*fn)(Cpu&, Bridge&); };
+            static const G gs[5] = {
+                { RVA_INVPOS,  3, "d2_invpos_114",   inv_pos    },
+                { RVA_INVGRID, 3, "d2_invgrid_114",  inv_grille },
+                { RVA_INVSLOT, 4, "d2_invslot_114",  inv_case   },
+                { RVA_BELTREC, 3, "d2_beltrec_114",  belt_rec   },
+                { RVA_BELTPOS, 4, "d2_beltpos_114",  belt_pos   } };
+            for (const G& g : gs) {
+                // Pas de nettoyage stdcall par le trap : quand le remplacement
+                // s'applique, c'est lui qui remet ESP ; quand il rend la main a
+                // l'original, c'est le `ret 0xc` de celui-ci qui le fait.
+                Shim s; s.argc = 0; s.stdcall_cleanup = false; s.tag = g.nom;
+                auto fn = g.fn; const uint32_t argc = g.argc;
+                s.fn = [&br, fn, argc](Cpu& c) -> uint32_t {
+                    const uint32_t E = c.reg(R_ESP), ret = c.read_u32(E);
+                    // 1 = remplacement fait : simuler `ret 4*argc` (le trap
+                    // ajoute 4). 0 = repli sur l'original, deja redirige.
+                    if (fn(c, br)) { c.set_reg(R_ESP, E + 4u * argc); br.redirect_next(ret); }
+                    return 0; };
+                br.register_shim("native.hook", g.nom, s);
+                cpu->set_alternate(g_base + g.rva, br.shim_trap("native.hook", g.nom));
+            }
+            poses += 5;
+        }
+    }
+
+    // 5. Le cadre decoratif : les deux fonctions rejouees depuis l'hote.
+    if (panneaux &&
+        sig_ok(cpu, RVA_BORDER_L, SIG_BORDER_L, sizeof SIG_BORDER_L, "border_frame_gauche") &&
+        sig_ok(cpu, RVA_BORDER_R, SIG_BORDER_R, sizeof SIG_BORDER_R, "border_frame_droite") &&
+        sig_ok(cpu, RVA_DRAWIMG,  SIG_DRAWIMG,  sizeof SIG_DRAWIMG,  "DrawImage")           &&
+        sig_ok(cpu, RVA_LOADCEL,  SIG_LOADCEL,  sizeof SIG_LOADCEL,  "LoadCel")) {
+        Shim xt; xt.argc = 0; xt.stdcall_cleanup = false; xt.tag = "native!d2_border_suite";
+        xt.fn = [&br](Cpu& c) -> uint32_t { border_suite(c, br); return 0; };
+        br.register_shim("native.hook", "d2_border_suite", xt);
+        s_trapBord = br.shim_trap("native.hook", "d2_border_suite");
+
+        Shim sl; sl.argc = 0; sl.stdcall_cleanup = false; sl.tag = "native!d2_border_l_114";
+        sl.fn = [&br](Cpu& c) -> uint32_t { return border_entree(c, br, g_base + RVA_BORDER_L, BORDER_L); };
+        br.register_shim("native.hook", "d2_border_l_114", sl);
+        cpu->set_alternate(g_base + RVA_BORDER_L, br.shim_trap("native.hook", "d2_border_l_114"));
+
+        Shim sr; sr.argc = 0; sr.stdcall_cleanup = false; sr.tag = "native!d2_border_r_114";
+        sr.fn = [&br](Cpu& c) -> uint32_t { return border_entree(c, br, g_base + RVA_BORDER_R, BORDER_R); };
+        br.register_shim("native.hook", "d2_border_r_114", sr);
+        cpu->set_alternate(g_base + RVA_BORDER_R, br.shim_trap("native.hook", "d2_border_r_114"));
+        poses += 2;
+    }
+
     g_on = 1;
-    jpline("res: %dx%d arme — 3 alternates, bascule a l'entree en partie", g_w, g_h);
+    jpline("res: %dx%d arme — %d alternates, bascule a l'entree en partie", g_w, g_h, poses);
 }

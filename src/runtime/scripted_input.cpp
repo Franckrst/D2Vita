@@ -21,6 +21,7 @@
 using namespace d2rt;
 
 bool g_snap=false;                         // one-shot frame dump request
+extern "C" { __attribute__((weak)) void d2gxm_shot_request(void); }   // vita_gxm.cpp (Vita only)
 uint8_t g_keyState[256]={0};               // VK states driven by injected input
 
 struct InjEv { int frame; std::string act; int a,b; };
@@ -58,8 +59,13 @@ static uint32_t inj_scan(int v){
     if(v==0x1B) return 0x01;   // Escape
     if(v==' ')  return 0x39;
     return 0x1E; }
+// Bornes du curseur injecte : la taille du jeu, pas 800x600 en dur. Avec la
+// resolution native (D2_RES) le jeu fait 960x544 et un clic borne a 799
+// n'atteindrait jamais les 160 px de droite — la ou vit la grille d'inventaire.
+static int g_injMaxX=799, g_injMaxY=599;
+void inj_set_bounds(int w,int h){ if(w>0&&h>0){ g_injMaxX=w-1; g_injMaxY=h-1; } }
 void inj_queue(const std::string& act,int a,int b){
-    auto clampxy=[&](int&x,int&y){ if(x<0)x=0; if(x>799)x=799; if(y<0)y=0; if(y>599)y=599; };
+    auto clampxy=[&](int&x,int&y){ if(x<0)x=0; if(x>g_injMaxX)x=g_injMaxX; if(y<0)y=0; if(y>g_injMaxY)y=g_injMaxY; };
     auto mouse=[&](uint32_t m,uint32_t wp,int x,int y){ clampxy(x,y); wx86_set_cursor((uint32_t)x,(uint32_t)y);
         uint32_t lp=(uint32_t)((y<<16)|(x&0xffff));
         // Coalesce WM_MOUSEMOVE ONLY: if an unconsumed move sits at the tail,
@@ -120,7 +126,10 @@ void inj_queue(const std::string& act,int a,int b){
         if(g_profDump) g_profDump("cmd");
         else { std::printf("  [profdump] rebuild with -DPROF_COUNTERS to enable\n"); std::fflush(stdout); }
     }
-    else if(act=="snap"){    g_snap=true; }                                // force-dump the next frame
+    // force-dump the next frame: the DIB (GDI path), AND the GPU color buffer
+    // when the Glide/GXM path is the one drawing (d2gxm_shot_request is weak:
+    // absent from the qemu build, present on the Vita).
+    else if(act=="snap"){    g_snap=true; if(d2gxm_shot_request) d2gxm_shot_request(); }
     else if(act=="activate"){ g_msgQ.push_back({0x1C,1,0}); g_msgQ.push_back({6,1,0}); g_msgQ.push_back({7,0,0}); g_injN+=3; }  // WM_ACTIVATEAPP, WM_ACTIVATE, WM_SETFOCUS
     else if(act=="scriptoff"){ g_injIx=g_inj.size(); }   // autopilot: drop the remaining D2SCRIPT events (hand control back to physical input)
     // WM_CLOSE — the Windows close box. D2 handles it through its own CLEAN

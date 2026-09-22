@@ -35,6 +35,8 @@ vcmd(){ printf '%s\n' "$1" | timeout 10 nc -q1 "$IP" "$VCP" >/dev/null 2>&1; }
 } > "$ENVF"
 timeout 40 curl -s -f -T "$ENVF" "$FTP/data/d2vita/env.txt" || { echo "$LAB: FAIL depot env.txt"; exit 1; }
 timeout 30 curl -s -o /dev/null "$FTP/data/d2vita/" -Q "-DELE ux0:/data/d2vita/boot_progress.txt" >/dev/null 2>&1
+# VitaCompanion ne lance rien tant qu'une autre appli (VitaShell, un jeu) est au premier plan : on la tue d'abord.
+vcmd destroy; sleep 6
 vcmd "launch $TITLE"
 echo "$LAB lance [$EXTRA] $(date +%H:%M:%S)"
 

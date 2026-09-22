@@ -32,6 +32,17 @@ the source of truth for the public repository.
       centering sites downstream follow without their own changes. 4:3
       aspect preserved by default (no stretch; `D2_ASPECT=etire` for the
       old stretched behavior)
+- [x] Side panels at 960×544 (inventory, skill tree, stash, trade, belt):
+      the game keeps `inventory.bin`/`belts.bin` in absolute 800×600
+      coordinates while it anchors the panel art to the screen (right
+      panel at `W-400`, bottom at `H-600`), so items, click hit-tests and
+      the `800BorderFrame` were 160 px left / 56 px low of the art. Five
+      D2Common table getters are replaced with the same anchoring and the
+      two border-frame routines are replayed from the host at the shifted
+      coordinates (`D2_RES_PANNEAUX=0` keeps the game's own placement, for
+      A/B). Measured on console, 800×600 vs 960×544 captures. Known gap:
+      the GDI path (`-w`) never resizes its DIB, so `D2_RES` only works
+      under Glide (the default)
 - [x] DirectSound audio (host mixer, natively-ported Storm codecs) —
       implemented, **enabled by default**; `D2_SON=0` opts back out to
       `DSERR_NODRIVER`, faithful to a machine with no sound card
