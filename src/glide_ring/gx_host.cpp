@@ -1142,6 +1142,131 @@ static int g_cpDumpF=-2, g_cpDumpN=0, g_cpDump2=-1, g_cpDump2N=0, g_cpLastBk=0;
 // A draw record -> triangles. `vh` = host view of the FIRST vertex (the
 // following cnt*stride bytes are contiguous: a record never straddles the
 // end of the ring).
+// ---- LES DEUX TROUS DU BANDEAU, COMBLES AVEC SA PROPRE PIERRE --------------
+//
+// D2 compose le bandeau du bas avec six vignettes de 800CtrlPnl7 dont il
+// calcule la position a partir de GeneralDisplayWidth (branche « mode 800 »
+// de Game+0x9850a, relevee au desassemblage) :
+//
+//     f0 globe gauche  x=0        117x104 |  f5 globe droit  x=W-117  117x104
+//     f1 x=W/2-235  f2 x=W/2-107  f3 x=W/2+21  f4 x=W/2+149   (y=H-55)
+//
+// plus deux boutons de sort de 48 px colles aux globes. A W=800 tout est
+// jointif. A 960 les globes suivent les bords de l'ecran pendant que les
+// quatre vignettes centrales restent centrees : DEUX TROUS de (W-800)/2 px
+// s'ouvrent a [165, W/2-235) et [W/2+235, W-165), par lesquels on voit le
+// monde. Mesure au pixel sur capture console 960x544 : 165..244 et 715..794.
+//
+// Elargir l'art est exclu — il appartient a Blizzard et ce depot n'en embarque
+// aucun octet. On comble donc avec la pierre DU BANDEAU LUI-MEME : des que f4
+// passe (reconnue a sa geometrie exacte, au pixel pres), on reemet des quads
+// qui rechantillonnent ses colonnes 46..61, la plage lisse entre le bouton et
+// la volute — liseres dore du haut et du bas comprises, donc les deux filets
+// horizontaux du bandeau se prolongent. La tuile est repetee en alternant le
+// sens pour que la repetition ne se lise pas.
+//
+// Meme cellule d'atlas, meme lot, meme etat : aucune texture ajoutee, aucun
+// octet relu depuis le CPU, une douzaine de quads par image. D2_HUDFILL=0
+// desarme (on revoit les trous), =2 journalise la premiere detection.
+static int      g_hudFill = -1;
+static uint64_t g_hudFillQuads = 0;
+static bool     g_hudFillSaid = false;
+
+// Le quad recu n'est PAS la vignette : D2 la pose dans une texture completee
+// en puissances de deux et dessine la texture ENTIERE. Releve a l'inventaire
+// (D2_HUDFILL=3, qemu, en jeu) : f4 arrive en (W/2+149, H-64) 128x64, avec
+// l'art 86x55 cale en bas a gauche et le reste transparent. Les colonnes
+// utiles gardent donc leur abscisse (l'art commence a la colonne 0 du quad) ;
+// c'est la LARGEUR de reference qui vaut 128, pas 86. La conversion en s se
+// fait par la mesure du quad, jamais par une hypothese sur la texture.
+static const float HUD_Q_W = 128.0f, HUD_Q_H = 64.0f;
+static const float HUD_SRC0 = 46.0f, HUD_SRC1 = 61.0f;   // pierre lisse de f4
+
+static void gx_panel_gapfill(uint32_t n, uint32_t stride, const uint8_t* vh,
+                             int oxy, int ost0, int oargb,
+                             const d2gr::VtxPre& pre){
+    if(g_hudFill<0){ const char* e=getenv("D2_HUDFILL");
+                     g_hudFill = (e&&*e) ? atoi(e) : 1; }
+    if(!g_hudFill || !pre.tex) return;          // sans cellule, rien a rechantillonner
+    // La taille vient des globals DU JEU, pas de g_gxResW : celui-ci n'est
+    // rafraichi qu'a grSstWinOpen, et la bascule 960x544 se fait a l'entree en
+    // partie en ecrivant GeneralDisplayWidth — c'est exactement ce que lisent
+    // les 126 sites de centrage de l'interface, donc la seule verite ici.
+    if(!(d2res_active && d2res_active())) return;
+    const float W=(float)d2res_w(), H=(float)d2res_h();
+    if(W<=800.0f) return;                       // 800x600 : le bandeau est jointif
+    if(n<3 || n>4) return;
+
+    auto ld=[&](uint32_t i,int off)->uint32_t{
+        uint32_t w; std::memcpy(&w, vh+(size_t)i*stride+(uint32_t)off, 4); return w; };
+    float xs[4],ys[4],ss[4],ts[4];
+    for(uint32_t i=0;i<n;i++){
+        union{uint32_t u;float f;} X,Y,S,T;
+        X.u=ld(i,oxy); Y.u=ld(i,oxy+4); S.u=ld(i,ost0); T.u=ld(i,ost0+4);
+        xs[i]=X.f; ys[i]=Y.f; ss[i]=S.f; ts[i]=T.f;
+    }
+    float x0=xs[0],x1=xs[0],y0=ys[0],y1=ys[0];
+    for(uint32_t i=1;i<n;i++){ if(xs[i]<x0)x0=xs[i]; if(xs[i]>x1)x1=xs[i];
+                               if(ys[i]<y0)y0=ys[i]; if(ys[i]>y1)y1=ys[i]; }
+    // D2_HUDFILL=3 : inventaire des dessins qui touchent la zone du bandeau.
+    // Sans lui, une signature qui ne colle pas ne dit RIEN de ce que le jeu a
+    // reellement emis, et il faut une deuxieme partie complete pour l'ap-
+    // prendre. Plafonne : un journal de 40 lignes reste lisible.
+    static int said3 = 0;
+    if(g_hudFill>=3 && said3<40 && y1>H-56.0f && y0>H-120.0f){
+        ++said3;
+        std::printf("hudfill?: n=%u (%.1f,%.1f)-(%.1f,%.1f) %.0fx%.0f cellule=%d\n",
+                    n,x0,y0,x1,y1,x1-x0,y1-y0,(int)g_gxSt.cell);
+        std::fflush(stdout);
+    }
+    // Signature de f4 : origine ET taille du QUAD. Un quad de 128x64 pose
+    // ailleurs, ou pose la avec une autre taille, n'est pas le bandeau.
+    const float ex=W*0.5f+149.0f, ey=H-HUD_Q_H;
+    if(n!=4 ||
+       std::fabs(x0-ex)>1.0f || std::fabs(y0-ey)>1.0f ||
+       std::fabs((x1-x0)-HUD_Q_W)>1.0f || std::fabs((y1-y0)-HUD_Q_H)>1.0f) return;
+
+    // s,t aux bords, releves sur les sommets eux-memes : valable quel que soit
+    // le remplissage de la texture d'origine et la convention sNorm/tNorm.
+    float s0=0,s1=0,t0=0,t1=0; bool gs0=false,gs1=false,gt0=false,gt1=false;
+    for(uint32_t i=0;i<4;i++){
+        if(!gs0 && std::fabs(xs[i]-x0)<0.5f){ s0=ss[i]; gs0=true; }
+        if(!gs1 && std::fabs(xs[i]-x1)<0.5f){ s1=ss[i]; gs1=true; }
+        if(!gt0 && std::fabs(ys[i]-y0)<0.5f){ t0=ts[i]; gt0=true; }
+        if(!gt1 && std::fabs(ys[i]-y1)<0.5f){ t1=ts[i]; gt1=true; }
+    }
+    if(!(gs0&&gs1&&gt0&&gt1)) return;
+    const float sA = s0 + (s1-s0)*(HUD_SRC0/HUD_Q_W);    // debut de la pierre lisse
+    const float sB = s0 + (s1-s0)*(HUD_SRC1/HUD_Q_W);    // fin
+    const float tile = HUD_SRC1-HUD_SRC0;                // 15 px de fenetre
+    const uint32_t col = (oargb>=0) ? ld(0,oargb) : 0xFFFFFFFFu;
+
+    const float holes[2][2] = { { 165.0f,        W*0.5f-235.0f },
+                                { W*0.5f+235.0f, W-165.0f     } };
+    for(int h=0; h<2; ++h){
+        float x=holes[h][0]; const float xe=holes[h][1];
+        for(int k=0; x < xe-0.01f; ++k){
+            const float w = (xe-x < tile) ? (xe-x) : tile;
+            const bool  mir = (k & 1);                   // une tuile sur deux retournee
+            const float a = mir ? sB : sA, b = mir ? sA : sB;
+            const float bc = a + (b-a)*(w/tile);         // derniere tuile : coupee, jamais etiree
+            const uint16_t i0=g_gxBuild.vertexPre(pre,x,    y0,col,a, t0);
+            const uint16_t i1=g_gxBuild.vertexPre(pre,x+w,  y0,col,bc,t0);
+            const uint16_t i2=g_gxBuild.vertexPre(pre,x+w,  y1,col,bc,t1);
+            const uint16_t i3=g_gxBuild.vertexPre(pre,x,    y1,col,a, t1);
+            g_gxBuild.tri(i0,i1,i2); g_gxBuild.tri(i0,i2,i3);
+            ++g_hudFillQuads; x += w;
+        }
+    }
+    if(g_hudFill>=2 && !g_hudFillSaid){
+        g_hudFillSaid = true;
+        std::printf("hudfill: f4 vue en (%.1f,%.1f) %.0fx%.0f, s=[%.2f,%.2f] t=[%.2f,%.2f]"
+                    " — trous %.0f..%.0f et %.0f..%.0f combles\n",
+                    x0,y0,x1-x0,y1-y0,s0,s1,t0,t1,
+                    holes[0][0],holes[0][1],holes[1][0],holes[1][1]);
+        std::fflush(stdout);
+    }
+}
 static void gx_draw(uint32_t mode, uint32_t cnt, uint32_t stride, const uint8_t* vh){
     if(!g_gxAtlas.ready() || !cnt || cnt>4096) return;
     const int oxy=g_grVLoff[0x01], oargb=g_grVLoff[0x30], ost0=g_grVLoff[0x40];
@@ -1274,6 +1399,10 @@ static void gx_draw(uint32_t mode, uint32_t cnt, uint32_t stride, const uint8_t*
         ++g_gxLinesDrawn; break; }
       default: ++g_gxSkipMode; break;                    // other modes: never emitted by D2
     }
+    // Le bandeau d'interface vient d'etre pose ? Alors ses deux trous aussi,
+    // dans le MEME lot : peints juste apres lui, donc sous tout ce que le jeu
+    // dessine ensuite (objets de la ceinture, curseur, infobulles).
+    gx_panel_gapfill(n, stride, vh, oxy, ost0, oargb, pre);
 }
 // HASH OF THE BUILT BATCHES (D2_GXMLOTSHASH=1). The ring's `h=` proves the
 // host READ the same sequence of records; it says nothing about what it DID

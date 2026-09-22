@@ -27,11 +27,20 @@ the source of truth for the public repository.
 - [x] GPU rendering (sceGxm) via a guest-side reconstructed Glide3x ring,
       asynchronous submission
 - [x] Native 960×544 resolution (`D2_RES`, on by default; `D2_RES=0` or
-      `D2_RES=WxH`, 640×480 to 1280×1024, to override): the engine's own
-      mode→size table is patched at 3 hooked sites, so the 126 interface
-      centering sites downstream follow without their own changes. 4:3
-      aspect preserved by default (no stretch; `D2_ASPECT=etire` for the
-      old stretched behavior)
+      `D2_RES=WxH`, 640×480 to 1280×1024, to override): the game itself
+      draws 960×544 (one texel = one pixel, no filter, no pillarbox),
+      driven by `alternate` hooks on D2's own resolution plumbing, so the
+      126 interface centering sites downstream follow without their own
+      changes. Menus stay 800×600 pillarboxed: their art is fixed-size.
+      4:3 aspect preserved by default for 800×600 (no stretch;
+      `D2_ASPECT=etire` for the old stretched behavior)
+- [x] HUD bar at 960×544: D2's 800-wide bar opens two `(W-800)/2` px gaps
+      (80 px each at 960), which the bar fills with its own stone
+      re-sampled from the texture the game already loaded — no Blizzard
+      art is added or shipped. `D2_HUDFILL=0` shows the gaps again.
+      **Confirmed on console** (2026-09-22); the qemu gate
+      `tools/hudfill_arm_check.sh` only proves the hook and its numbers,
+      since GPU submission there is a sink.
 - [x] Side panels at 960×544 (inventory, skill tree, stash, trade, belt):
       the game keeps `inventory.bin`/`belts.bin` in absolute 800×600
       coordinates while it anchors the panel art to the screen (right
