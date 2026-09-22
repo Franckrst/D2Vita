@@ -45,10 +45,38 @@ the source of truth for the public repository.
       `VirtualProtect` tracking, self `OpenProcess` still denied — detailed
       backlog in [Fidelity Warden / anti-cheat](https://franckrst.github.io/D2Vita/fidelite-warden/). None of it
       blocks play; it only matters if Warden ever activates.
-- [ ] **RAM budget**: the multi-segment JIT pool (path 5.2) is partially
-      refuted — a `ForVM` block larger than 16 MiB is refused by the kernel
-      (a kernel ceiling, not a project choice); the risk of `std::bad_alloc`
-      in real play is still open, with no known zero-cost fix
+- [x] **RAM budget, box86's RW metadata**: box86's per-block metadata (one
+      `dynablock_t` per translated block, the red-black tree nodes) was the
+      only memory this port still asked the kernel for *once play had
+      started*, and `customMalloc` did not test `mmap`: a refusal wrote 64 KiB
+      through `MAP_FAILED`. That is crash signature
+      `hfault_sys|SceLibKernel|0x120` — 11 claims, five consoles, 0.1.7 and
+      0.1.9. It now has a reserve of its own, 8 MiB in the **PHYCONT**
+      partition (26 624 KiB no session has ever seen move), and a refusal is
+      handled rather than fatal. Measured on console: metadata 100 % served by
+      the pool (`custom=1152 Ko` = `piscine RW 1152/8192 Ko`), zero
+      `mmap FAIL`, user partition 1 MiB less in the red, A/B cost bounded by
+      0,5 % over 4+4 patrol passes (three armed passes bracket the control
+      mean). Ceiling measured at 124–131 bytes per translated block on three
+      sessions, console and qemu.
+- [ ] **RAM budget, the JIT pool's second segment**: the entry above used to
+      blame a kernel ceiling. That is not what binds. The budget is, and the
+      console log prints the whole subtraction: 317 440 KiB free before the
+      arena, the arena takes 291 MiB, **19 456 KiB are left** — enough for
+      exactly one 16 MiB segment plus 3 MiB of change. Splitting the request
+      into 2 × 16 MiB (path 5.2) removed a real obstacle, the per-block 16 MiB
+      ceiling, but a second segment was never affordable; at 88 s the ladder
+      is refused at 16, 8, 4, 2 and 1 MiB with `libre user` already negative.
+      Freeing 16 MiB would mean shrinking the guest VA window (220 → 204 MiB)
+      to ~4 MiB above its measured 200,2 MiB peak — and that peak is Act I
+      only. No affordable fix known.
+- [ ] **`D2_JITFLOOR_KB` is inoperative on console**: the floor meant to leave
+      box86 its ~2 MiB is guarded by `free_kb >= 0`, and `size_user` reads
+      NEGATIVE from 13 s onward (`libre user=-2048 Ko` in every field log).
+      The one situation where it would have something to protect is exactly
+      the one where it does not apply. Pinned by a selftest scenario rather
+      than changed: the RW pool above removes its purpose, so retiring it is a
+      policy decision that wants its own measurement.
 - [ ] **The JIT pool is never evicted, and that is fatal**: nothing frees a
       translated block, so the pool saturates after roughly 20 minutes of
       play. Once it is full and the kernel refuses a new segment, the first
