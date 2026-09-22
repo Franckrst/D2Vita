@@ -1267,6 +1267,109 @@ static void gx_panel_gapfill(uint32_t n, uint32_t stride, const uint8_t* vh,
         std::fflush(stdout);
     }
 }
+// ---- LA COLONNE NOIRE ENTRE DEUX PANNEAUX, COMBLEE AVEC LA PIERRE DU CADRE --
+//
+// Deux panneaux ouverts (personnage + arbre, personnage + inventaire) : D2 ne
+// dessine plus le monde du tout — a 800x600 les deux panneaux et leur cadre
+// 800BorderFrame couvrent tout l'ecran. A 960x544 le panneau de gauche reste
+// a 0..401 et celui de droite est colle a droite (560..960, voir
+// native_hooks_resolution.cpp) : la colonne 401..560, de 0 a H-47, n'est
+// couverte par rien et reste noire.
+//
+// Meme remede que le bandeau ci-dessus : on la comble avec la pierre DU CADRE
+// LUI-MEME, rechantillonnee depuis la barre verticale droite (piece 7 de
+// 800BorderFrame, 87x231, que l'hote rejoue en (W-87, H-116) ; le jeu la pose
+// dans une texture 128x256, art cale en bas a gauche). Sa pierre lisse — les
+// colonnes 18..46, lignes 88..216 de l'art, entre le lisere gauche et la
+// volute — est reemise en tuiles, retournees une sur deux dans chaque sens.
+// Armé SEULEMENT si la barre gauche (piece 2, en x=0) est passee dans la meme
+// image : avec un seul panneau ouvert, la colonne montre le monde, et il n'y
+// a rien a combler. Peint juste apres la barre droite, donc sous tout ce que
+// le jeu dessine ensuite (bandeau, curseur, infobulles). D2_HUDFILL=0 desarme
+// aussi cette colonne ; =3 journalise les quads hauts (relevé de geometrie).
+static const float COL_TEX_W = 128.0f, COL_TEX_H = 256.0f;   // texture de la barre
+static const float COL_ART_W = 87.0f,  COL_ART_H = 231.0f;   // art de la piece 7
+static const float COL_SRC_X0 = 18.0f, COL_SRC_X1 = 46.0f;   // pierre lisse (colonnes de l'art)
+static const float COL_SRC_Y0 = 88.0f, COL_SRC_Y1 = 216.0f;  //   ... et lignes
+static uint64_t g_colGaucheFrame = ~0ull;                     // image ou la barre gauche est passee
+static uint64_t g_colQuads = 0;
+static bool     g_colSaid = false;
+
+static void gx_colonne_fill(uint32_t n, uint32_t stride, const uint8_t* vh,
+                            int oxy, int ost0, int oargb,
+                            const d2gr::VtxPre& pre){
+    if(g_hudFill<0){ const char* e=getenv("D2_HUDFILL");
+                     g_hudFill = (e&&*e) ? atoi(e) : 1; }
+    if(!g_hudFill || !pre.tex) return;
+    if(!(d2res_active && d2res_active())) return;
+    const float W=(float)d2res_w(), H=(float)d2res_h();
+    if(W<=800.0f || n!=4) return;
+    auto ld=[&](uint32_t i,int off)->uint32_t{
+        uint32_t w; std::memcpy(&w, vh+(size_t)i*stride+(uint32_t)off, 4); return w; };
+    float xs[4],ys[4],ss[4],ts[4];
+    for(uint32_t i=0;i<n;i++){
+        union{uint32_t u;float f;} X,Y,S,T;
+        X.u=ld(i,oxy); Y.u=ld(i,oxy+4); S.u=ld(i,ost0); T.u=ld(i,ost0+4);
+        xs[i]=X.f; ys[i]=Y.f; ss[i]=S.f; ts[i]=T.f;
+    }
+    float x0=xs[0],x1=xs[0],y0=ys[0],y1=ys[0];
+    for(uint32_t i=1;i<n;i++){ if(xs[i]<x0)x0=xs[i]; if(xs[i]>x1)x1=xs[i];
+                               if(ys[i]<y0)y0=ys[i]; if(ys[i]>y1)y1=ys[i]; }
+    const float w=x1-x0, h=y1-y0;
+    if(h < 200.0f) return;                                  // les barres font 256 de haut
+    static int said3 = 0;
+    if(g_hudFill>=3 && said3<24){ ++said3;
+        jpline("colonne?: image %llu quad (%.0f,%.0f) %.0fx%.0f cellule=%d",
+               (unsigned long long)g_gxFrame, x0,y0,w,h,(int)g_gxSt.cell); }
+    // Bas des barres verticales : 484 dans la disposition 800x600, decale
+    // de H-600 comme tout le cadre (native_hooks_resolution.cpp, dy_bas).
+    const float yb = H - 600.0f + 484.0f, yq = yb - COL_TEX_H;
+    if(std::fabs(y0-yq)>1.0f || std::fabs(w-COL_TEX_W)>1.0f || std::fabs(h-COL_TEX_H)>1.0f) return;
+    if(std::fabs(x0)<1.0f){ g_colGaucheFrame = g_gxFrame; return; }     // barre gauche : on note
+    if(std::fabs(x0-(W-COL_ART_W))>1.0f) return;                        // pas la barre droite
+    if(g_colGaucheFrame != g_gxFrame) return;                           // un seul panneau ouvert
+    float s0=0,s1=0,t0=0,t1=0; bool gs0=false,gs1=false,gt0=false,gt1=false;
+    for(uint32_t i=0;i<4;i++){
+        if(!gs0 && std::fabs(xs[i]-x0)<0.5f){ s0=ss[i]; gs0=true; }
+        if(!gs1 && std::fabs(xs[i]-x1)<0.5f){ s1=ss[i]; gs1=true; }
+        if(!gt0 && std::fabs(ys[i]-y0)<0.5f){ t0=ts[i]; gt0=true; }
+        if(!gt1 && std::fabs(ys[i]-y1)<0.5f){ t1=ts[i]; gt1=true; }
+    }
+    if(!(gs0&&gs1&&gt0&&gt1)) return;
+    // L'art est cale en bas a gauche de la texture : ligne r de l'art = ligne
+    // (256-231)+r de la texture.
+    const float sA = s0 + (s1-s0)*(COL_SRC_X0/COL_TEX_W), sB = s0 + (s1-s0)*(COL_SRC_X1/COL_TEX_W);
+    const float tA = t0 + (t1-t0)*((COL_TEX_H-COL_ART_H+COL_SRC_Y0)/COL_TEX_H);
+    const float tB = t0 + (t1-t0)*((COL_TEX_H-COL_ART_H+COL_SRC_Y1)/COL_TEX_H);
+    const float tw = COL_SRC_X1-COL_SRC_X0, th = COL_SRC_Y1-COL_SRC_Y0;
+    const uint32_t col = (oargb>=0) ? ld(0,oargb) : 0xFFFFFFFFu;
+    const float cx0 = 401.0f, cx1 = W - 400.0f;             // la colonne, entre les deux panneaux
+    const float cy0 = 0.0f,   cy1 = H - 47.0f;              //   ... jusqu'au bandeau
+    int ky = 0;
+    for(float y = cy0; y < cy1-0.01f; ++ky){
+        const float hh = (cy1-y < th) ? (cy1-y) : th;
+        const bool my = (ky & 1);
+        const float ta = my ? tB : tA, tb = my ? tA : tB;
+        const float tc = ta + (tb-ta)*(hh/th);
+        int kx = 0;
+        for(float x = cx0; x < cx1-0.01f; ++kx){
+            const float ww = (cx1-x < tw) ? (cx1-x) : tw;
+            const bool mx = (kx & 1);
+            const float sa = mx ? sB : sA, sb = mx ? sA : sB;
+            const float sc = sa + (sb-sa)*(ww/tw);
+            const uint16_t i0=g_gxBuild.vertexPre(pre,x,    y,   col,sa,ta);
+            const uint16_t i1=g_gxBuild.vertexPre(pre,x+ww, y,   col,sc,ta);
+            const uint16_t i2=g_gxBuild.vertexPre(pre,x+ww, y+hh,col,sc,tc);
+            const uint16_t i3=g_gxBuild.vertexPre(pre,x,    y+hh,col,sa,tc);
+            g_gxBuild.tri(i0,i1,i2); g_gxBuild.tri(i0,i2,i3);
+            ++g_colQuads; x += ww;
+        }
+        y += hh;
+    }
+    if(g_hudFill>=2 && !g_colSaid){ g_colSaid = true;
+        jpline("colonne: barres vues (0 et %.0f, y %.0f) — colonne %.0f..%.0f x %.0f..%.0f comblee",
+               W-COL_ART_W, yq, cx0, cx1, cy0, cy1); }
+}
 static void gx_draw(uint32_t mode, uint32_t cnt, uint32_t stride, const uint8_t* vh){
     if(!g_gxAtlas.ready() || !cnt || cnt>4096) return;
     const int oxy=g_grVLoff[0x01], oargb=g_grVLoff[0x30], ost0=g_grVLoff[0x40];
@@ -1403,6 +1506,7 @@ static void gx_draw(uint32_t mode, uint32_t cnt, uint32_t stride, const uint8_t*
     // dans le MEME lot : peints juste apres lui, donc sous tout ce que le jeu
     // dessine ensuite (objets de la ceinture, curseur, infobulles).
     gx_panel_gapfill(n, stride, vh, oxy, ost0, oargb, pre);
+    gx_colonne_fill(n, stride, vh, oxy, ost0, oargb, pre);
 }
 // HASH OF THE BUILT BATCHES (D2_GXMLOTSHASH=1). The ring's `h=` proves the
 // host READ the same sequence of records; it says nothing about what it DID

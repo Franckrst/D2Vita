@@ -49,9 +49,13 @@ the source of truth for the public repository.
       D2Common table getters are replaced with the same anchoring and the
       two border-frame routines are replayed from the host at the shifted
       coordinates (`D2_RES_PANNEAUX=0` keeps the game's own placement, for
-      A/B). Measured on console, 800×600 vs 960×544 captures. Known gap:
-      the GDI path (`-w`) never resizes its DIB, so `D2_RES` only works
-      under Glide (the default)
+      A/B). Measured on console, 800×600 vs 960×544 captures. With two
+      panels open the game draws no world at all, so the 401..560 column
+      between them is filled, in the Glide ring, with the border frame's
+      own stone re-sampled from the right bar (same mechanism and knob as
+      the HUD bar fill, confirmed on console). Known gap: the GDI path
+      (`-w`) never resizes its DIB, so `D2_RES` only works under Glide
+      (the default)
 - [x] DirectSound audio (host mixer, natively-ported Storm codecs) —
       implemented, **enabled by default**; `D2_SON=0` opts back out to
       `DSERR_NODRIVER`, faithful to a machine with no sound card
