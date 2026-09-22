@@ -10,6 +10,7 @@
 namespace d2rt { class Cpu; }
 
 extern bool g_snap;                     // one-shot frame dump request (D2SCRIPT "snap")
+extern bool g_memscan;                  // one-shot guest-memory snapshot request (D2SCRIPT "memscan")
 extern uint8_t g_keyState[256];         // VK states driven by injected input
 
 // Vita physical-input tick (weak). `cpu` is the guest CPU handle of the
