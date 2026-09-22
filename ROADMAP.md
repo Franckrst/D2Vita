@@ -70,13 +70,22 @@ the source of truth for the public repository.
       Freeing 16 MiB would mean shrinking the guest VA window (220 → 204 MiB)
       to ~4 MiB above its measured 200,2 MiB peak — and that peak is Act I
       only. No affordable fix known.
-- [ ] **`D2_JITFLOOR_KB` is inoperative on console**: the floor meant to leave
-      box86 its ~2 MiB is guarded by `free_kb >= 0`, and `size_user` reads
-      NEGATIVE from 13 s onward (`libre user=-2048 Ko` in every field log).
-      The one situation where it would have something to protect is exactly
-      the one where it does not apply. Pinned by a selftest scenario rather
-      than changed: the RW pool above removes its purpose, so retiring it is a
-      policy decision that wants its own measurement.
+- [x] **`D2_JITFLOOR_KB` retired**: the floor reserved ~3 MiB of user RAM for
+      box86's metadata, which now has its own phycont pool — it protected
+      nobody. It also protected nobody *before*: guarded by `free_kb >= 0`
+      while `size_user` reads NEGATIVE from 13 s onward (`libre user=-2048 Ko`
+      in every field log), so the one situation where it would have had
+      something to protect was exactly the one where it did not apply. Gone,
+      along with its deferral path and log line. The anticipated grow now
+      takes the largest step that fits: a selftest scenario that used to
+      assert "1 MiB taken, not 2, floor honoured" now asserts 4 MiB. On a
+      console whose gauge reads negative this changes NOTHING, and the A/B
+      shows it: segment 2 is refused from 16 MiB down to 1 MiB at 88 s in all
+      four passes, RW pool armed or not. The pool returns ~1 MiB of user RAM
+      (free user goes -2048 -> -1024 KiB) and the floor returns nothing it
+      never took; the ladder's smallest step is 1 MiB and a negative balance
+      cannot pay it. The removal is worth having on a console that reads a
+      positive gauge, not on this one.
 - [ ] **The JIT pool is never evicted, and that is fatal**: nothing frees a
       translated block, so the pool saturates after roughly 20 minutes of
       play. Once it is full and the kernel refuses a new segment, the first
