@@ -516,10 +516,23 @@ to start looking nearby). If Step 3 below finds no candidate, widen
 `D2_SCREENSCAN_LEN` or move `D2_SCREENSCAN_BASE` and repeat this step before
 concluding nothing exists.
 
-Collect the eight `.bin` files (written by the guest run to
-`ux0:data/d2vita/screenscan_<label>.bin` — under qemu this is the host path
-the emulated `ux0:data/d2vita/` maps to, per this build's existing convention
-for `env.txt`/save files) into one directory, e.g. `/tmp/screenscan/`.
+**Correction found during Task 2's code review:** the snapshot is written to
+`g_writeRoot` (driven by env `D2WRITE`, matching the sibling `snap`/`dumpFrame`
+FBDUMP path in `tools/rt_boot.cpp`), not the originally-planned
+`ux0:data/d2vita/...` (that path doesn't exist under qemu-arm at all).
+`tools/rt_boot_arm_check.sh`'s own header comment says it uses "a dedicated
+fresh D2WRITE" per run for determinism — **read both
+`tools/rt_boot_arm_check.sh` and `tools/rt_gameplay_arm_check.sh` first** to
+see exactly how/whether each sets `D2WRITE`, since that decides where each of
+these eight runs' `screenscan_<label>.bin` actually lands. If the scripts
+auto-generate a fresh `D2WRITE` per invocation, either capture and note each
+run's actual output path from its own log line (`tools/rt_boot.cpp`'s memscan
+block prints the full path on success), or set `D2WRITE` explicitly yourself
+to a known fixed directory for these eight runs so they all land somewhere
+predictable (whichever is less invasive given how those two scripts are
+written — read them before choosing). Collect the eight resulting `.bin`
+files into one directory, e.g. `/tmp/screenscan/`, renaming/copying them
+there if they didn't already land together.
 
 - [ ] **Step 2: Run the diff tool**
 
