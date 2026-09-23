@@ -1178,11 +1178,141 @@ EOF
 
 ### Task 8: On-device validation (qemu-arm → Vita3K → console)
 
-This task has no pre-written code — it's the validation ladder itself, and
-its job is specifically to catch what the host oracles above cannot: real
-pixels, real touch coordinates, real timing. Follow the
-`local-validation`/`runtime-debugging` skills' method at each level; this
-task records what to check, not fabricated expected output.
+**Correction found during final review, before dispatch: this task DOES need
+real code first.** `controls_help.h::draw()` (Task 4) is still a stub — it
+draws two solid rectangles and explicitly ignores its `labels`/`bindings`
+parameters (`(void)labels; (void)bindings;`). No text has ever been rendered.
+Worse, its signature (two parallel arrays, `labels`/`bindings`) doesn't match
+what `format_controls_help()` (Task 5) actually produces: ONE array of
+already-combined `"<button>: <action>"` strings per row. Task 6's own commit
+message already flagged this exact gap ("le detail de layout... reste a
+regler sur un vrai framebuffer") and passed `nullptr, nullptr` for both
+parameters. Without fixing this first, Step 2/3 below ("confirm the binding
+list is legible") would be checking something that cannot possibly be true
+yet — that's exactly the kind of unfixed premise CLAUDE.md's "never fabricate
+a response to make a check pass" rule warns against. Fix it first:
+
+- [ ] **Step 0: Implement real text rendering, resolving the labels/bindings mismatch**
+
+**Files:**
+- Modify: `src/platform/controls_help.h`
+- Modify: `src/platform/vita_present.cpp` (the Task 6 draw call site)
+- Modify: `tools/tests/controls_help_test.cpp` (one added check)
+
+Change `draw()`'s signature to take a single array of pre-joined strings
+(matching `format_controls_help`'s real output), and render real text using
+the virtual keyboard's existing pixel-font primitives
+(`third_party/winx86/src/platform/vita_kb.h`'s `d2kb::draw_detail::text`) —
+per the design doc's own stated intent ("reuses vita_kb.h's existing
+pixel-font primitives rather than duplicating a font"), not a new font:
+
+```cpp
+// controls_help.h: add near the top, after the other includes
+#include "platform/vita_kb.h"   // d2kb::draw_detail::text — reuse the existing pixel font, don't duplicate one
+```
+
+Replace the `draw()` function:
+
+```cpp
+// Draws the persistent icon (when !s.open) or the full panel (when s.open).
+// `lines` is `row_count` already-formatted "<button>: <action>" strings
+// (built by the caller from g_btn[] + the fixed non-remappable list — see
+// format_controls_help() in vita_present.cpp, Task 5). One string per row,
+// not two parallel arrays — matches what that formatter actually produces.
+inline void draw(const State& s, uint32_t* fb, int fw, int fh, const char* const* lines) {
+    using namespace draw_detail;
+    if (!s.open) {
+        rect(fb, fw, fh, BAND_X0 + 8, BAND_Y1 - 24, BAND_X1 - 8, BAND_Y1 - 8, rgb(40, 40, 40));
+        d2kb::draw_detail::text(fb, fw, fh, "Controls", BAND_X0 + 12, BAND_Y1 - 20, 1, rgb(220, 220, 220));
+        return;
+    }
+    // Full-screen translucent panel background.
+    rect(fb, fw, fh, 0, 0, fw, fh, rgb(10, 10, 10));
+    if (!lines) return;
+    const int x = 20, y0 = 16, row_h = s.row_px > 0 ? s.row_px : 20;
+    const int last = s.scroll + s.visible_rows;
+    for (int i = s.scroll; i < s.row_count && i < last; ++i) {
+        const int y = y0 + (i - s.scroll) * row_h;
+        if (y + row_h > fh) break;
+        if (lines[i]) d2kb::draw_detail::text(fb, fw, fh, lines[i], x, y, 1, rgb(230, 230, 230));
+    }
+}
+```
+
+(The exact pixel position/scale/colors above are a first cut, not a final
+answer — Step 2/3 below, with real screenshots, are where this actually gets
+tuned; don't spend long debating exact numbers here, get something on
+screen and adjust from what the device shows.)
+
+In `src/platform/vita_present.cpp`, update the Task 6 draw call site (the
+`d2ch::draw(g_ch, fb, fw, fh, /*labels=*/nullptr, /*bindings=*/nullptr);`
+line) to:
+
+```cpp
+    if (d2ch_title_active_cached)
+        d2ch::draw(g_ch, fb, fw, fh, g_ch_count ? (const char* const*)g_ch_labels : nullptr);
+```
+
+(`g_ch_labels` is `char[64][64]`; a `char(*)[64]` converts to `const char*
+const*` for this call, but confirm the exact cast the compiler actually wants
+— don't fight `-Werror` with a wrong cast, read the real error if the above
+doesn't compile as written and fix the cast, not the intent.)
+
+Add one check to `tools/tests/controls_help_test.cpp` (same scope as the
+existing `vita_kb.h`/`kb_test.cpp` precedent — a coarse "something changed"
+check, not pixel-exact matching):
+
+```cpp
+static void t_open_with_content_draws_something() {
+    State s; std::memset(&s, 0, sizeof s);
+    s.open = true; s.row_count = 2; s.visible_rows = 6;
+    const char* lines[2] = {"Cross: Test", "Circle: Shift"};
+    std::vector<uint32_t> fb(960 * 544, 0xDEADBEEFu), ref = fb;
+    draw(s, fb.data(), 960, 544, lines);
+    CHECK(std::memcmp(fb.data(), ref.data(), fb.size() * 4) != 0,
+          "panel open with content: framebuffer must change");
+}
+```
+
+(add the call to `t_open_with_content_draws_something();` in `main()`, and
+`#include <vector>` if not already present in the test file.)
+
+Build and test:
+```bash
+g++ -std=gnu++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined \
+    -I "$(pwd)/src" -I "$(pwd)/third_party/winx86/src" \
+    -o /tmp/controls_help_test tools/tests/controls_help_test.cpp
+/tmp/controls_help_test
+```
+
+(note the added `-I .../third_party/winx86/src` — `controls_help.h` now
+includes `platform/vita_kb.h`, which lives there.) Also update
+`tools/oracle_controls_help.sh`'s compile line with the same added `-I`, or
+its leg will fail once this lands. Then the real VPK build:
+```bash
+export VITASDK=/usr/local/vitasdk
+export PATH="$VITASDK/bin:$PATH"
+tools/build_rt_boot_vpk.sh
+```
+
+Commit this as its own commit before moving to Step 1:
+```bash
+git add src/platform/controls_help.h src/platform/vita_present.cpp \
+        tools/tests/controls_help_test.cpp tools/oracle_controls_help.sh
+git commit -m "$(cat <<'EOF'
+ui: rendu de texte reel pour le panneau controles
+
+draw() dessinait deux rectangles pleins et ignorait labels/bindings
+depuis la Tache 4 — jamais mis a jour depuis. Signature simplifiee a un
+seul tableau de lignes deja formattees (ce que format_controls_help()
+produit reellement), texte rendu via la police pixel existante du
+clavier virtuel (d2kb::draw_detail::text), pas une police dupliquee.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Xgm4MrSgSUDrUAFqVXvVN9
+EOF
+)"
+```
 
 - [ ] **Step 1: qemu-arm**
 
