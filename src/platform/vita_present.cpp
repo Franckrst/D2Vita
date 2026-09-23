@@ -1656,6 +1656,65 @@ void load_controls_txt(){
     fclose(f);
     char m[64]; snprintf(m,sizeof m,"input: controls.txt applique (%d entrees)",n); d2vita_progress(m);
 }
+// Human-readable label for one Act, for the controls-help panel. Mirrors the
+// vk-code choices already made in g_btn[]'s own comments (line 1576+).
+const char* act_label(const Act& a) {
+    if (a.kind == A_NONE) return "-";
+    if (a.kind == A_LMB)  return "Left click";
+    if (a.kind == A_RMB)  return "Right click";
+    switch (a.vk) {
+        case 0x52: return "R (walk/run)";
+        case 0x10: return "Shift";
+        case 0x12: return "Alt";
+        case 0x57: return "W (weapon swap)";
+        case 0x31: return "Potion 1"; case 0x32: return "Potion 2";
+        case 0x33: return "Potion 3"; case 0x34: return "Potion 4";
+        case 0x70: return "F1"; case 0x71: return "F2";
+        case 0x72: return "F3"; case 0x73: return "F4";
+        case 0x1B: return "Escape";
+        case 0x20: return "Space";
+        default:   return "?";
+    }
+}
+const char* bit_label(uint32_t bit) {
+    if (bit == B_CROSS)  return "Cross";
+    if (bit == B_CIR)    return "Circle";
+    if (bit == B_SQR)    return "Square";
+    if (bit == B_TRI)    return "Triangle";
+    if (bit == B_UP)     return "D-pad Up";
+    if (bit == B_DOWN)   return "D-pad Down";
+    if (bit == B_LEFT)   return "D-pad Left";
+    if (bit == B_RIGHT)  return "D-pad Right";
+    if (bit == B_START)  return "Start";
+    return "?";
+}
+// Fills `out[i]` with up to `max` "<button>: <action>" lines: every g_btn[]
+// entry with a bound base action, its R+ layer if bound, then the fixed set
+// that is NOT remappable via controls.txt (kept in sync here, by hand, on
+// purpose — see design doc section 4: these six never move).
+int format_controls_help(char out[][64], int max) {
+    int n = 0;
+    for (const BtnMap& m : g_btn) {
+        if (n >= max) break;
+        if (m.base.kind != A_NONE)
+            snprintf(out[n++], 64, "%s: %s", bit_label(m.bit), act_label(m.base));
+        if (n < max && m.layer.kind != A_NONE)
+            snprintf(out[n++], 64, "R+%s: %s", bit_label(m.bit), act_label(m.layer));
+    }
+    static const char* const kFixed[] = {
+        "L: Left click (held)",
+        "R: Right click (held)",
+        "Select: Radial menu",
+        "R+Select: Space",
+        "R+Triangle: Virtual keyboard",
+        "L+Start: Screenshot",
+    };
+    for (const char* f : kFixed) {
+        if (n >= max) break;
+        snprintf(out[n++], 64, "%s", f);
+    }
+    return n;
+}
 void lmb_update(){
     bool want = g_lmb_stick || g_lmb_btn;
     if (want && !g_lmb_sent){ d2vita_inject("ldown",(int)g_cx,(int)g_cy); g_lmb_sent=true; }
