@@ -956,12 +956,30 @@ int format_controls_help(char out[][64], int max) {
 
 - [ ] **Step 2: Build**
 
+**Correction — `tools/rt_boot_arm_check.sh` does NOT verify this step.** Per
+Task 1 Step 5's finding, `tools/rt_boot_srcs.sh` (the qemu-arm oracle's
+source list) does not include `src/platform/vita_present.cpp` at all — only
+the real VPK build does. A `rt_boot_arm_check.sh` PASS after this change
+would prove nothing about whether `format_controls_help()` even compiles;
+reporting it as verification would be exactly the kind of false check
+CLAUDE.md forbids. Use the real build instead:
+
 ```bash
-tools/rt_boot_arm_check.sh
+export VITASDK=/usr/local/vitasdk
+export PATH="$VITASDK/bin:$PATH"
+tools/build_rt_boot_vpk.sh
 ```
 
-Expected: PASS (this function isn't called from anywhere yet — Task 7 wires
-it in — so this step only proves it compiles cleanly under `-Werror`).
+(Confirm `arm-vita-eabi-g++ --version` succeeds first — if VitaSDK isn't
+installed/exported in your environment, say so explicitly rather than
+falling back to `rt_boot_arm_check.sh` and calling it equivalent; that
+distinction matters and must be reported honestly.) This build compiles the
+whole real Vita target including `vita_present.cpp`, incrementally (only
+changed units recompile). Expected: it completes and produces `d2vita.vpk`
+(check `build-vita/` or `$D2VPK_OUT`) with no compile error for
+`vita_present.cpp` — this function isn't called from anywhere yet (Task 6
+wires it in), so a clean compile is all this step proves, but it needs to be
+a REAL compile, not the qemu-arm oracle.
 
 - [ ] **Step 3: Commit**
 
@@ -1003,7 +1021,14 @@ Near `g_ctl_prev`/`g_ctl_init` (around line 1593), add:
 d2ch::State g_ch;
 char g_ch_labels[64][64];
 int  g_ch_count = 0;
+bool d2ch_title_active_cached = false;   // written every ~4 ticks below, read
+                                          // by Step 2's gate and Step 3's draw
 ```
+
+**Correction — the sample in the original plan draft used
+`d2ch_title_active_cached` in Step 2 without ever declaring it. Declare it
+here** (added above) — this is a real bug in the plan text, not a hint to
+invent your own name; use exactly this one so Step 2 and Step 3 below agree.
 
 - [ ] **Step 2: Update state every tick, gated by the title-screen signal**
 
@@ -1067,13 +1092,19 @@ that discrepancy here rather than silently picking one.)
 
 - [ ] **Step 4: Build**
 
+**Same correction as Task 5 Step 2**: `tools/rt_boot_arm_check.sh` does not
+compile `vita_present.cpp` and cannot verify this step. Use:
+
 ```bash
-tools/rt_boot_arm_check.sh
+export VITASDK=/usr/local/vitasdk
+export PATH="$VITASDK/bin:$PATH"
+tools/build_rt_boot_vpk.sh
 ```
 
-Expected: PASS. If identifiers from Step 2 don't match the real local names
-in this file, this is where that surfaces as a compile error — fix by
-matching the existing names, not by inventing new state.
+Expected: completes, produces `d2vita.vpk`, no compile error. If identifiers
+from Step 2 don't match the real local names in this file, this is where
+that surfaces as a compile error — fix by matching the existing names, not
+by inventing new state.
 
 - [ ] **Step 5: Commit**
 
