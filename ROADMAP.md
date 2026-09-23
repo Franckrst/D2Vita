@@ -78,7 +78,7 @@ the source of truth for the public repository.
       (`src/platform/controls_help.h`, wired into
       `src/platform/vita_present.cpp`); text is drawn with the existing
       virtual-keyboard pixel font rather than a new one. The host oracle
-      (`tools/oracle_controls_help.sh`) passes (18 checks, 0 failed) and the
+      (`tools/oracle_controls_help.sh`) passes (21 checks, 0 failed) and the
       qemu-arm boot gate (`tools/rt_boot_arm_check.sh`) reaches a clean exit
       at the title screen with the overlay's draw call wired into every
       frame — but neither is a visual check of the panel itself.

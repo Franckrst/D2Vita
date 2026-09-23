@@ -2050,6 +2050,7 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
                         for (int i = 0; i < g_ch_count; ++i) g_ch_lines[i] = g_ch_labels[i];
                         g_ch.row_count = g_ch_count;
                         g_ch.visible_rows = 20;   // tuned on-device in Task 8
+                        g_ch.row_px = d2ch::DEFAULT_ROW_PX;   // matches text() glyph height in draw(); see final-review Bug 1
                     }
                 }
                 return;   // consumed: this release belonged to a claimed touch

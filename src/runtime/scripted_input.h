@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <string>
 
-namespace d2rt { class Cpu; }
+namespace d2rt { struct Cpu; }
 
 extern bool g_snap;                     // one-shot frame dump request (D2SCRIPT "snap")
 extern bool g_memscan;                  // one-shot guest-memory snapshot request (D2SCRIPT "memscan")

@@ -101,6 +101,24 @@ static void t_open_with_different_content_draws_differently() {
           "different content must render differently, not just 'something changed from blank'");
 }
 
+// The panel background must be a translucent blend against whatever was
+// already in the framebuffer (design spec section 3: "translucent overlay
+// ... title screen art beneath it stays visible"), not a flat opaque
+// overwrite. Pre-fill with a known color, open the panel with no lines (it
+// returns right after the background fill, so nothing else touches the
+// pixel we check), and confirm the result is neither the original color
+// (background fill did nothing) nor a fully opaque rgb(10,10,10) (background
+// fill ignored alpha and overwrote solid).
+static void t_panel_background_is_translucent_not_opaque() {
+    State s; std::memset(&s, 0, sizeof s);
+    s.open = true; s.row_count = 0; s.visible_rows = 6;
+    std::vector<uint32_t> fb(960 * 544, 0xFFFFFFFFu);
+    draw(s, fb.data(), 960, 544, nullptr);
+    const uint32_t after = fb[0];
+    CHECK(after != 0xFFFFFFFFu, "background fill must change the pre-existing pixel");
+    CHECK(after != 0xFF0A0A0Au, "background fill must NOT be a fully opaque overwrite (not translucent)");
+}
+
 int main() {
     t_icon_hit_rect_confined_to_left_band();
     t_open_close_toggle();
@@ -109,6 +127,7 @@ int main() {
     t_content_shorter_than_view_never_scrolls();
     t_open_with_content_draws_something();
     t_open_with_different_content_draws_differently();
+    t_panel_background_is_translucent_not_opaque();
     std::printf("%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }
