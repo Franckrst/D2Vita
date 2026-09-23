@@ -3365,6 +3365,19 @@ int main(int argc,char**argv){
     wx86_set_cursor(400,300);
     win32_shims_gdi32_install(br);
     win32_shims_window_install(br);
+    // DIAG (D2_TRACE_CLIC) : PtInRect trace — D2Win teste chaque controle
+    // avec lui au clic ; on voit donc les rectangles des boutons.
+    if(getenv("D2_TRACE_CLIC")){
+        Shim s; s.argc=3; s.stdcall_cleanup=true; s.tag="USER32.dll!PtInRect(trace)";
+        s.fn=[](Cpu&c)->uint32_t{ uint32_t r=c.arg(0); if(!r) return 0u;
+            int32_t l=(int32_t)c.read_u32(r),t=(int32_t)c.read_u32(r+4),
+                    ri=(int32_t)c.read_u32(r+8),b=(int32_t)c.read_u32(r+12),
+                    x=(int32_t)c.arg(1),y=(int32_t)c.arg(2);
+            uint32_t ok=(x>=l&&x<ri&&y>=t&&y<b)?1u:0u;
+            static int n=0; if(n<4000){ ++n; std::printf("  [ptin] rect=(%d,%d)-(%d,%d) pt=(%d,%d) -> %u  ret=%08x\n",l,t,ri,b,x,y,ok,c.read_u32(c.reg(R_ESP))); }
+            return ok; };
+        br.register_shim("USER32.dll","PtInRect",s);
+    }
     // GDI32 basics (window-class brushes, DC caps, gamma).
     auto GD=[&](const char* name,uint32_t ac,std::function<uint32_t(Cpu&)> fn){
         std::string tag=std::string("GDI32.dll!")+name;

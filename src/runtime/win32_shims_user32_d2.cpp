@@ -226,11 +226,30 @@ void win32_shims_user32_d2_install(Bridge& br){
         uint32_t mn=c.arg(2),mx=c.arg(3); GMsg m=g_msgQ.front();
         if((mn||mx) && (m.msg<mn||m.msg>mx)) return 0u;   // filtered pump: not ours
         fillMsg(c,c.arg(0),m);
+        // DIAG (D2_TRACE_CLIC) : chaque message souris bouton livre au jeu, avec
+        // la position que le jeu croit avoir (ses globals D2Client).
+        { static int tr=-1; if(tr<0) tr=getenv("D2_TRACE_CLIC")?1:0;
+          if(tr && (m.msg==0x201||m.msg==0x202||m.msg==0x204||m.msg==0x205) && (c.arg(4)&1)){
+              uint32_t gx=g_d2base?c.read_u32(g_d2base+0x3a6ab0):0, gy=g_d2base?c.read_u32(g_d2base+0x3a6aac):0;
+              uint32_t cx,cy; wx86_get_cursor(&cx,&cy);
+              std::printf("  [clic] livre 0x%03x lParam=(%d,%d) curseur=(%u,%u) souris-jeu=(%u,%u) W=%u H=%u\n",
+                  m.msg,(int)(int16_t)(m.lp&0xffff),(int)(int16_t)(m.lp>>16),cx,cy,gx,gy,
+                  g_d2base?c.read_u32(g_d2base+0x31146c):0, g_d2base?c.read_u32(g_d2base+0x311470):0);
+              std::fflush(stdout); } }
         if(c.arg(4)&1) g_msgQ.pop_front();               // PM_REMOVE
         return 1u; });
     U("GetMessageA",4,[fillMsg](Cpu&c){ g_gmN++;
         if(g_msgQ.empty()) return 0u;                    // (menu loop uses Peek; 0 here = WM_QUIT)
         GMsg m=g_msgQ.front(); g_msgQ.pop_front(); fillMsg(c,c.arg(0),m);
+        { static int tr=-1; if(tr<0) tr=getenv("D2_TRACE_CLIC")?1:0;   // DIAG, voir PeekMessageA
+          if(tr && (m.msg==0x201||m.msg==0x202||m.msg==0x204||m.msg==0x205)){
+              uint32_t gx=g_d2base?c.read_u32(g_d2base+0x3a6ab0):0, gy=g_d2base?c.read_u32(g_d2base+0x3a6aac):0;
+              uint32_t cx,cy; wx86_get_cursor(&cx,&cy);
+              std::printf("  [clic] GetMessage 0x%03x lParam=(%d,%d) curseur=(%u,%u) souris-jeu=(%u,%u) W=%u H=%u SHX=%d SHY=%d\n",
+                  m.msg,(int)(int16_t)(m.lp&0xffff),(int)(int16_t)(m.lp>>16),cx,cy,gx,gy,
+                  g_d2base?c.read_u32(g_d2base+0x31146c):0, g_d2base?c.read_u32(g_d2base+0x311470):0,
+                  g_d2base?(int)c.read_u32(g_d2base+0x3a2858):0, g_d2base?(int)c.read_u32(g_d2base+0x3a285c):0);
+              std::fflush(stdout); } }
         return m.msg==0x12?0u:1u; });
     U("DispatchMessageA",1,[&br](Cpu&c)->uint32_t{ g_dispN++;
         uint32_t pm=c.arg(0); if(!g_wndProc||!pm) return 0u;

@@ -25,7 +25,10 @@ namespace {
 // la fusion de blocs du dynarec l'avalerait.
 constexpr uint32_t RVA_GETSIZE = 0x000f5570;  // GetResolutionSize(mode,*w,*h), stdcall, ret 0xc
 constexpr uint32_t RVA_SETRES  = 0x0004ba20;  // D2Client SetResolution(ecx=mode)
-constexpr uint32_t RVA_SHIFT   = 0x00056ee0;  // contient set_screen_shift
+constexpr uint32_t RVA_SHIFT   = 0x00056ee0;  // D2Client DrawUI(ecx) : ecrit le decalage ecran PUIS dessine
+constexpr uint32_t RVA_SHIFT_SUITE = 0x00056f24; // ... la suite, une fois le decalage ecrit
+constexpr uint32_t RVA_SHIFT_SORTIE = 0x000572d8; // ... et sa sortie precoce (epilogue)
+constexpr uint32_t G_UIOFF = 0x003a2808;       // != 0 : l'interface n'est pas dessinee
 
 // Les deux premiers sont la source de verite du moteur (343 et 388 references
 // dans .text) : les 126 sites de centrage de l'interface les lisent et suivent
@@ -52,17 +55,16 @@ const uint8_t SIG_SHIFT  [7] = { 0x55,0x8b,0xec,0x83,0xec,0x0c,0x53 };
 // par exemple). Les cinq accesseurs D2Common ci-dessous les recopient telles
 // quelles dans les copies cachees de D2Client (Game+0x835b0), et c'est sur
 // ces copies que se font le dessin des cases, celui des objets ET la detection
-// de clic. Le fond du panneau, lui, est dessine en
-//   x = GeneralDisplayWidth - ScreenShiftX - 320,   y = ScreenShiftY + H - ...
-// pour les onglets d'armes, et le fond du panneau suit la meme logique ; la
-// table, elle, ne bouge pas. A 960x544 les objets et les clics restent donc
-// 160 px a gauche et 56 px trop bas du fond qui les encadre.
+// de clic. Tout le reste des panneaux (fonds, boutons, onglets, croix, leurs
+// survols et leurs clics) est ancre sur ScreenShiftX/Y : gauche en x = SHX,
+// droite en x = W - SHX - 320. Avec SHX = W/2-320 (crochet 3) la paire de
+// panneaux est donc centree : la disposition 800x600 entiere, translatee de
+// ((W-800)/2, (H-600)/2). Les tables doivent suivre du meme vecteur.
 //
-// Le principe est celui de SGD2FreeRes (mir-diablo-ii-tools, patches/inventory) :
-// remplacer les accesseurs et recaler ce qu'ils copient. Les decalages, eux,
-// sont ceux MESURES ici (voir dx_droite/dy_bas plus bas) : SGD2 recale tout
-// sur le centre, mais il neutralise aussi les chemins « mode 800 » du jeu,
-// que nous gardons, et ses fonds ne sont pas ancres comme les notres.
+// Le principe est celui de SGD2FreeRes (mir-diablo-ii-tools, patches/inventory,
+// RealignPositionFromCenter) : remplacer les accesseurs et recaler ce qu'ils
+// copient sur le centre. La ceinture, elle, vit sur le bandeau (colle en bas,
+// centre) : ((W-800)/2, H-600).
 // Les entrees vides (-1, ou tout a zero) ne bougent pas.
 // Les accesseurs sont remplaces en entier : ce sont de simples copies, dont
 // la disassemblee tient en vingt lignes chacune, et le resultat est ce que
@@ -86,13 +88,13 @@ const uint8_t SIG_BELTPOS[12] = { 0x55,0x8b,0xec,0x8b,0x4d,0x0c,0x8d,0x04,0xcd,0
 //
 // Deux fonctions de D2Client (Game+0x98630 a gauche, +0x98700 a droite)
 // dessinent les dix morceaux du cadre a des coordonnees IMMEDIATES, celles
-// d'un ecran de 800x600 : le cadre reste donc cale sur 0..800 quand le
-// panneau, lui, a suivi le centre. Les immediats ne se reecrivent pas (0 octet
-// de .text modifie) : on rejoue la fonction depuis l'hote, avec les memes
-// appels invites — chargement du cel s'il manque, puis les cinq blits — et
-// les memes coordonnees, decalees comme le panneau qu'elles encadrent. C'est
-// la lecture que SGD2FreeRes fait du cadre d'origine
-// (DrawOriginal*ScreenBorderFrame), avec nos ancrages.
+// d'un ecran de 800x600 : le cadre reste donc cale sur 0..800 quand les
+// panneaux, eux, ont suivi le centre. Les immediats ne se reecrivent pas
+// (0 octet de .text modifie) : on rejoue la fonction depuis l'hote, avec les
+// memes appels invites — chargement du cel s'il manque, puis les cinq blits —
+// et les memes coordonnees, translatees de ((W-800)/2, (H-600)/2) comme les
+// panneaux qu'elles encadrent. C'est la lecture que SGD2FreeRes fait du cadre
+// d'origine (DrawOriginal*ScreenBorderFrame).
 constexpr uint32_t RVA_BORDER_L  = 0x00098630;
 constexpr uint32_t RVA_BORDER_R  = 0x00098700;
 constexpr uint32_t RVA_DRAWIMG   = 0x000f6480;  // D2Gfx DrawImage(ctx,x,y,-1,5,0), stdcall 0x18
@@ -114,8 +116,8 @@ uint32_t g_base = 0;
 // Ces fonctions ne sont pas reentrantes (un changement de resolution a la
 // fois) : un emplacement occupe signalerait qu'on s'est trompe de cible.
 struct Slot { bool busy; uint32_t ret; };
-Slot s_set{false,0}, s_shift{false,0};
-uint32_t s_trapSet = 0, s_trapShift = 0;
+Slot s_set{false,0};
+uint32_t s_trapSet = 0;
 
 bool sig_ok(Cpu* c, uint32_t rva, const uint8_t* want, size_t n, const char* who) {
     uint8_t got[16];
@@ -178,28 +180,18 @@ uint32_t original(Cpu& c, Bridge& br, uint32_t entry) {
     return c.reg(R_EAX);
 }
 
-// Ou le jeu met ses fonds a notre taille, MESURE sur console (jambe A,
-// 960x544, crochets 4-5 coupes) contre la reference 800x600 :
-//   - panneau de droite (inventaire, arbre) : fond en x = 560 = 400 + (W-800),
-//     bord bas en 434 = 60 + 432 + (H-600) ; les objets equipes, eux, restaient
-//     en 421..493 x 124..210 = la ligne rArm brute (420..475 x 107..219) ;
-//   - panneau de gauche (personnage) : fond en x = 80, comme a 800x600 ;
-//   - bandeau de commande : centre, +80 = (W-800)/2, colle en bas.
-// Les tables suivent donc : lignes de droite (W-800, H-600), lignes de gauche
-// (0, H-600), ceinture ((W-800)/2, H-600). Le cadre 800BorderFrame suit son
-// panneau. NB : a 960 de large, W-800 et W/2-320 valent tous deux 160 ; la
-// formule generale de l'ancrage de droite reste a departager a une autre
-// largeur (D2_RES=880x544 : 80 contre 120).
-int dx_droite(uint32_t mode) { return mode ? (g_w - 800)     : (g_w - 640); }
+// Le vecteur de translation de la disposition 800x600 (640x480 en mode 0)
+// vers notre ecran : le centre pour les panneaux, le bas pour la ceinture.
+// Mesure sur console (23/09/2026) : DrawUI (Game+0x56ee0) reecrit le decalage
+// ecran a 80/-60 a chaque image AVANT de dessiner ; l'ancien trap de sortie
+// ne le remettait a 160/-32 qu'apres, si bien que l'interface etait dessinee
+// et survolee en disposition 800 non centree (fonds en 80 et 560) tandis que
+// les clics, evalues hors du dessin, l'etaient en disposition centree : 80 px
+// d'ecart entre le bouton vu et sa zone de clic. Le crochet 3 ecrit
+// maintenant le decalage A L'ENTREE de DrawUI, et tout suit le meme centre.
 int dx_centre(uint32_t mode) { return mode ? (g_w - 800) / 2 : (g_w - 640) / 2; }
+int dy_centre(uint32_t mode) { return mode ? (g_h - 600) / 2 : (g_h - 480) / 2; }
 int dy_bas(uint32_t mode)    { return mode ? (g_h - 600)     : (g_h - 480); }
-// Une ligne d'inventory.bin est ancree a gauche (coffre, echange, PNJ :
-// invLeft 80) ou a droite (le personnage : invLeft 400 ; 320 en mode 640).
-int dx_ligne(Cpu& c, uint32_t rec, uint32_t mode) {
-    const int32_t l = (int32_t)c.read_u32(rec);
-    if (l < 0) return 0;
-    return l >= (mode ? 400 : 320) ? dx_droite(mode) : 0;
-}
 
 // Un rectangle de table : gauche, droite, haut, bas.
 void copie_rect(Cpu& c, uint32_t src, uint32_t dst, int dx, int dy, bool vide_si_moins1) {
@@ -230,7 +222,7 @@ uint32_t inv_pos(Cpu& c, Bridge& br) {
     const uint32_t idx = c.read_u32(E + 4), mode = c.read_u32(E + 8), out = c.read_u32(E + 12);
     const uint32_t rec = g_applied ? inv_ligne(c, idx, mode) : 0;
     if (!rec) { original(c, br, g_base + RVA_INVPOS); return 0; }
-    copie_rect(c, rec, out, dx_ligne(c, rec, mode), dy_bas(mode), true);
+    copie_rect(c, rec, out, dx_centre(mode), dy_centre(mode), true);
     return 1;
 }
 uint32_t inv_grille(Cpu& c, Bridge& br) {
@@ -242,7 +234,7 @@ uint32_t inv_grille(Cpu& c, Bridge& br) {
     const uint32_t dims = c.read_u32(rec + 0x10);
     c.write_u32(out, dims);
     const bool vide = !(dims & 0xff) || !((dims >> 8) & 0xff);
-    copie_rect(c, rec + 0x14, out + 4, vide ? 0 : dx_ligne(c, rec, mode), vide ? 0 : dy_bas(mode), true);
+    copie_rect(c, rec + 0x14, out + 4, vide ? 0 : dx_centre(mode), vide ? 0 : dy_centre(mode), true);
     c.write_u32(out + 0x14, c.read_u32(rec + 0x24));
     return 1;
 }
@@ -252,7 +244,7 @@ uint32_t inv_case(Cpu& c, Bridge& br) {
     const uint32_t rec = g_applied ? inv_ligne(c, idx, mode) : 0;
     if (!rec) { original(c, br, g_base + RVA_INVSLOT); return 0; }
     const uint32_t slot = rec + 0x28 + n * 0x14;   // dix emplacements de 5 mots : rectangle + largeur|hauteur
-    copie_rect(c, slot, out, dx_ligne(c, rec, mode), dy_bas(mode), true);
+    copie_rect(c, slot, out, dx_centre(mode), dy_centre(mode), true);
     c.write_u32(out + 0x10, c.read_u32(slot + 0x10));
     return 1;
 }
@@ -318,8 +310,8 @@ void border_suite(Cpu& c, Bridge& br) {
         c.write_u32(s.ctx + 0x34, cel);
         c.write_u32(A + 0x00, s_trapBord);
         c.write_u32(A + 0x04, s.ctx);
-        c.write_u32(A + 0x08, (uint32_t)(p.x + (s.pieces == BORDER_R ? dx_droite(1) : 0)));
-        c.write_u32(A + 0x0c, (uint32_t)(p.y + dy_bas(1)));
+        c.write_u32(A + 0x08, (uint32_t)(p.x + dx_centre(1)));
+        c.write_u32(A + 0x0c, (uint32_t)(p.y + dy_centre(1)));
         c.write_u32(A + 0x10, 0xffffffffu);
         c.write_u32(A + 0x14, 5u);
         c.write_u32(A + 0x18, 0u);
@@ -332,6 +324,12 @@ void border_suite(Cpu& c, Bridge& br) {
     br.redirect_next(s.ret);
 }
 uint32_t border_entree(Cpu& c, Bridge& br, uint32_t entry, const BorderPiece* pieces) {
+    // DIAG (D2_TRACE_CLIC) : le cadre est dessine a chaque image tant que le
+    // panneau est ouvert ; une ligne toutes les ~1.5 s dit s'il l'est encore.
+    { static int tr=-1; if(tr<0) tr=getenv("D2_TRACE_CLIC")?1:0;
+      if(tr){ static uint64_t lastL=0,lastR=0; uint64_t now=rt_now_ms(); uint64_t& last=(pieces==BORDER_R)?lastR:lastL;
+          if(now-last>1500){ last=now; jpline("  [cadre] %s dessine SHX=%d SHY=%d W=%u H=%u", pieces==BORDER_R?"DROIT":"GAUCHE",
+              (int)c.read_u32(g_base+G_SHX),(int)c.read_u32(g_base+G_SHY),c.read_u32(g_base+G_W),c.read_u32(g_base+G_H)); } } }
     if (!g_applied || s_bord.busy) return original(c, br, entry);
     BorderRun& s = s_bord;
     s.busy = true; s.chargement = false; s.etape = 0; s.pieces = pieces;
@@ -414,22 +412,47 @@ void native_hooks_resolution_install(Cpu* cpu, Bridge& br) {
         cpu->set_alternate(g_base + RVA_SETRES, br.shim_trap("native.hook", "d2_setres_114"));
     }
 
-    // 3. set_screen_shift : ecrit +80/-60 pour le mode 2, 0/0 sinon, et une
-    //    branche precoce peut sauter l'ecriture. On repose donc sans condition
-    //    en sortie : la valeur juste pour notre taille est la meme dans tous
-    //    les cas.
+    // 3. DrawUI (Game+0x56ee0) : son prologue ecrit +80/-60 pour le mode 2
+    //    (0/0 sinon) puis dessine toute l'interface avec. Un trap de sortie ne
+    //    suffit pas : le dessin a deja eu lieu (mesure console, 23/09/2026).
+    //    On remplace le PROLOGUE depuis l'hote — memes ecritures de pile,
+    //    memes registres, notre decalage a la place du sien — et l'on reprend
+    //    le corps a l'instruction qui suit ses deux ecritures. La sortie
+    //    precoce (interface coupee, G_UIOFF != 0) est rejouee telle quelle.
+    //    Zero octet de .text modifie.
     {
-        Shim xe; xe.argc = 0; xe.stdcall_cleanup = false; xe.tag = "native!d2_shift_exit";
-        xe.fn = [&br](Cpu& c) -> uint32_t { apply(c); return leave(c, br, s_shift); };
-        br.register_shim("native.hook", "d2_shift_exit", xe);
-        s_trapShift = br.shim_trap("native.hook", "d2_shift_exit");
+        // Le prologue entier est revalide, operandes absolus exclus (l'image
+        // peut etre relogee) : opcodes en 0x00..0x44, voir le desassemblage.
+        static const struct { uint8_t off, val; } K[] = {
+            {0x00,0x55},{0x01,0x8b},{0x02,0xec},{0x03,0x83},{0x04,0xec},{0x05,0x0c},
+            {0x06,0x53},{0x07,0x33},{0x08,0xdb},{0x09,0x39},{0x0a,0x1d},
+            {0x0f,0x89},{0x10,0x4d},{0x11,0xf4},{0x12,0x0f},{0x13,0x85},
+            {0x18,0xe8},{0x1d,0x83},{0x1e,0xf8},{0x1f,0x02},{0x20,0x75},{0x21,0x16},
+            {0x22,0xc7},{0x23,0x05},{0x28,0x50},{0x2c,0xc7},{0x2d,0x05},{0x32,0xc4},
+            {0x36,0xeb},{0x37,0x0c},{0x38,0x89},{0x39,0x1d},{0x3e,0x89},{0x3f,0x1d},
+            {0x44,0x53} };
+        uint8_t got[0x48]; cpu->read(g_base + RVA_SHIFT, got, sizeof got);
+        bool ok = true;
+        for (const auto& k : K) if (got[k.off] != k.val) ok = false;
+        if (!ok) { jpline("res: REFUS DrawUI Game+0x%x — prologue inattendu", (unsigned)RVA_SHIFT); return; }
 
-        Shim s; s.argc = 0; s.stdcall_cleanup = false; s.tag = "native!d2_shift_114";
+        Shim s; s.argc = 0; s.stdcall_cleanup = false; s.tag = "native!d2_drawui_114";
         s.fn = [&br](Cpu& c) -> uint32_t {
-            enter(c, br, s_shift, s_trapShift, g_base + RVA_SHIFT, R_EBP);
-            return c.reg(R_EAX); };
-        br.register_shim("native.hook", "d2_shift_114", s);
-        cpu->set_alternate(g_base + RVA_SHIFT, br.shim_trap("native.hook", "d2_shift_114"));
+            const uint32_t E = c.reg(R_ESP);            // -> adresse de retour
+            c.write_u32(E - 4, c.reg(R_EBP));           // push ebp
+            const uint32_t ebp = E - 4;                 // mov ebp,esp
+            c.set_reg(R_EBP, ebp);                      // sub esp,0xc
+            c.write_u32(ebp - 0x10, c.reg(R_EBX));      // push ebx
+            c.set_reg(R_EBX, 0);                        // xor ebx,ebx
+            c.write_u32(ebp - 0xc, c.reg(R_ECX));       // mov [ebp-0xc],ecx
+            c.set_reg(R_ESP, ebp - 0x10 - 4);           // = ebp-0x10 apres le +4 du trap
+            if (c.read_u32(g_base + G_UIOFF) != 0) {    // cmp [G_UIOFF],ebx ; jne epilogue
+                br.redirect_next(g_base + RVA_SHIFT_SORTIE); return 0; }
+            apply(c);                                   // notre decalage, pas +80/-60
+            br.redirect_next(g_base + RVA_SHIFT_SUITE);
+            return 0; };
+        br.register_shim("native.hook", "d2_drawui_114", s);
+        cpu->set_alternate(g_base + RVA_SHIFT, br.shim_trap("native.hook", "d2_drawui_114"));
     }
 
     // D2_RES_PANNEAUX=0 : garde la bascule (crochets 1-3) mais laisse les

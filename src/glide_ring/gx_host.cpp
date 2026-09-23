@@ -1267,31 +1267,31 @@ static void gx_panel_gapfill(uint32_t n, uint32_t stride, const uint8_t* vh,
         std::fflush(stdout);
     }
 }
-// ---- LA COLONNE NOIRE ENTRE DEUX PANNEAUX, COMBLEE AVEC LA PIERRE DU CADRE --
+// ---- LES DEUX BANDES LATERALES, entre cadre et bord d'ecran ----------------
 //
-// Deux panneaux ouverts (personnage + arbre, personnage + inventaire) : D2 ne
-// dessine plus le monde du tout — a 800x600 les deux panneaux et leur cadre
-// 800BorderFrame couvrent tout l'ecran. A 960x544 le panneau de gauche reste
-// a 0..401 et celui de droite est colle a droite (560..960, voir
-// native_hooks_resolution.cpp) : la colonne 401..560, de 0 a H-47, n'est
-// couverte par rien et reste noire.
+// Un panneau lateral ouvert : D2 ne dessine le monde que dans l'autre moitie
+// de l'ecran, et a 800x600 le panneau plus sa barre du cadre 800BorderFrame
+// couvrent la sienne jusqu'au bord. A 960x544 la disposition 800 est centree
+// (panneaux 160..800, cadre 80..880, voir native_hooks_resolution.cpp) : la
+// bande 0..80 (panneau gauche) ou 880..960 (panneau droit), de 0 a H-47,
+// n'est couverte par rien et reste noire.
 //
-// Meme remede que le bandeau ci-dessus : on la comble avec la pierre DU CADRE
+// Meme remede que le bandeau ci-dessus : on les comble avec la pierre DU CADRE
 // LUI-MEME, rechantillonnee depuis la barre verticale droite (piece 7 de
-// 800BorderFrame, 87x231, que l'hote rejoue en (W-87, H-116) ; le jeu la pose
-// dans une texture 128x256, art cale en bas a gauche). Sa pierre lisse — les
-// colonnes 18..46, lignes 88..216 de l'art, entre le lisere gauche et la
-// volute — est reemise en tuiles, retournees une sur deux dans chaque sens.
-// Armé SEULEMENT si la barre gauche (piece 2, en x=0) est passee dans la meme
-// image : avec un seul panneau ouvert, la colonne montre le monde, et il n'y
-// a rien a combler. Peint juste apres la barre droite, donc sous tout ce que
-// le jeu dessine ensuite (bandeau, curseur, infobulles). D2_HUDFILL=0 desarme
-// aussi cette colonne ; =3 journalise les quads hauts (relevé de geometrie).
+// 800BorderFrame, 87x231, que l'hote rejoue en (W-80-87, (H-600)/2+253) ; le
+// jeu la pose dans une texture 128x256, art cale en bas a gauche). Sa pierre
+// lisse — les colonnes 18..46, lignes 88..216 de l'art, entre le lisere gauche
+// et la volute — est reemise en tuiles, retournees une sur deux dans chaque
+// sens. Chaque barre verticale du cadre (piece 2 a gauche, en x=80 ; piece 7
+// a droite) comble la bande de son cote des qu'elle passe : le jeu ne rend le
+// monde que dans l'autre moitie, la bande serait noire meme avec un seul
+// panneau ouvert (capture console, 23/09/2026). Peint juste apres la barre,
+// donc sous tout ce que le jeu dessine ensuite (bandeau, curseur, infobulles).
+// D2_HUDFILL=0 desarme aussi ces bandes ; =3 journalise les quads hauts.
 static const float COL_TEX_W = 128.0f, COL_TEX_H = 256.0f;   // texture de la barre
 static const float COL_ART_W = 87.0f,  COL_ART_H = 231.0f;   // art de la piece 7
 static const float COL_SRC_X0 = 18.0f, COL_SRC_X1 = 46.0f;   // pierre lisse (colonnes de l'art)
 static const float COL_SRC_Y0 = 88.0f, COL_SRC_Y1 = 216.0f;  //   ... et lignes
-static uint64_t g_colGaucheFrame = ~0ull;                     // image ou la barre gauche est passee
 static uint64_t g_colQuads = 0;
 static bool     g_colSaid = false;
 
@@ -1321,13 +1321,17 @@ static void gx_colonne_fill(uint32_t n, uint32_t stride, const uint8_t* vh,
     if(g_hudFill>=3 && said3<24){ ++said3;
         jpline("colonne?: image %llu quad (%.0f,%.0f) %.0fx%.0f cellule=%d",
                (unsigned long long)g_gxFrame, x0,y0,w,h,(int)g_gxSt.cell); }
-    // Bas des barres verticales : 484 dans la disposition 800x600, decale
-    // de H-600 comme tout le cadre (native_hooks_resolution.cpp, dy_bas).
-    const float yb = H - 600.0f + 484.0f, yq = yb - COL_TEX_H;
+    // La disposition 800x600 est centree : bas des barres verticales 484,
+    // barres en x=0 et x=800-87, le tout translate de ((W-800)/2, (H-600)/2)
+    // comme tout le cadre (native_hooks_resolution.cpp, dx_centre/dy_centre).
+    const float mx0 = (W - 800.0f) * 0.5f, my0 = (H - 600.0f) * 0.5f;
+    const float yb = my0 + 484.0f, yq = yb - COL_TEX_H;
     if(std::fabs(y0-yq)>1.0f || std::fabs(w-COL_TEX_W)>1.0f || std::fabs(h-COL_TEX_H)>1.0f) return;
-    if(std::fabs(x0)<1.0f){ g_colGaucheFrame = g_gxFrame; return; }     // barre gauche : on note
-    if(std::fabs(x0-(W-COL_ART_W))>1.0f) return;                        // pas la barre droite
-    if(g_colGaucheFrame != g_gxFrame) return;                           // un seul panneau ouvert
+    // Chaque barre verticale comble SA bande : le monde n'est jamais dessine
+    // au-dela du panneau qu'elle borde (le jeu ne rend que l'autre moitie).
+    const bool gauche = std::fabs(x0-mx0)<1.0f;
+    const bool droite = std::fabs(x0-(mx0+800.0f-COL_ART_W))<1.0f;
+    if(!gauche && !droite) return;
     float s0=0,s1=0,t0=0,t1=0; bool gs0=false,gs1=false,gt0=false,gt1=false;
     for(uint32_t i=0;i<4;i++){
         if(!gs0 && std::fabs(xs[i]-x0)<0.5f){ s0=ss[i]; gs0=true; }
@@ -1343,32 +1347,38 @@ static void gx_colonne_fill(uint32_t n, uint32_t stride, const uint8_t* vh,
     const float tB = t0 + (t1-t0)*((COL_TEX_H-COL_ART_H+COL_SRC_Y1)/COL_TEX_H);
     const float tw = COL_SRC_X1-COL_SRC_X0, th = COL_SRC_Y1-COL_SRC_Y0;
     const uint32_t col = (oargb>=0) ? ld(0,oargb) : 0xFFFFFFFFu;
-    const float cx0 = 401.0f, cx1 = W - 400.0f;             // la colonne, entre les deux panneaux
-    const float cy0 = 0.0f,   cy1 = H - 47.0f;              //   ... jusqu'au bandeau
-    int ky = 0;
-    for(float y = cy0; y < cy1-0.01f; ++ky){
-        const float hh = (cy1-y < th) ? (cy1-y) : th;
-        const bool my = (ky & 1);
-        const float ta = my ? tB : tA, tb = my ? tA : tB;
-        const float tc = ta + (tb-ta)*(hh/th);
-        int kx = 0;
-        for(float x = cx0; x < cx1-0.01f; ++kx){
-            const float ww = (cx1-x < tw) ? (cx1-x) : tw;
-            const bool mx = (kx & 1);
-            const float sa = mx ? sB : sA, sb = mx ? sA : sB;
-            const float sc = sa + (sb-sa)*(ww/tw);
-            const uint16_t i0=g_gxBuild.vertexPre(pre,x,    y,   col,sa,ta);
-            const uint16_t i1=g_gxBuild.vertexPre(pre,x+ww, y,   col,sc,ta);
-            const uint16_t i2=g_gxBuild.vertexPre(pre,x+ww, y+hh,col,sc,tc);
-            const uint16_t i3=g_gxBuild.vertexPre(pre,x,    y+hh,col,sa,tc);
-            g_gxBuild.tri(i0,i1,i2); g_gxBuild.tri(i0,i2,i3);
-            ++g_colQuads; x += ww;
+    // La bande de cette barre : de 0 au cadre (gauche) ou du cadre au bord
+    // (droite) ; jusqu'au bandeau.
+    const float bandes[1][2] = { { gauche ? 0.0f : W - mx0, gauche ? mx0 : W } };
+    const float cy0 = 0.0f, cy1 = H - 47.0f;
+    for(const auto& bd : bandes){
+        const float cx0 = bd[0], cx1 = bd[1];
+        if(cx1 - cx0 < 1.0f) continue;
+        int ky = 0;
+        for(float y = cy0; y < cy1-0.01f; ++ky){
+            const float hh = (cy1-y < th) ? (cy1-y) : th;
+            const bool my = (ky & 1);
+            const float ta = my ? tB : tA, tb = my ? tA : tB;
+            const float tc = ta + (tb-ta)*(hh/th);
+            int kx = 0;
+            for(float x = cx0; x < cx1-0.01f; ++kx){
+                const float ww = (cx1-x < tw) ? (cx1-x) : tw;
+                const bool mx = (kx & 1);
+                const float sa = mx ? sB : sA, sb = mx ? sA : sB;
+                const float sc = sa + (sb-sa)*(ww/tw);
+                const uint16_t i0=g_gxBuild.vertexPre(pre,x,    y,   col,sa,ta);
+                const uint16_t i1=g_gxBuild.vertexPre(pre,x+ww, y,   col,sc,ta);
+                const uint16_t i2=g_gxBuild.vertexPre(pre,x+ww, y+hh,col,sc,tc);
+                const uint16_t i3=g_gxBuild.vertexPre(pre,x,    y+hh,col,sa,tc);
+                g_gxBuild.tri(i0,i1,i2); g_gxBuild.tri(i0,i2,i3);
+                ++g_colQuads; x += ww;
+            }
+            y += hh;
         }
-        y += hh;
     }
     if(g_hudFill>=2 && !g_colSaid){ g_colSaid = true;
-        jpline("colonne: barres vues (0 et %.0f, y %.0f) — colonne %.0f..%.0f x %.0f..%.0f comblee",
-               W-COL_ART_W, yq, cx0, cx1, cy0, cy1); }
+        jpline("colonne: barre %s vue en (%.0f, %.0f) — bande %.0f..%.0f x %.0f..%.0f comblee",
+               gauche?"gauche":"droite", x0, yq, bandes[0][0], bandes[0][1], cy0, cy1); }
 }
 static void gx_draw(uint32_t mode, uint32_t cnt, uint32_t stride, const uint8_t* vh){
     if(!g_gxAtlas.ready() || !cnt || cnt>4096) return;

@@ -123,10 +123,10 @@ reviennent) ; `D2_RES=1280x720` force une autre taille. `D2_ASPECT=etire`
 menus est en taille fixe, il n'est jamais redessiné en 960×544.
 `D2_HUDFILL=0` empêche le bandeau d'interface de combler les deux trous que
 son art de 800 px laisse sur un écran de 960, et empêche aussi de combler
-avec la pierre du cadre la colonne noire entre deux panneaux ouverts
-(personnage + inventaire ou arbre). `D2_RES_PANNEAUX=0` laisse les panneaux
-latéraux là où le jeu les met lui-même (objets, clics et cadre 160 px à
-gauche du fond du panneau).
+avec la pierre du cadre la bande noire entre le cadre d'un panneau ouvert
+et le bord de l'écran. `D2_RES_PANNEAUX=0` laisse au jeu ses tables
+d'inventaire et son cadre (objets, clics et cadre alors décalés de 80 px par
+rapport aux panneaux).
 
 Le champ de vision élargi qu'offre une résolution native est un avantage en
 jeu : à réserver au solo et aux serveurs privés.
