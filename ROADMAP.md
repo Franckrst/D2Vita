@@ -70,6 +70,26 @@ the source of truth for the public repository.
 
 ## In progress / open
 
+- [ ] **Title-screen "controls help" overlay**: a persistent icon in D2's
+      left letterbox band, title screen only (not character select, not
+      options, not in-game), opens a translucent panel listing the current
+      effective bindings (from `g_btn[]` plus a fixed non-remappable list),
+      scrollable by D-pad or touch-drag, closed by Circle or Start
+      (`src/platform/controls_help.h`, wired into
+      `src/platform/vita_present.cpp`); text is drawn with the existing
+      virtual-keyboard pixel font rather than a new one. The host oracle
+      (`tools/oracle_controls_help.sh`) passes (18 checks, 0 failed) and the
+      qemu-arm boot gate (`tools/rt_boot_arm_check.sh`) reaches a clean exit
+      at the title screen with the overlay's draw call wired into every
+      frame — but neither is a visual check of the panel itself.
+      **Not yet validated on Vita3K**: it SIGSEGVs before the title screen
+      on an unrelated, pre-existing sceGxm shader-patcher crash (reproduced
+      identically on the commit predating this feature). **Not yet
+      validated on real console** either: a build with this feature ran
+      stably on hardware for 7.5+ minutes with no crash, but the title
+      screen's arrival was never confirmed reached in that session, so the
+      icon, panel legibility, scrolling and the close gesture have no
+      on-console evidence yet.
 - [ ] **Warden / anti-cheat fidelity**: no structured exception handling at
       all (a guest fault kills the thread), no PEB/LDR, no per-region
       `VirtualProtect` tracking, self `OpenProcess` still denied — detailed
