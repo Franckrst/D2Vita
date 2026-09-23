@@ -1969,15 +1969,27 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
     static int  ch_drag_prev_y=0;
 
     if (!title) {
-        ch_tap_at = -1; ch_drag_have_prev = false;
+        ch_tap_at = -1; ch_drag_have_prev = false; ch_tap_claimed = false;
+        // Force-close: don't let a title-screen panel survive leaving the
+        // title screen. No input leaks to D2 while `title` is false either
+        // way (the whole consuming block lives inside the `else` below),
+        // but without this, `g_ch.open` itself would survive a
+        // title->false->true cycle and the panel would silently reappear
+        // already open next time the title screen is reached (e.g. some
+        // auto-advance/attract-mode path that leaves the title screen
+        // without the player closing the panel via Circle/Start first).
+        g_ch.open = 0;   // volatile int, not bool -- controls_help.h's State::open
     } else {
         // Own SCE_TOUCH_PORT_FRONT sample, in SCREEN space -- same scaling
         // as draw_keyboard()'s own touch handling below
         // (tk.report[0].x*SCR_W/1920), NOT pad_to_game()'s GAME-space
-        // output. Guarded by `title`: unlike the syscalls already paid
-        // every tick above (autopilot cutoff), this one is only ever
-        // needed while d2ch itself can be relevant, so it never adds a
-        // third sceTouchPeek to an ordinary in-game tick.
+        // output. Guarded by `title`: this sceTouchPeek is only ever paid
+        // while d2ch itself can be relevant, so it never adds a THIRD
+        // sceTouchPeek to an ordinary in-game tick (title screen only:
+        // when the panel is closed and the player touches D2's own
+        // buttons, this is still a second, non-destructive peek here,
+        // alongside the D2-cursor block's own below -- harmless, just not
+        // "zero-added" on every title-screen tick).
         bool ch_touched=false; int ch_tx=0, ch_ty=0;
         { SceTouchData cht; memset(&cht,0,sizeof cht);
           if (sceTouchPeek(SCE_TOUCH_PORT_FRONT,&cht,1)>=0 && cht.reportNum>0){
