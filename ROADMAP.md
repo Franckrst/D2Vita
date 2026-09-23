@@ -129,15 +129,37 @@ the source of truth for the public repository.
       play. Once it is full and the kernel refuses a new segment, the first
       block that has never been translated kills the guest thread outright —
       there is no interpreter to fall back to. This is what the field
-      reports: 52 of the 62 crash claims received from 0.1.6, across 27
-      consoles. A segment request now steps down (16 → 8 → 4 → 2 → 1 MiB)
-      instead of giving up, the pool's occupancy is on the `alive:` line and
-      announced at 75/90/95 %, and the death is named rather than filed under
-      a generic dynarec fault — but **the real fix is not in**: flushing the
-      translated cache and retrying the translation needs all guest threads
-      quiesced first (`mutex_dyndump` is non-recursive and `FreeRangeDynablock`
-      takes it), so it is a design task with its own qemu + console
-      validation, not a patch.
+      reports: signature `SMRD2J34ZXU2A55I`, 143 claims across 42 consoles as
+      of 22/09, the #1 crash by volume, still open. 0.1.10 already shipped
+      real eviction-and-retry machinery (PR #3, `fix/jit-eviction`) — but
+      both its trigger points were gated on `dyn86_jit_allocfail` alone, the
+      low-level arena allocator's own refusal counter, on the unstated
+      assumption that nothing else could reach the death branch. A qemu-arm
+      reproduction (`tools/qemu_jitfail_repro.sh`, driving the arena's own
+      `D2_JITFAILAFTER` fault-injection knob — the real pool ceiling in
+      `mman_vita.c` is Vita-only and unreachable under qemu) confirms that
+      assumption for the case tested: the allocator does refuse before
+      death, and eviction is genuinely working — tens of thousands of blocks
+      reclaimed — before eventually losing one race under artificial
+      pressure. Both trigger points are now ALSO armed directly by pool
+      occupancy (`dyn86_pool_near_full()`, >=95 %), independent of whether
+      the allocator's own counter ever moved, closing a second, silent path
+      to the same death. The retry budget (`DYN86_EV_ROUNDS` 8→24,
+      `DYN86_OOM_EXITS` 64→192) was raised as a low-risk bet — same locking,
+      same bounded retries, just more of them — not a proven fix: repeated
+      qemu runs at identical injection parameters showed >10x variance in
+      how long eviction ran before a death (cumulative rounds 69 to 728
+      across otherwise-identical runs), too noisy for one before/after run
+      to settle. Every death now dumps the full eviction ledger
+      unconditionally, labeled by which case fired, instead of the old
+      allocator-only-gated dump that stayed silent on exactly the case most
+      worth seeing — the next field report settles this directly. **Not
+      console-validated**: whether this actually stops the crash across real
+      20+ minute sessions is still open. If it does not, the remaining gap
+      is very likely the RAM budget entry above (2nd segment never
+      affordable) rather than eviction itself, since eviction is now
+      demonstrably working — just still bounded by how much the pool can
+      ever hold.
 - [ ] **`Crash.txt` reports a stack address where the game writes
       `_ReturnAddress()`**: all six `halt` reports received show it, on every
       build. The line number pushed as an immediate is correct, so only EAX
