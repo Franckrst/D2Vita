@@ -16,6 +16,13 @@ struct IoH {                        // per-handle state
     RaWin w[RA_WINMAX];             // read-ahead windows (LRU among them)
     uint32_t next=0;                // size of the next fill (adaptive)
     uint64_t lastUse=0;             // logical clock of the last read (LRU)
+    int err=0;                      // errno of the last REAL read failure, 0 = none.
+                                    // A short read that simply hit the end of the
+                                    // file leaves this at 0: end of file is not an
+                                    // error, and ReadFile must keep reporting it as
+                                    // success. Only a failed read sets it, and only
+                                    // then does ReadFile answer FALSE -- which is
+                                    // what lets Storm's own retry run.
 };
 
 extern bool g_ioStat;

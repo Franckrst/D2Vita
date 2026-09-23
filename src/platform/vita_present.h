@@ -28,6 +28,24 @@ void d2vita_present(const uint8_t* pixels, int w, int h, int bpp,
 // already-filled 960x544 buffer. Needed on the sceGxm path, where the GPU
 // wrote the frame and d2vita_present is never called (Glide emits no BitBlt).
 void d2vita_overlay(uint32_t* fb);
+// État du menu radial, pour que le chemin sceGxm le dessine SUR LE GPU au lieu
+// de le mélanger pixel par pixel dans la CDRAM (~81 ms par image, mesuré au
+// journal console). Renvoie null quand le menu est fermé. Il n'existe pas de
+// repli CPU (retiré à dessein — un repli qu'on ne maintient pas est un chemin
+// que personne ne teste) : sans le chemin GPU, Select n'ouvre pas le menu.
+namespace radial_menu { struct State; }
+const radial_menu::State* d2vita_radial_state();
+// Même raison, même mécanisme, pour le clavier virtuel : en dessous de 100 %
+// d'opacité, mélanger exige de RELIRE l'écran (~814 ns/pixel en CDRAM, la
+// même mesure que ci-dessus) — c'est pourquoi c'est le GPU qui compose
+// (vita_gxm.cpp), jamais le CPU. Contrairement au menu radial, le clavier
+// reste une fonctionnalité de base : à 100 % (par défaut du D2_KBALPHA) ou
+// si le chemin GPU n'est pas armé, il continue de se dessiner directement
+// (rapide : écriture seule, jamais de relecture). Renvoie null quand le
+// clavier est fermé.
+namespace d2kb { struct State; }
+const d2kb::State* d2vita_kb_state();
+int d2vita_kb_alpha();   // 0-100, résolu une fois (D2_KBALPHA, défaut 80)
 // Bake the runtime config (env + argv) before boot; returns the data dir.
 const char* d2vita_platform_init();
 // Append a milestone line to ux0:data/d2vita/boot_progress.txt (durable: the

@@ -87,12 +87,31 @@ sector is then selected, even if one had been hovered just before).
 This menu replaces the old dedicated shortcuts for each of these actions
 (character, skills, quests, automap, inventory): one gesture for all
 seven, instead of seven combinations to remember. The virtual keyboard is
-deliberately not included — used too often to justify going through a menu
-every time, it stays on its own dedicated gesture (L + D-pad right; R +
-Triangle in the legacy `scheme=mouse`, where it is skill 7 under the aim
-scheme).
+deliberately not included: it opens by itself whenever a text field takes
+focus, and otherwise keeps its own dedicated gesture — L + D-pad right under
+the aim scheme (skill 7 there), R + Triangle under the legacy `scheme=mouse`.
 
 ## Virtual keyboard (L + D-pad right)
+
+The keyboard **opens by itself** when a text field takes focus — character
+name, Battle.net account and password, game name and password. Closing stays
+manual (Select or the FERMER key — Start/Enter validates the field but
+leaves the keyboard open), and a closed keyboard does not reopen until
+another field takes focus (or the same one loses and regains it). L + D-pad
+right still opens it at any time under the aim scheme (R + Triangle under
+`scheme=mouse`). `D2_KBAUTO=0` in `ux0:data/d2vita/env.txt` turns
+the automatic opening off. The keyboard draws at 80% opacity by default — the
+character/menu stays faintly visible behind it — adjustable with
+`D2_KBALPHA=0-100` (100 = the old fully opaque look). Below 100, blending is
+done on the GPU (a separate textured layer, composed alongside the radial
+menu) whenever that path is armed; if it isn't, the keyboard falls back to
+drawing translucency on the CPU, which reads the screen to blend and costs
+noticeably more per frame — opaque (100) is always the fast path either way.
+The runtime reads the game's own "focused control"
+state to know this (read-only, the control's header only — never the text).
+Each transition is logged in `boot_progress.txt` as `clavier: focus champ ON`
+or `clavier: focus champ OFF` (capped at 64 lines per session). In-game chat
+is not covered yet (phase 2).
 
 | Input | Action |
 |---|---|
@@ -100,7 +119,7 @@ scheme).
 | Cross | Type the selected key |
 | Circle | Backspace |
 | Start | Enter |
-| Select (or the CLOSE key) | Close the keyboard |
+| Select (or the FERMER key) | Close the keyboard |
 | Touch tap on a key | Type it directly |
 
 The virtual keyboard's own rendering (font, layout) comes from the generic

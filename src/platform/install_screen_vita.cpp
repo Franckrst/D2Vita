@@ -65,7 +65,7 @@ void d2vita_show_missing_files_screen(const std::string& dir, const std::vector<
     frame(fb, kScrW, kScrH, panelX, panelY, panelW, panelH, rgb(0xC0, 0x40, 0x40));
 
     int y = panelY + 20, x = panelX + 24;
-    text(fb, kScrW, kScrH, "FICHIER(S) MANQUANT(S) / MISSING FILE(S)", x, y, 1, rgb(0xFF, 0xC0, 0x40)); y += 32;
+    text(fb, kScrW, kScrH, "FICHIER(S) MANQUANT(S) OU INVALIDE(S) / MISSING OR INVALID FILE(S)", x, y, 1, rgb(0xFF, 0xC0, 0x40)); y += 32;
     char hdr[160]; std::snprintf(hdr, sizeof hdr, "dans / in: %s", dir.c_str());
     text(fb, kScrW, kScrH, hdr, x, y, 1, rgb(0xA0, 0xD0, 0xFF)); y += 28;
 

@@ -30,7 +30,10 @@ in this repository); what follows is their synthesis.
 | CPU-side ring — host view + fast vertices | **+11.5%** (43.75 → 48.78 fps bench) | Console | Ring traversal ÷2.3. |
 | Hoisting TLS resolution out of `CpuBox86::run()` | **+3.03%** at the menu bench, **+8.6%** in real online play | Console (interleaved A/B/A/B + guard rail: guest work identical within 0.1%) | The gain tracks GIL-take density (190/frame at the menu vs. 2880/frame in play) — a percentage measured at the menu must never be published as an in-game gain. |
 | Trap entry/exit batching (`trap_retaddr`+`trap_epilogue`, commit `e13edbd`) | **+13.2%** as announced in the commit | Commit-time figure, cited as-is in a later fix — no dedicated campaign document found for this exact number, take it with that caveat. | Already in place today (not an optional knob). |
-| `NATIVELIGHTMAP` (dynamic light placement) | **−21%** on the light pass (1.20 → 0.95ms/frame), i.e. **−2.6%** of total drawing | qemu (cross-checked oracle `D2_LIGHTMAPVERIFY`, 51,200 placements, 0 fallback, 0 divergence) — **console verdict not taken** | Never measured on console. |
+| `NATIVELIGHTMAP` (dynamic light placement) | **−21%** on the light pass (1.20 → 0.95ms/frame), i.e. **−2.6%** of total drawing | qemu (cross-checked oracle `D2_LIGHTMAPVERIFY`, 51,200 placements, 0 fallback, 0 divergence) | This isolated qemu figure predates console validation. Since 2026-09-22 it's shipped as part of the compiled-default group below — see that row for the console number; no isolated console figure exists for this lever alone. |
+| `D2_MEMINTRIN=3` (short copies emitted inline by the dynarec, no helper call) | **+4.6%** (21.93 vs 20.97 fps) | Console (`passe_barb.sh`, real player save) | Different mechanism from the large-transfer/helper path below (refuted): largest single-lever gain of the whole campaign. Arming proven on hardware (helper calls 24,250,123 → 4,248). Oracle `oracle_memintrin.sh` PASS, 4,816,757 calls cross-checked, 0 divergence. Compiled default since 2026-09-22. |
+| `D2_FLUSHFIL` (ring flush moved to a dedicated core) + `D2_TEXHASH` + `NATIVEDCC` + `NATIVELIGHTMAP` — 4 settings that had sat in `env_jeu.txt` since 06–13/09 but were missed when commit `fff1904` froze the other 22 as compiled defaults | **+11.7%** at the real 25Hz cap (20.97 → 23.43 fps) | Console (`passe_barb.sh`, 4 witness passes, 0.3% spread over 8h) | The game thread no longer touches the flush at all (`gxm-flush: total-us=3` vs 9,600). Moving ~12–13ms of *memory*-bound work off-core only recovers ~4.7ms of frame time (L2/bandwidth shared across cores) — don't size further work on the un-offloaded figure. |
+| All five settings above + `NATIVELIGHTOCC` (light-occlusion field that feeds `NATIVELIGHTMAP`, `Game+0x750f0`) — all six compiled defaults together | **+13.0%** at the real 25Hz cap (20.97 → 23.69 fps) | Console (same campaign) | 50–100ms frame bucket: 1,474 → 51 (÷29). 100–250ms bucket (the real 16-17fps drops): 41 → 28 (−32%) — moves *only* in this full combination; neither `D2_MEMINTRIN=3` nor the flush group alone touches it, because `NATIVELIGHTOCC` produces the field `NATIVELIGHTMAP` consumes. |
 | Cumulative, night of 04-05/09, uncapped bench | Control 22.5-23.1 → **28.1-28.6 fps** (+22%) | Console, interleaved campaign of 20 passes | Cumulative effect of several of the ports above. |
 | Cumulative GDI → asynchronous Glide | 22.5 → **55.7 fps** (+96%) bench; **25 steps/s + 60 fps** smoothed in real play | Console | Cumulative effect of moving to the asynchronous GPU rendering path (ring + async submission). |
 
@@ -38,7 +41,7 @@ in this repository); what follows is their synthesis.
 
 | Port | Result | Level | Why it's instructive |
 |---|---|---|---|
-| `D2_MEMINTRIN` (native memcpy/memset) | Mechanism proven correct (4.4M calls, 0 divergence) but **0%** on console | Console | The guest CRT already vectorizes its large transfers (NEON); the Glide path makes 90 calls/frame vs. ~1,100 under GDI — the lever had disappeared with the renderer change. |
+| `D2_MEMINTRIN=1` (native memcpy/memset served via a helper call, large transfers) | Mechanism proven correct (4.4M calls, 0 divergence) but **0%** on console | Console | The guest CRT already vectorizes its large transfers (NEON); the Glide path makes 90 calls/frame vs. ~1,100 under GDI — the lever had disappeared with the renderer change. Still true for this specific path; `D2_MEMINTRIN=3` (short copies, inline, no helper) is a different mechanism — see the confirmed-gains table, now the compiled default. |
 | `D2_FORWARD` | **Inert** (+0.6% = noise) | Console | "Shorter blocks" hypothesis never actually tested. |
 | `D2_NOPEND` (lever L4) | **Refuted**, ceiling 0.002% | Console | The original document targeted the wrong code site (0 real calls instead of the assumed site). |
 | Offloading RLE to a dedicated thread | **FAIL** on three modes; the mode that passed three days earlier **no longer passes** | qemu (oracle) | "Prove the oracle before concluding" — the founding PASS had never been replayed since. |
@@ -98,3 +101,11 @@ D2_SON=1
 this block is a copy, not the other way around. `D2_NOCAP` is deliberately
 not in it — it's a bench tool that disengages the game's internal frame
 limiters, not a setting to keep for real play.)
+
+`D2WRITE` names the directory the game writes into — saves, `crash.log`,
+D2's own daily log. Up to 0.1.6 a directory named here was **not** created
+on the console: every write then failed, and the game's C runtime killed
+the process about 11 s into the session, with no message pointing at the
+directory. Since 0.1.7 the boot creates the named root (and its `Save`
+subfolder), probes that it is writable, and falls back to
+`ux0:data/d2vita/save` with a line in `boot_progress.txt` when it is not.

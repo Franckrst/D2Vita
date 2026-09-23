@@ -18,7 +18,7 @@ ux0:data/d2vita/1.14d/
 ├── Game.exe
 ├── d2data.mpq      (requis)
 ├── d2exp.mpq       (requis, extension LoD)
-├── patch_d2.mpq    (recommandé — patch 1.14d)
+├── patch_d2.mpq    (requis — patch 1.14d)
 ├── d2char.mpq
 ├── d2sfx.mpq
 ├── d2music.mpq
@@ -112,6 +112,26 @@ Battle.net officiel, qui est le comportement par défaut. C'est un choix de
 politique réseau, pas un levier de perf, donc il ne fait pas partie de la
 config ci-dessus — ajoute-le toi-même dans `env.txt` si tu le veux. Détails :
 [Jouer en ligne](en-ligne.md).
+
+### L'image
+
+Rien à régler : une fois en partie, le jeu dessine lui-même au 960×544 de
+l'écran, un texel par pixel. Les réglages ne servent qu'à défaire ça.
+`D2_RES=0` remet le jeu à son 800×600 (donc les bandes latérales
+reviennent) ; `D2_RES=1280x720` force une autre taille. `D2_ASPECT=etire`
+étire les menus sur toute la largeur au lieu de les border — l'art des
+menus est en taille fixe, il n'est jamais redessiné en 960×544.
+`D2_HUDFILL=0` empêche le bandeau d'interface de combler les deux trous que
+son art de 800 px laisse sur un écran de 960, et empêche aussi de combler
+avec la pierre du cadre la colonne noire entre deux panneaux ouverts
+(personnage + inventaire ou arbre). `D2_RES_PANNEAUX=centre` centre la
+disposition 800 d'un bloc au lieu de coller les panneaux aux bords (ils se
+touchent alors, avec une bande de pierre de 80 px de chaque côté) ;
+`D2_RES_PANNEAUX=0` laisse au jeu ses tables d'inventaire et son cadre
+(objets, clics et cadre alors décalés par rapport aux panneaux).
+
+Le champ de vision élargi qu'offre une résolution native est un avantage en
+jeu : à réserver au solo et aux serveurs privés.
 
 ## Vérifier l'installation
 

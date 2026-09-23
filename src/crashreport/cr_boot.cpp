@@ -325,9 +325,18 @@ void d2cr_boot_collect() {
     // D2WRITE read here reflects the compile-time-flavor baked default
     // (d2_boot_config.cpp sets it unconditionally before this point); env.txt
     // is parsed by d2vita_platform_init() AFTER the rotation this function
-    // must run before, so an env.txt override of D2WRITE specifically (not
-    // used anywhere in this repo's own env.txt today) would leave this field
-    // stale for THIS session's own record — a known, accepted gap.
+    // must run before. That gap is no longer accepted: d2_boot_config.cpp
+    // calls d2cr_session_write_root() as soon as the effective root is known,
+    // and the record is rewritten then.
+    //
+    // It was not theoretical. docs-site/gains.md tells players to set
+    // D2WRITE=ux0:data/d2vita/save2; the session record kept the baked root,
+    // so the NEXT boot's evidence collector read crash.log and Crash.txt from
+    // a directory the game had not written to — and uploaded a crash.log left
+    // by some earlier, unrelated run. Two 0.1.6 reports were served that way
+    // (their crash.log describes a different session than their own
+    // boot_progress.txt), and any Crash.txt written to the real root was
+    // missed entirely.
     if (const char* w = getenv("D2WRITE")) g_cur_session.write_root = w;
     g_cur_session.progress_path = D2VITA_PROGRESS_PATH;
     g_cur_session.state = "running";
@@ -441,6 +450,13 @@ void d2cr_after_present() {
 void d2cr_session_game_loaded(uint32_t game_base) {
     if (!g_collecting) return;
     g_cur_session.game_base = game_base;
+    save_cur_session();
+}
+
+void d2cr_session_write_root(const char* root) {
+    if (!g_collecting || !root || !*root) return;
+    if (g_cur_session.write_root == root) return;      // baked root confirmed, nothing to rewrite
+    g_cur_session.write_root = root;
     save_cur_session();
 }
 

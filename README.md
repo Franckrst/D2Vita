@@ -110,7 +110,7 @@ On Vita, the boot diagnostic screen tells you what is missing from `ux0:data/d2v
 | Right stick | Free mouse, no click |
 | Touch screen | Absolute cursor; short tap = left click |
 | L (held) | Left click |
-| R (held) | Right click (also a combo layer: R+Triangle = virtual keyboard, R+D-pad = F1-F4, R+Select = Space) |
+| R (held) | Right click (also a combo layer: R+Triangle = virtual keyboard — also opens by itself on text fields — R+D-pad = F1-F4, R+Select = Space) |
 | Cross | R — toggle walk/run |
 | Circle | Shift (held) — attack in place |
 | Square (held) | Alt — show items on the ground |

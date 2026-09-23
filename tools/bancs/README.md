@@ -102,6 +102,14 @@ texture fausse ») : une jambe chiffrée sans capture vérifiée à l'œil ne va
 
 Les deux sont sans `D2SCRIPT` (jeu libre) ; `MAXFRAMES` absent.
 
+**Route « panneaux »** (`d2script_camp_panneaux.txt`) : même entrée en partie que la
+patrouille, puis `3600:chr:27` — les cinq `Enter` de l'entrée laissent la boîte de chat
+ouverte et, tant qu'elle l'est, aucune touche-lettre injectée n'agit ; seul le WM_CHAR
+Échap (`chr:27`) la ferme — puis `key:73`/`key:84`/`key:67` (I, T, C) et `snap`. Sous Glide
+`snap` déclenche aussi la capture GPU (`shot_<image>.bmp`, 960×544, 1:1) ; sous GDI il
+vide le DIB, mais le chemin GDI ne redimensionne pas son DIB : à 960 l'image est
+cisaillée, la référence exacte GDI n'est valable qu'avec `D2_RES=0`.
+
 ## 5. Agrégation — `agg_gxm.py`, `agg_natif.py`
 
 ```

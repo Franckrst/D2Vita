@@ -27,6 +27,7 @@
 #include "runtime/phase_hooks.h"    // phase hooks
 #include "runtime/native_hooks_codec.h"  // codec/DCC/Fog-raise hooks
 #include "runtime/native_hooks_cellengine.h"  // cell-loop/light-grid/blend/RLE/collision hooks
+#include "runtime/native_hooks_resolution.h"  // resolution de jeu native (D2_RES)
 #include "runtime/guest_atomics.h"           // atomics over guest memory -> winx86
 #include "runtime/guest_thread_ctx.h"        // current-thread TIB + last error -> winx86
 #include "runtime/guest_sync.h"              // kernel objects + handle table + observer -> winx86
@@ -174,54 +175,70 @@ static void apply_compact_layout(){
     const char* l=getenv("D2LAYOUT");
     if(!l||(std::strcmp(l,"compact")&&std::strcmp(l,"haut"))) return;
     // HARDWARE-FIT PACK, 1.14d calibration: sizes derive from the measured 1.14d
-    // Rogue profile (heap peak 15.6 MiB, VA peak 200.2 MiB, monolith Game.exe
-    // image 5.9 MiB — relocatable, loads in the module window; misc < 2 MiB),
-    // trimmed to that observed usage plus headroom (not a leak — the working
-    // set here is stable). Total span 0x10F00000 = 271 MiB; D2ARENA =
-    // 0x12900000 (297 MiB incl. the 16 MiB membase-rounding slack) — inside the
-    // ~330 MiB real-Vita user budget (ATTRIBUTE2=12). The span above VA
-    // (stacks/TIBs/trap window/D2ARENA) is byte-identical regardless of these sizes.
-    // Heap grown 20 -> ~24.9 MiB by reclaiming the low slack that sat under it
-    // (base was 0x00500000; that ~5 MiB gap below the heap served only as a
-    // null-deref guard). The heap ENDS at the module base (bridge next_base_ =
-    // HI+0x01900000 = 25 MiB from 0), so Game.exe and every region above it are
-    // byte-for-byte unmoved -- only the floor drops. 25 MiB is therefore the
-    // HARD ceiling for a heap that lives below Game.exe; a 124 KiB guard is kept
-    // under it (page 0 = main TIB, then unmapped up to HEAP_BASE), enough to
-    // still fault on a null pointer plus a normal struct offset. Motivated by a
-    // real 0.1.5 host_fault (report 01M2VHNS...) that struck right after
-    // "ALLOC FAIL region=heap" at the old 20 MiB ceiling -- the guest wanted
-    // ~24 MiB. The alloc-site log (see the fail handler) will show whether even
-    // this ceiling is hit; if so the next step is moving the module base up
-    // (which shifts the whole pack -- see bridge.cpp's synced constants).
-    HEAP_BASE=0x00020000; HEAP_SIZE=0x018E0000;   // 25472 Kio -> ends 0x01900000 (= bridge next_base_)
-    // modules (bridge) 0x01900000..0x02200000 (9 MiB reserved)
+    // Rogue profile (heap peak 15.6 MiB, monolith Game.exe image 5.9 MiB —
+    // relocatable, loads in the module window; misc < 2 MiB), trimmed to that
+    // observed usage plus headroom (not a leak — the working set here is
+    // stable). The VA figure this paragraph used to cite here is retired —
+    // see the note at VA_SIZE below. Total span 0x11300000 = 275 MiB;
+    // D2ARENA = 0x12300000 (291 MiB incl. the 16 MiB membase-rounding slack)
+    // — inside the ~330 MiB real-Vita user budget (ATTRIBUTE2=12); the bench
+    // scripts pass 0x12900000, which still covers this (smaller) span. The
+    // span above VA (stacks/TIBs/trap window/D2ARENA) is byte-identical
+    // regardless of these sizes.
+    // Heap history: 20 -> ~24.9 MiB by dropping the FLOOR to 0x00020000 (the old
+    // ~5 MiB null-guard slack; 124 KiB of guard is kept, still enough to fault
+    // on a null pointer plus a normal struct offset), then -> ~32.9 MiB by
+    // raising the CEILING: module base 0x01900000 -> 0x02100000, which shifts
+    // the whole pack above it up by 8 MiB.
+    // Why the ceiling and not the floor again: the region is first-fit, so the
+    // ordinary small-allocation churn fills it from the BOTTOM. Room added below
+    // is eaten by that churn before any big request arrives, while room added on
+    // top COALESCES with the free tail a big request actually lands in. On the
+    // issue #4 report (4269 KiB refused at used=17342 KiB) the floor-drop alone
+    // leaves a largest free block of ~4992 KiB — 723 KiB of margin over the
+    // request — where the ceiling-raise takes that block to ~11.2 MiB.
+    // Trigger: a Traditional Chinese install. The CJK glyph atlas is a single
+    // ~4.2 MB allocation where the Latin font is a few tens of KB, and it is
+    // built lazily at the first text draw — hence "boots fine, dies on any
+    // input". Refusing it hands D2 a null that resurfaces as the Codec
+    // "corrupted size" Halt 904, not as an allocation error.
+    // This pack is NOT free to grow: D2ARENA must cover the whole span
+    // (src/platform/d2_boot_config.cpp — kept in sync, 287 -> 295 MiB here)
+    // and the real-Vita user budget is ~330 MiB.
+    HEAP_BASE=0x00020000; HEAP_SIZE=0x020E0000;   // 33664 Kio -> ends 0x02100000 (= bridge next_base_)
+    // modules (bridge) 0x02100000..0x02A00000 (9 MiB reserved)
     // MISC window is 9 MiB: Game.exe alone needs 8 MiB, but d2vhost (2 MiB) and
     // CheckRevision.dll (0x4b000, loaded at Battle.net connect) also live here;
     // an undersized window lets CheckRevision.dll overlap MISC's callback stubs,
     // so the main thread jumps into DLL bytes and faults. The bound is also
     // enforced at the bridge (set_module_limit): overflow becomes a named
     // refusal, not a silent overwrite.
-    MISC_BASE=0x02200000; MISC_SIZE=0x00200000;   // 2 MiB   -> ends 0x02400000 (= VA_BASE)
+    MISC_BASE=0x02A00000; MISC_SIZE=0x00200000;   // 2 MiB   -> ends 0x02C00000 (= VA_BASE)
     // VirtualAlloc arena: Storm's MPQ decompressor (SCOMP) grows a doubling
-    // working buffer during level load; the 1.14d Rogue Encampment run peaks
-    // at 200.2 MiB of VA (measured, soak). 216 MiB leaves ~16 MiB
-    // anti-fragmentation headroom. Undersizing makes SCOMP hit "error 8" and
-    // the Storm I/O worker dies through a smashed frame (deterministic VA
-    // exhaustion). Later acts may peak higher — re-measure past Act 1.
-    // membase must be 16 MiB aligned, but the kernel only returns bases aligned
-    // to 1 MiB — up to 15 MiB can be lost to alignment slop with no way to
-    // reclaim it (observed anywhere from 3 to 13 MiB between runs). The guest VA
-    // extent is the only knob available to compensate.
-    // Without this headroom the JIT cache cannot grow; since this build has no
+    // working buffer during level load. 2026-09-23: retired the old sizing
+    // rationale here (it cited a 200.2 MiB "measured" peak and a specific
+    // alignment-slop budget) -- that peak dates from a since-fixed texture
+    // compression/splitting bug and does not describe current consumption.
+    // No replacement peak is known yet: the actual high-water mark needs a
+    // fresh soak on this build (dyn86_jitpool's sibling gauge, `va=%u/%uMB`,
+    // has been on the console `alive:`/qemu `frames:` lines since 0.1.10 --
+    // see d2rt_va_peak_mb(), tools/rt_boot.cpp). Shrunk 220->216 MiB (-4 MiB)
+    // to hand that room to the JIT pool (custommem.c/mman_vita.c), which is
+    // short by ~2-4 MiB per two independent estimates (Game.exe .text size *
+    // measured ARM expansion; the 0.1.6 field growth-curve). Undersizing
+    // makes SCOMP hit "error 8" and the Storm I/O worker die through a
+    // smashed frame (deterministic VA exhaustion) -- watch `va=` on the next
+    // real session, this has not been soak-tested past a short qemu run.
+    // Without headroom the JIT cache cannot grow; since this build has no
     // interpreter fallback (shim_impl.c: Run() sets quit=1), a refused block
-    // kills the guest thread outright — this is not a soft degradation.
-    // ⚠️ The same constants exist in src/runtime/bridge.cpp (stack_base_,
-    // trap_base_, trap_hi_) — the two files must be kept in sync.
-    VA_BASE  =0x02400000; VA_SIZE  =0x0DC00000;   // 220 MiB -> ends 0x10000000 (= bridge stack_base_)
-    // main guest stack 0x10000000..0x10200000 (2 MiB, bridge stack_base_)
-    MAIN_STACK_TOP=0x10200000;
-    SCHED_STACKS=0x10200000; SCHED_TIBS=0x10C00000;   // worker stacks/TIBs, below the 0x10E00000 trap window
+    // kills the guest thread outright -- this is not a soft degradation.
+    // The bridge holds its own copy of the module/stack/trap bases; they are no
+    // longer allowed to drift, they are pushed to it from here (see the
+    // D2_MODBASE/D2_STACKBASE/D2_TRAPBASE block after the HIGH-layout shift).
+    VA_BASE  =0x02C00000; VA_SIZE  =0x0D800000;   // 216 MiB -> ends 0x10400000 (= bridge stack_base_)
+    // main guest stack 0x10400000..0x10600000 (2 MiB, bridge stack_base_)
+    MAIN_STACK_TOP=0x10600000;
+    SCHED_STACKS=0x10600000; SCHED_TIBS=0x11000000;   // worker stacks/TIBs, below the 0x11200000 trap window
     // ---- HIGH layout (D2LAYOUT=haut): the same pack, shifted above 0x80000000,
     // membase=0. This is the byte-identical model run under qemu to validate
     // the Vita layout (src/runtime/layout.h); offset 0 for "compact" makes the
@@ -231,6 +248,19 @@ static void apply_compact_layout(){
         SCHED_STACKS+=HI; SCHED_TIBS+=HI;
         MAIN_TIB=HI;                  // first page of the block: the main TIB
     }
+    // Push the three bases the bridge keeps on its side (module/stack/trap) so
+    // this function stays the ONE place the pack is described. They used to be
+    // a hand-kept copy in bridge.cpp, which is shared with other ports (carn-
+    // vita) and must not be repointed at Diablo II's pack; the engine already
+    // exposes them as named overrides, applied after its own presets, so the
+    // sync costs nothing here and cannot silently drift. Bridge construction
+    // reads these (main() calls us well before it). Not overwritten: an explicit
+    // D2_MODBASE/D2_STACKBASE/D2_TRAPBASE from the caller still wins.
+    // trap_hi_ and the sentinel are re-derived by the bridge from trap_base_.
+    { const uint32_t HI=d2rt::layout_hi(); char b[16];
+      std::snprintf(b,sizeof b,"%08x",HI+0x02100000u); setenv("D2_MODBASE",  b,0);
+      std::snprintf(b,sizeof b,"%08x",HI+0x10400000u); setenv("D2_STACKBASE",b,0);
+      std::snprintf(b,sizeof b,"%08x",HI+0x11200000u); setenv("D2_TRAPBASE", b,0); }
     // The engine owns current-TIB logic; this port only supplies where its
     // memory layout places the main TIB. Set here as soon as the layout is
     // fixed, before any shim runs.
@@ -238,7 +268,7 @@ static void apply_compact_layout(){
     // (the guest scratch allocator is armed later, at the mapping site, once
     // MISC_BASE/MISC_SIZE are final)
     // Compact REQUIRES the relocatable main exe. The pack above reserves the
-    // module window at 0x01900000 for it and starts the heap at HEAP_BASE
+    // module window at 0x02100000 for it and starts the heap at HEAP_BASE
     // (0x00020000). A non-relocated exe at its preferred base 0x00400000 (5.9 MiB
     // image, ending ~0x009E0000) OVERLAPS that heap — heap allocations then
     // trample the exe's .data, corrupting an init sync flag and DEADLOCKING the
@@ -325,6 +355,19 @@ wx86::GuestRegion g_heapA, g_vaA;   // extern: see rt_host.h (for kernel32_filem
 // VA-arena occupancy for the Vita watchdog's "alive" heartbeat — a growth curve
 // that never comes back down across a session is the signature of a leak.
 extern "C" uint32_t d2rt_va_used_mb(void){ return g_vaA.used_bytes()>>20; }
+// POINT HAUT de la fenetre VirtualAlloc. La jauge d'a cote est l'usage
+// COURANT, releve toutes les 10 s par le chien de garde : elle rate par
+// construction les pointes, et les pointes de cette fenetre-la sont
+// exactement ce qui decide de sa taille — le tampon que SCOMP double
+// pendant un chargement de niveau vit quelques secondes. GuestRegion tient
+// deja ce point haut (peak_, mis a jour a chaque alloc) ; il n'etait
+// publie nulle part, si bien que le seul chiffre connu, 200,2 Mio, venait
+// d'un soak sur l'acte I et n'a jamais ete confirme au-dela.
+// La vue complete des deux regions (cur/peak/largest-free) existe deja dans
+// la ligne [ALLOC] plus bas — mais elle n'est imprimee QU'AU HALT, donc
+// seulement quand la fenetre a deja casse. Une decision de dimensionnement a
+// besoin du contraire : de combien les sessions qui TIENNENT sont passees pres.
+extern "C" uint32_t d2rt_va_peak_mb(void){ return g_vaA.peak()>>20; }
 // Counters for the native ports, exposed to the Vita watchdog: on console
 // there is no stdout, so the "alive" line from boot_progress is the only
 // channel — without them there is no way to tell whether the native ports ran at all.
@@ -2094,24 +2137,88 @@ int main(int argc,char**argv){
     // own guest code stumbles on it, deep into boot, with no message either
     // (do_create_file's read-miss is silent by default). Check the whole
     // required set HERE, once, so boot_progress.txt always names precisely
-    // what's absent and exactly where it was expected -- patch_d2.mpq is
-    // deliberately not in this list (recommended, not required; see
-    // docs-site/installation.md).
+    // what's absent and exactly where it was expected.
+    //
+    // patch_d2.mpq IS in this list, since 0.1.7. It used to be left out as
+    // "recommended, not required", and that cost us crash signature
+    // SROUUTFWJYFQOPOP (18 claims, 7 consoles, still live on 0.1.6): two of
+    // the 92 cels of the front-end dialog, ui\FrontEnd\TileableDialog.dc6
+    // among them, exist ONLY in patch_d2.mpq. Without it the archive open
+    // fails, D2Win_LoadCelFile hands back an uninitialised local, and the game
+    // halts in .\SRC\CelCmp.cpp:1521 on the way out of the front end -- with
+    // no message naming the missing file anywhere. "Recommended" was wrong:
+    // D2 does not degrade gracefully without it, so it is named here like any
+    // other required file.
     { static const char* kRequired[] = {
           "Game.exe","d2data.mpq","d2exp.mpq","d2char.mpq","d2sfx.mpq",
-          "d2music.mpq","d2speech.mpq","d2video.mpq",
+          "d2music.mpq","d2speech.mpq","d2video.mpq","patch_d2.mpq",
           "d2xmusic.mpq","d2xtalk.mpq","d2xvideo.mpq", nullptr };
+      // Leftovers of a pre-1.14 install: 1.14 folded these DLLs into Game.exe,
+      // so their presence means the folder is an older install (possibly
+      // patched over). NOT fatal -- the port bridges imports natively and does
+      // not load them -- but naming them in boot_progress.txt means a future
+      // crash report states the install's shape instead of leaving us to infer
+      // it from MPQ table geometry, which is what we had to do for signature
+      // SNALU33A2TNV5UYB and still could not settle.
+      static const char* kPre114[] = {
+          "Fog.dll","Storm.dll","D2Client.dll","D2Common.dll","D2Win.dll",
+          "D2gfx.dll","D2Lang.dll","D2sound.dll","Bnclient.dll", nullptr };
+      // One directory scan, reused by every check below. It also makes the
+      // lookup CASE-INSENSITIVE, which the old ::stat() was not: the game
+      // resolves its own opens through host_path() (case-insensitive), so a
+      // card holding D2DATA.MPQ used to be declared MANQUANT by a preflight
+      // that the game itself would then sail past.
+      std::map<std::string,std::pair<std::string,long>> present;   // lowercase -> (real name, size)
+      if(DIR* d=::opendir(vdir)){
+          while(struct dirent* e=::readdir(d)){
+              std::string nm=e->d_name; if(nm=="."||nm=="..") continue;
+              std::string lo=nm; for(char& ch:lo) ch=(char)std::tolower((unsigned char)ch);
+              struct stat st{}; long rc=::stat((std::string(vdir)+"/"+nm).c_str(),&st);
+              present[lo]=std::make_pair(nm, rc==0? (long)st.st_size : -1L); }
+          ::closedir(d); }
+      // An MPQ that exists but is truncated or is not an MPQ at all passes a
+      // size!=0 test and then fails much later, inside the guest, with no
+      // message. Validate the header geometry: magic, and both tables landing
+      // inside the file. Cheap (32 bytes read per archive) and it names the
+      // file instead of leaving the player with a halt.
+      auto mpq_bad=[&](const std::string& path, long size, std::string& why)->bool{
+          FILE* f=std::fopen(path.c_str(),"rb"); if(!f){ why="illisible"; return true; }
+          unsigned char h[32]; size_t got=std::fread(h,1,sizeof h,f); std::fclose(f);
+          if(got<sizeof h){ why="tronque (moins de 32 octets)"; return true; }
+          auto u16=[&](int o){ return (uint32_t)h[o] | ((uint32_t)h[o+1]<<8); };
+          auto u32=[&](int o){ return (uint32_t)h[o] | ((uint32_t)h[o+1]<<8) |
+                                      ((uint32_t)h[o+2]<<16) | ((uint32_t)h[o+3]<<24); };
+          if(h[0]!='M'||h[1]!='P'||h[2]!='Q'){ why="signature MPQ absente"; return true; }
+          if(h[3]==0x1b) return false;            // user-data header: real header is elsewhere, don't judge
+          if(h[3]!=0x1a){ why="signature MPQ absente"; return true; }
+          if(u16(12)>1) return false;             // format 2+: 64-bit table offsets, not checked here
+          const uint64_t hpos=u32(16), bpos=u32(20), hn=u32(24), bn=u32(28);
+          if(hpos + hn*16ull > (uint64_t)size){ why="table de hash hors fichier (archive tronquee)"; return true; }
+          if(bpos + bn*16ull > (uint64_t)size){ why="table de blocs hors fichier (archive tronquee)"; return true; }
+          return false; };
       int nmiss=0; std::vector<std::string> missingNames;
       for(const char** f=kRequired; *f; ++f){
-          std::string p=std::string(vdir)+"/"+*f;
-          struct stat st{};   // zero-initialized: a stat() that fails without
-                              // touching st must not leave st_size looking
-                              // like a plausible (nonzero) size by accident.
-          long rc=::stat(p.c_str(),&st);
-          if(rc!=0 || st.st_size==0){
-              char m[192]; std::snprintf(m,sizeof m,"install: MANQUANT %s (attendu: %s)",*f,p.c_str());
-              d2vita_progress(m); std::printf("[%s]\n",m); ++nmiss; missingNames.push_back(*f); } }
-      if(nmiss){ char m[96]; std::snprintf(m,sizeof m,"install: %d fichier(s) manquant(s) -- voir ci-dessus",nmiss);
+          std::string lo=*f; for(char& ch:lo) ch=(char)std::tolower((unsigned char)ch);
+          auto it=present.find(lo);
+          if(it==present.end() || it->second.second<=0){
+              char m[192]; std::snprintf(m,sizeof m,"install: MANQUANT %s (attendu: %s/%s)",*f,vdir,*f);
+              d2vita_progress(m); std::printf("[%s]\n",m); ++nmiss; missingNames.push_back(*f); continue; }
+          if(lo.size()>4 && lo.compare(lo.size()-4,4,".mpq")==0){
+              std::string why;
+              if(mpq_bad(std::string(vdir)+"/"+it->second.first, it->second.second, why)){
+                  char m[224]; std::snprintf(m,sizeof m,"install: INVALIDE %s — %s (%ld octets)",
+                                             it->second.first.c_str(), why.c_str(), it->second.second);
+                  d2vita_progress(m); std::printf("[%s]\n",m); ++nmiss;
+                  missingNames.push_back(std::string(*f)+" (invalide)"); } } }
+      { std::string old; int nold=0;
+        for(const char** f=kPre114; *f; ++f){
+            std::string lo=*f; for(char& ch:lo) ch=(char)std::tolower((unsigned char)ch);
+            if(present.count(lo)){ if(nold++) old+=","; old+=*f; } }
+        if(nold){ char m[224]; std::snprintf(m,sizeof m,
+              "install: %d DLL d'avant 1.14 presentes (%s) — non chargees, installation anterieure a 1.14",
+              nold, old.c_str());
+            d2vita_progress(m); std::printf("[%s]\n",m); } }
+      if(nmiss){ char m[96]; std::snprintf(m,sizeof m,"install: %d fichier(s) manquant(s) ou invalide(s) -- voir ci-dessus",nmiss);
           d2vita_progress(m); std::printf("[%s]\n",m); std::fflush(stdout);
           // Real on-screen message, not just a log line a player has to know
           // to go find: shown BEFORE Game.exe is even opened, using the same
@@ -2485,8 +2592,8 @@ int main(int argc,char**argv){
     // write into nothing. The probe stays WORD FOR WORD the same for
     // "compact"; it is simply skipped under the HIGH layout.
     if(getenv("D2LAYOUT") && !d2rt::layout_hi()){
-        static const uint32_t rungs[]={0x01000000,0x0F000000,0x10000000,0x10800000,
-                                       0x10BF0000,0x11000000,0x11400000,0x118FF000};
+        static const uint32_t rungs[]={0x01000000,0x0F000000,0x10000000,0x10400000,
+                                       0x107F0000,0x10C00000,0x11000000,0x114FF000};
         for(uint32_t a:rungs){ uint32_t v=0xD2A0BEEF; cpu->write(a,&v,4);
             char m[64]; std::snprintf(m,sizeof m,"arena probe ok: 0x%08x",a);
             d2vita_progress(m); }
@@ -3265,6 +3372,19 @@ int main(int argc,char**argv){
     wx86_set_cursor(400,300);
     win32_shims_gdi32_install(br);
     win32_shims_window_install(br);
+    // DIAG (D2_TRACE_CLIC) : PtInRect trace — D2Win teste chaque controle
+    // avec lui au clic ; on voit donc les rectangles des boutons.
+    if(getenv("D2_TRACE_CLIC")){
+        Shim s; s.argc=3; s.stdcall_cleanup=true; s.tag="USER32.dll!PtInRect(trace)";
+        s.fn=[](Cpu&c)->uint32_t{ uint32_t r=c.arg(0); if(!r) return 0u;
+            int32_t l=(int32_t)c.read_u32(r),t=(int32_t)c.read_u32(r+4),
+                    ri=(int32_t)c.read_u32(r+8),b=(int32_t)c.read_u32(r+12),
+                    x=(int32_t)c.arg(1),y=(int32_t)c.arg(2);
+            uint32_t ok=(x>=l&&x<ri&&y>=t&&y<b)?1u:0u;
+            static int n=0; if(n<4000){ ++n; std::printf("  [ptin] rect=(%d,%d)-(%d,%d) pt=(%d,%d) -> %u  ret=%08x\n",l,t,ri,b,x,y,ok,c.read_u32(c.reg(R_ESP))); }
+            return ok; };
+        br.register_shim("USER32.dll","PtInRect",s);
+    }
     // GDI32 basics (window-class brushes, DC caps, gamma).
     auto GD=[&](const char* name,uint32_t ac,std::function<uint32_t(Cpu&)> fn){
         std::string tag=std::string("GDI32.dll!")+name;
@@ -3836,6 +3956,11 @@ int main(int argc,char**argv){
     native_hooks_cellengine_install_rest(cpu,br);
 
     native_hooks_codec_install_post(cpu,br,&g_frame);
+
+    // Resolution de jeu native (D2_RES=960x544). ABSENT PAR DEFAUT. Pose en
+    // DERNIER : ses quatre crochets sont independants des autres, et ca rend
+    // le recensement d'alternates ci-dessous lisible.
+    native_hooks_resolution_install(cpu,br);
 
     // ALTERNATES CENSUS. The dynarec's redirect table (the primitive all our
     // native ports hook through) has no bound anymore, but a LOST counter
@@ -5389,17 +5514,33 @@ int main(int argc,char**argv){
                     (unsigned long long)d2_proj_ver_skip);
                 std::printf("  %s\n",m); d2vita_progress(m);
             }
-            if(dyn86_mi_cpy_calls||dyn86_mi_set_calls){
+            // `appels` is served+fb: a dedicated counter used to cost a
+            // 64-bit read-modify-write per call for a number that is the sum
+            // of two others (dyn86_memintrin.h).
+            { const unsigned long long miCpyN = dyn86_mi_cpy_served + dyn86_mi_cpy_fb;
+              const unsigned long long miSetN = dyn86_mi_set_served + dyn86_mi_set_fb;
+            if(miCpyN||miSetN||dyn86_mi_fast_blocks){
                 char m[320]; std::snprintf(m,sizeof m,
                         "[memintrin] memcpy: appels=%llu servis=%llu replis=%llu octets=%llu | memset: appels=%llu servis=%llu replis=%llu octets=%llu | rejets arene=%llu taille=%llu | oracle: compares=%llu divergences=%llu sautes=%llu",
-                        (unsigned long long)dyn86_mi_cpy_calls,(unsigned long long)dyn86_mi_cpy_served,
+                        miCpyN,(unsigned long long)dyn86_mi_cpy_served,
                         (unsigned long long)dyn86_mi_cpy_fb,(unsigned long long)dyn86_mi_cpy_bytes,
-                        (unsigned long long)dyn86_mi_set_calls,(unsigned long long)dyn86_mi_set_served,
+                        miSetN,(unsigned long long)dyn86_mi_set_served,
                         (unsigned long long)dyn86_mi_set_fb,(unsigned long long)dyn86_mi_set_bytes,
                         (unsigned long long)dyn86_mi_rej[0],(unsigned long long)dyn86_mi_rej[1],
                         (unsigned long long)dyn86_mi_ver_n,(unsigned long long)dyn86_mi_ver_bad,
                         (unsigned long long)dyn86_mi_ver_skip);
                 std::printf("  %s\n",m); d2vita_progress(m);
+                // INLINE SHORT PATH (D2_MEMINTRIN=3): those calls never reach
+                // the helper, so they appear NOWHERE in the line above. What
+                // proves they were served is the collapse of `appels` plus
+                // this line: sequences emitted, and the oracle of the inline
+                // path when it is armed.
+                if(dyn86_mi_fast_blocks){
+                    char f[200]; std::snprintf(f,sizeof f,
+                        "[memfast] sequences en ligne emises=%llu | oracle: compares=%llu divergences=%llu sautes=%llu",
+                        (unsigned long long)dyn86_mi_fast_blocks,(unsigned long long)dyn86_mi_fc_n,
+                        (unsigned long long)dyn86_mi_fc_bad,(unsigned long long)dyn86_mi_fc_skip);
+                    std::printf("  %s\n",f); d2vita_progress(f); }
                 // Distribution: the number that decides whether the port is
                 // worth anything (an 8-byte copy gains nothing, a 4 KiB one
                 // does).
@@ -5426,11 +5567,16 @@ int main(int argc,char**argv){
                     std::printf("  [memintrin] deja SSE2 cote invite (ds:%08x=%u) : memcpy %llu appels / %llu o | memset %llu appels / %llu o\n",
                         (unsigned)dyn86_mi_sse2_va, fl?(unsigned)*fl:0u,
                         (unsigned long long)dyn86_mi_cpy_sse[0],(unsigned long long)dyn86_mi_cpy_sse[1],
-                        (unsigned long long)dyn86_mi_set_sse[0],(unsigned long long)dyn86_mi_set_sse[1]); }} } }
+                        (unsigned long long)dyn86_mi_set_sse[0],(unsigned long long)dyn86_mi_set_sse[1]); }} } } }
             if(g_lbServed||g_lbRepli||g_lbVerifN){
                 char m[220]; std::snprintf(m,sizeof m,"[lightmap] natif: servis=%llu replis=%llu cases=%llu poses=%llu | oracle: compares=%llu divergences=%llu",
                         (unsigned long long)g_lbServed,(unsigned long long)g_lbRepli,(unsigned long long)g_lbCells,
                         (unsigned long long)g_lbSplats,(unsigned long long)g_lbVerifN,(unsigned long long)g_lbVerifBad);
+                std::printf("  %s\n",m); d2vita_progress(m); }
+            if(g_loServed||g_loRepli||g_loVerifN){
+                char m[240]; std::snprintf(m,sizeof m,"[lightocc] natif: servis=%llu replis=%llu cases=%llu pas=%llu | oracle: compares=%llu divergences=%llu",
+                        (unsigned long long)g_loServed,(unsigned long long)g_loRepli,(unsigned long long)g_loCells,
+                        (unsigned long long)g_loSteps,(unsigned long long)g_loVerifN,(unsigned long long)g_loVerifBad);
                 std::printf("  %s\n",m); d2vita_progress(m); }
             if(g_fbHashN) std::printf("  [fbhash] frames hachees=%llu  empreinte=0x%016llx\n",
                         (unsigned long long)g_fbHashN,(unsigned long long)g_fbHash);

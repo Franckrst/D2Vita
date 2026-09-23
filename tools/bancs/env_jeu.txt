@@ -28,11 +28,14 @@ D2_READAHEAD_JUMP=8
 D2_READAHEAD_WIN=8
 D2_READAHEAD_WINKB=32
 D2_READAHEAD_MAX=4096
-NATIVEDCC=1
+# NATIVEDCC=1  -> DEFAUT COMPILE depuis le 22/09, plus besoin ici
 D2_NETSLEEP=0
-D2_TEXHASH=1
-NATIVELIGHTMAP=1
-D2_FLUSHFIL=1
+# D2_TEXHASH=1  -> DEFAUT COMPILE depuis le 22/09, plus besoin ici
+# NATIVELIGHTMAP=1  -> DEFAUT COMPILE depuis le 22/09, plus besoin ici
+# D2_FLUSHFIL=1  -> DEFAUT COMPILE depuis le 22/09, plus besoin ici
 WX86_YIELD_US=20
 D2_GAMESLEEP=0
 D2_SON=1
+
+# Restent NON figes et donc absents du VPK publie (aucune mesure
+# individuelle a ce jour) : D2_FOGSLEEP=1 et WX86_YIELD_US=20.

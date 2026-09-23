@@ -5,10 +5,13 @@
 #include "platform/vita_gxm.h"
 #include "platform/vita_present.h"
 #include "platform/vita_gpumem.h"   // engine: console GPU memory
+#include "platform/radial_menu.h"   // incrustation GPU: atlas + quads du menu
+#include "platform/vita_kb.h"       // incrustation GPU du clavier: d2kb::draw dans une texture, pas la CDRAM
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 #include <psp2/gxm.h>
 #include <psp2/display.h>
 #include <psp2/types.h>
@@ -237,6 +240,26 @@ const char* kFragmentPalCg =
 "  return float4(rgb.x, rgb.y, rgb.z, uConst.w * uMode.z);\n"
 "}\n";
 
+// ---------------------------------------------------------------------------
+// INCRUSTATION RGBA (menu radial). Le pipeline du jeu est palettisé et tire
+// son alpha d'un uniforme ; une incrustation d'interface a besoin de l'alpha
+// DE SA TEXTURE, par pixel. D'où ce programme, le plus court du fichier : il
+// rend le texel tel quel, et c'est l'étage de mélange (kBlend[1], SRC_ALPHA /
+// ONE_MINUS_SRC_ALPHA) qui fait le reste, dans la mémoire de tuiles du GPU.
+//
+// vCol et vPal ne sont pas lus mais restent DÉCLARÉS : le programme de sommet
+// est partagé, et l'interface sommet -> fragment doit rester complète (même
+// raison que pour vPal dans kFragmentPalCg).
+const char* kFragmentRgbaCg =
+"float4 main(\n"
+"  float2 vTex : TEXCOORD0,\n"
+"  float4 vCol : COLOR0,\n"
+"  float  vPal : TEXCOORD1,\n"
+"  uniform sampler2D uPage : TEXUNIT0) : COLOR\n"
+"{\n"
+"  return tex2D(uPage, vTex);\n"
+"}\n";
+
 // ---- runtime Cg compilation + disk cache ------------------------------------
 // psp2cgc isn't free and isn't in the VitaSDK, so .gxp files can't be produced
 // on the host. The console's own compiler (libshacccg.suprx, module
@@ -377,6 +400,80 @@ const SceGxmProgram* get_shader(const char* name, const char* src, int profile, 
 bool g_knobRead = false, g_knob = false, g_ready = false, g_failed = false;
 int  g_gameW = 800, g_gameH = 600;
 
+// ---- PROJECTION FENÊTRE DE JEU -> ÉCRAN ------------------------------------
+// Il n'existe aucune image intermédiaire : les sprites sont rastérisés
+// directement dans le framebuffer, et cette projection seule décide de leur
+// forme.
+//   D2_ASPECT=4:3 (défaut) : échelle isotrope, image centrée, bandes sur les
+//     côtés. Ne sert que si le jeu ne dessine pas déjà à la taille de l'écran
+//     (voir native_hooks_resolution.h).
+//   D2_ASPECT=etire : l'ancien comportement, étirement non isotrope.
+//
+// Le sens inverse est STOCKÉ (g_projI*) au lieu d'être redivisé : en mode
+// étiré l'offset vaut 0, donc scr2gx() se réduit à `x * g_projIx`, exactement
+// l'ancien `x * kx`. (x*W)/S et x*(W/S) diffèrent sur 432 des 1506 abscisses
+// de l'écran — une réécriture « équivalente » aurait déplacé des sommets
+// d'interface sans que rien ne le signale.
+// Images où le budget de sommets a saturé : non nul = des lots du jeu perdus.
+unsigned long long g_vtxSat = 0;
+int   g_aspect  = 1;                      // 0 = étiré, 1 = isotrope
+float g_projSx  = 1.f, g_projSy = 1.f;    // pixels écran par pixel de jeu
+float g_projIx  = 1.f, g_projIy = 1.f;    // pixels de jeu par pixel écran (inverse)
+float g_projOx  = 0.f, g_projOy = 0.f;    // coin haut-gauche de l'image, en pixels écran
+
+// L'ENTRÉE (vita_present.cpp) doit convertir écran -> jeu exactement comme
+// ici, sinon le curseur tactile atterrit à côté dès qu'il y a des bandes.
+// On publie le sens INVERSE (pixels de jeu par pixel écran), celui dont
+// l'entrée a besoin.
+extern "C" { __attribute__((weak)) void d2vita_set_present_map(float ox, float oy, float ix, float iy); }
+
+void proj_update() {
+    if (g_aspect == 1) {
+        const float rx = (float)SCR_W / (float)g_gameW;
+        const float ry = (float)SCR_H / (float)g_gameH;
+        const float s  = rx < ry ? rx : ry;
+        g_projSx = g_projSy = s;
+        g_projIx = g_projIy = 1.f / s;
+        g_projOx = ((float)SCR_W - (float)g_gameW * s) * 0.5f;
+        g_projOy = ((float)SCR_H - (float)g_gameH * s) * 0.5f;
+    } else {
+        g_projSx = (float)SCR_W / (float)g_gameW;
+        g_projSy = (float)SCR_H / (float)g_gameH;
+        g_projIx = (float)g_gameW / (float)SCR_W;   // l'ancien kx, à l'identique
+        g_projIy = (float)g_gameH / (float)SCR_H;   // l'ancien ky
+        g_projOx = g_projOy = 0.f;
+    }
+    if (d2vita_set_present_map) d2vita_set_present_map(g_projOx, g_projOy, g_projIx, g_projIy);
+}
+
+// Inverse EXACTE de la projection : un pixel ÉCRAN -> l'espace fenêtre de jeu.
+// C'est ce que doivent utiliser toutes les incrustations construites en pixels
+// écran (menu radial, clavier) et le quad d'effacement, qui doit couvrir les
+// bandes sous peine de garder l'image précédente sur les côtés.
+// En mode "etire" l'offset est 0 et (x - 0.f) == x pour tout x fini : cette
+// seule expression redonne donc exactement l'ancien `x * kx`, sans branche.
+inline float scr2gx(float x) { return (x - g_projOx) * g_projIx; }
+inline float scr2gy(float y) { return (y - g_projOy) * g_projIy; }
+
+// ---- DÉCOUPE : la fenêtre de jeu, en pixels écran ---------------------------
+// D2 émet des tuiles qui DÉBORDENT de sa fenêtre et compte sur le
+// `grClipWindow` de Glide pour les couper ; ce port l'ignorait. Sans bandes ça
+// ne se voyait pas (le débord tombait hors écran), avec des bandes il atterrit
+// dedans et sa limite suit le réseau isométrique : dents de scie.
+// Sans bandes le rectangle vaut tout l'écran et l'appel est inopérant.
+struct ClipRect { unsigned x0, y0, x1, y1; };   // bornes INCLUSES, comme sceGxm
+ClipRect game_clip() {
+    float a = g_projOx, b = g_projOy;
+    float c = g_projOx + (float)g_gameW * g_projSx;
+    float d = g_projOy + (float)g_gameH * g_projSy;
+    if (a < 0.f) a = 0.f; if (b < 0.f) b = 0.f;
+    if (c > (float)SCR_W) c = (float)SCR_W;
+    if (d > (float)SCR_H) d = (float)SCR_H;
+    unsigned x1 = (unsigned)(c + 0.5f), y1 = (unsigned)(d + 0.5f);
+    if (x1 == 0u) x1 = 1u; if (y1 == 0u) y1 = 1u;
+    return ClipRect{ (unsigned)(a + 0.5f), (unsigned)(b + 0.5f), x1 - 1u, y1 - 1u };
+}
+
 // ---- PIPELINE KNOBS and GPU-COST VARIANT KNOBS -----------------------------
 // All default to the shipped behavior: with none set, nothing on the
 // measured console path changes by a single byte.
@@ -441,6 +538,23 @@ SceGxmShaderPatcherId g_vpId = nullptr, g_fpId = nullptr, g_fpFlatId = nullptr;
 SceGxmVertexProgram* g_vp = nullptr;
 SceGxmFragmentProgram* g_fp[4] = { nullptr, nullptr, nullptr, nullptr };
 SceGxmFragmentProgram* g_fpFlat[4] = { nullptr, nullptr, nullptr, nullptr };
+// Incrustation d'interface sur le GPU : un programme (mélange alpha seul) et
+// un atlas RGBA. g_uiOk ne passe à vrai que si TOUT est en place — un menu à
+// moitié armé dessinerait du noir sur le jeu.
+SceGxmFragmentProgram* g_fpUi = nullptr;
+SceGxmShaderPatcherId  g_fpUiId = 0;
+GpuBlock  g_uiTexBlk{};
+SceGxmTexture g_uiTex;
+bool g_uiOk = false;
+// Clavier virtuel translucide : MEME programme (g_fpUi lit deja l'alpha de sa
+// texture, exactement ce qu'il faut), mais son propre jeu de textures. Atlas
+// du menu = contenu STATIQUE, rempli une fois pour toutes ; le clavier change
+// a chaque frappe -- un tampon PAR IMAGE EN VOL (g_ring), jamais partage
+// entre deux images qui se chevauchent en vol, comme g_vtxBuf/g_palBlk.
+GpuBlock      g_kbTexBlk[MAXRING]{};
+SceGxmTexture g_kbTex[MAXRING];
+bool g_kbUiOk = false;
+int  g_kbTexW = 0, g_kbTexH = 0;   // dimensions reelles (LAY_FULL, couvre aussi LAY_SIMPLE, plus petite)
 bool g_flatOk = false;
 const SceGxmProgramParameter* g_pScale = nullptr;
 const SceGxmProgramParameter* g_pConst = nullptr;
@@ -696,6 +810,11 @@ bool d2gxm_knob() {
     return g_knob;
 }
 bool d2gxm_ready() { return g_ready; }
+// Armee seulement si la scene GXM tourne ET que le shader+atlas sont en place.
+bool d2gxm_ui_active() { return g_ready && g_uiOk; }
+// Meme regle pour le clavier virtuel translucide (tampons de texture, pas
+// atlas : voir g_kbUiOk plus haut).
+bool d2gxm_kb_active() { return g_ready && g_kbUiOk; }
 // The INPUT layer (vita_present.cpp, g_game_w/g_game_h) learns the game's
 // resolution via d2vita_present(), which is only called on the GDI path. In
 // Glide the game changes resolution via grSstWinOpen, so without this call
@@ -704,6 +823,7 @@ bool d2gxm_ready() { return g_ready; }
 extern "C" { __attribute__((weak)) void d2vita_set_game_size(int w, int h); }
 void d2gxm_set_window(int w, int h) {
     if (w > 0) g_gameW = w; if (h > 0) g_gameH = h;
+    proj_update();                     // les bandes changent avec la fenêtre
     if (d2vita_set_game_size && w > 0 && h > 0) d2vita_set_game_size(w, h);
 }
 
@@ -795,6 +915,20 @@ bool d2gxm_init(int gameW, int gameH) {
     // size they'd draw in the wrong place. They're disabled (and this is
     // logged) rather than smearing the image.
     g_overlayOk = (SCR_W == 960 && SCR_H == 544);
+    // Forme de l'image. Lu APRÈS D2_GXMRES : les bandes se calculent sur la
+    // taille de rendu effective, pas sur 960x544 supposés.
+    if (const char* a = getenv("D2_ASPECT")) {
+        if (!std::strcmp(a, "etire") || !std::strcmp(a, "stretch") || !std::strcmp(a, "0"))
+            g_aspect = 0;
+        else g_aspect = 1;
+    }
+    proj_update();
+    { char m[96]; std::snprintf(m, sizeof m, "gxm: aspect=%s image=%dx%d bandes=%d,%d",
+                                g_aspect ? "4:3" : "etire",
+                                (int)((float)g_gameW * g_projSx + 0.5f),
+                                (int)((float)g_gameH * g_projSy + 0.5f),
+                                (int)(g_projOx + 0.5f), (int)(g_projOy + 0.5f));
+      d2vita_progress(m); }
     if (d2gxm_async()) {
         // With 2 buffer sets, async costs almost exactly the same memory as
         // sync (one extra 16 KiB palette area), and already allows ONE frame
@@ -1149,6 +1283,80 @@ bool d2gxm_init(int gameW, int gameH) {
         }
     }
 
+    // ---- INCRUSTATION D'INTERFACE SUR LE GPU (menu radial) -----------------
+    // Son absence n'est PAS une erreur : sans .gxp (console sans libshacccg et
+    // VPK plus ancien), g_uiOk reste faux et le menu radial n'ouvre plus (pas
+    // de repli CPU — retiré à dessein, voir vita_present.h). Ce qui serait une
+    // faute, c'est de le laisser à moitié armé — d'où le ET final.
+    {
+        const SceGxmProgram* fui = get_shader("d2_ring_f_rgba", kFragmentRgbaCg, 1, 2);
+        bool ok = false;
+        if (fui) {
+            sceGxmShaderPatcherRegisterProgram(g_patcher, fui, &g_fpUiId);
+            ok = sceGxmShaderPatcherCreateFragmentProgram(g_patcher, g_fpUiId,
+                    SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4, SCE_GXM_MULTISAMPLE_NONE,
+                    &kBlend[1], vprog, &g_fpUi) >= 0;   // [1] = SRC_ALPHA / 1-SRC_ALPHA
+        }
+        if (ok) {
+            const uint32_t bytes = (uint32_t)radial_menu::RM_ATLAS_DIM
+                                 * radial_menu::RM_ATLAS_DIM * 4;
+            if (gpu_alloc_gpu(g_uiTexBlk, bytes, SCE_GXM_MEMORY_ATTRIB_READ, "d2gxm_ui")) {
+                radial_menu::fill_atlas((unsigned char*)g_uiTexBlk.p);
+                ok = sceGxmTextureInitLinear(&g_uiTex, g_uiTexBlk.p,
+                        SCE_GXM_TEXTURE_FORMAT_A8B8G8R8,
+                        (unsigned)radial_menu::RM_ATLAS_DIM,
+                        (unsigned)radial_menu::RM_ATLAS_DIM, 0) >= 0;
+                // POINT : filtrer changerait le rendu du menu en même temps
+                // qu'on change sa façon d'être dessiné, et on ne saurait plus
+                // à quoi attribuer une différence à l'écran.
+                sceGxmTextureSetMinFilter(&g_uiTex, SCE_GXM_TEXTURE_FILTER_POINT);
+                sceGxmTextureSetMagFilter(&g_uiTex, SCE_GXM_TEXTURE_FILTER_POINT);
+                sceGxmTextureSetUAddrMode(&g_uiTex, SCE_GXM_TEXTURE_ADDR_CLAMP);
+                sceGxmTextureSetVAddrMode(&g_uiTex, SCE_GXM_TEXTURE_ADDR_CLAMP);
+            } else ok = false;
+        }
+        g_uiOk = ok;
+        char m[144];
+        std::snprintf(m, sizeof m, "gxm: incrustation menu sur GPU %s (%s)",
+                      g_uiOk ? "ARMEE" : "KO", g_shaderOrigin[2][0] ? g_shaderOrigin[2] : "absent");
+        d2vita_progress(m);
+        if (!g_uiOk && g_uiTexBlk.p) { gpu_free(g_uiTexBlk); g_uiTexBlk = GpuBlock{}; }
+    }
+
+    // ---- INCRUSTATION DU CLAVIER VIRTUEL TRANSLUCIDE SUR LE GPU ------------
+    // Même programme que ci-dessus (g_fpUi) -- pas de shader à compiler en
+    // plus, seulement son propre jeu de textures. Sans lui (ou sous 100 %
+    // d'opacité), draw_keyboard() garde son chemin CPU direct-vers-CDRAM
+    // habituel (vita_present.cpp) : écriture seule, toujours rapide, rien à
+    // changer là. Ce n'est QUE la translucidité (lire l'écran pour mélanger)
+    // qui a besoin du GPU -- exactement le défaut qui coûtait ~81 ms/image au
+    // menu radial avant son propre passage sur GPU (~814 ns par pixel RELU en
+    // CDRAM, le pire accès de la console, mesuré ci-dessus).
+    if (g_uiOk) {
+        g_kbTexW = SCR_W;
+        g_kbTexH = d2kb::panel_h(d2kb::LAY_FULL);   // couvre aussi LAY_SIMPLE, plus petite
+        bool ok = true;
+        for (int i = 0; i < g_ring; ++i) {
+            const uint32_t bytes = (uint32_t)g_kbTexW * (uint32_t)g_kbTexH * 4;
+            if (!gpu_alloc_gpu(g_kbTexBlk[i], bytes, SCE_GXM_MEMORY_ATTRIB_READ, "d2gxm_kb")) { ok = false; break; }
+            std::memset(g_kbTexBlk[i].p, 0, bytes);
+            if (sceGxmTextureInitLinear(&g_kbTex[i], g_kbTexBlk[i].p,
+                    SCE_GXM_TEXTURE_FORMAT_A8B8G8R8,
+                    (unsigned)g_kbTexW, (unsigned)g_kbTexH, 0) < 0) { ok = false; break; }
+            sceGxmTextureSetMinFilter(&g_kbTex[i], SCE_GXM_TEXTURE_FILTER_POINT);
+            sceGxmTextureSetMagFilter(&g_kbTex[i], SCE_GXM_TEXTURE_FILTER_POINT);
+            sceGxmTextureSetUAddrMode(&g_kbTex[i], SCE_GXM_TEXTURE_ADDR_CLAMP);
+            sceGxmTextureSetVAddrMode(&g_kbTex[i], SCE_GXM_TEXTURE_ADDR_CLAMP);
+        }
+        g_kbUiOk = ok;
+        char m[144];
+        std::snprintf(m, sizeof m, "gxm: clavier translucide sur GPU %s (%d tampon(s) %dx%d)",
+                      g_kbUiOk ? "ARME" : "KO", g_ring, g_kbTexW, g_kbTexH);
+        d2vita_progress(m);
+        if (!g_kbUiOk) for (int i = 0; i < g_ring; ++i)
+            if (g_kbTexBlk[i].p) { gpu_free(g_kbTexBlk[i]); g_kbTexBlk[i] = GpuBlock{}; }
+    }
+
     // Vertex/index buffers: ONE SET PER FRAME IN FLIGHT. This is the first
     // thing async submission forces to be duplicated: the batch builder
     // writes frame N+1 here while the GPU is still reading frame N.
@@ -1414,8 +1622,21 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
     if (g_shotPending) { g_shotPending = 0; shot_write(slot, frame); }   // L + Start
 
     // Copies from CPU into GPU-visible memory. ~4000 vertices = 96 KiB.
-    if (nv > MAXV) nv = MAXV;
-    if (ni > MAXI) ni = MAXI;
+    // On RÉSERVE la place du quad d'effacement (4 sommets, 6 indices) : il est
+    // écrit APRÈS les sommets du jeu et n'était dessiné que si `nv + 4 <=
+    // MAXV`. Sur une image saturée il sautait donc, EN SILENCE — sans
+    // conséquence tant que le jeu couvrait tout l'écran, mais avec des bandes
+    // (D2_ASPECT=4:3) celles-ci gardaient alors l'image précédente. Rogner 4
+    // sommets d'une image qui deborde deja est sans commune mesure.
+    // 4 sommets pour le quad d'effacement + 16 pour les bandes : sans cette
+    // réserve le quad n'était dessiné que si `nv+4 <= MAXV`, donc sauté EN
+    // SILENCE sur une image saturée.
+    if (nv > MAXV - 20) {
+        if (++g_vtxSat == 1ull)
+            d2vita_progress("gxm: budget de sommets SATURE — des lots du jeu sont perdus");
+        nv = MAXV - 20;
+    }
+    if (ni > MAXI - 30) { ni = MAXI - 30; }
     const uint64_t tCopy0 = sceKernelGetProcessTimeWide();
     std::memcpy(g_vtxBuf[slot].p, v, (size_t)nv * sizeof(d2gr::Vtx));
     std::memcpy(g_idxBuf[slot].p, idx, (size_t)ni * 2);
@@ -1451,9 +1672,18 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
     g_texScratchN = 0;
     g_hwpalNewThisFrame = 0;
 
-    // Projection uniform: game window (800x600) -> screen, the same stretch
-    // as the GDI path's StretchBlt.
-    float scale[4] = { 2.0f / (float)g_gameW, -2.0f / (float)g_gameH, -1.0f, 1.0f };
+    // Projection uniform: fenêtre de jeu -> écran. Voir g_aspect plus haut.
+    // La jambe "etire" est l'expression d'origine, littéralement inchangée.
+    float scale[4];
+    if (g_aspect == 0) {
+        scale[0] =  2.0f / (float)g_gameW; scale[1] = -2.0f / (float)g_gameH;
+        scale[2] = -1.0f;                  scale[3] =  1.0f;
+    } else {
+        scale[0] =  2.0f * g_projSx / (float)SCR_W;
+        scale[1] = -2.0f * g_projSy / (float)SCR_H;
+        scale[2] =  2.0f * g_projOx / (float)SCR_W - 1.0f;
+        scale[3] =  1.0f - 2.0f * g_projOy / (float)SCR_H;
+    }
     void* vu = nullptr;
     sceGxmReserveVertexDefaultUniformBuffer(g_ctx, &vu);
     if (vu) sceGxmSetUniformDataF(vu, g_pScale, 0, 4, scale);
@@ -1541,9 +1771,20 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
         const bool flatClear = (g_clearMode == 1) && g_fpClear && g_pConstC;
         d2gr::Vtx* cv = (d2gr::Vtx*)g_vtxBuf[slot].p + nv;    // after the game's own vertices
         uint16_t* ci = (uint16_t*)g_idxBuf[slot].p + ni;
+        // La place est réservée plus haut : ce test passe toujours. Gardé en
+        // garde-fou bruyant plutôt qu'en silence.
+        if (nv + 4 > MAXV || ni + 6 > MAXI) {
+            static bool dit = false;
+            if (!dit) { dit = true; d2vita_progress("gxm: quad d'effacement SAUTE — les bandes vont trainer"); }
+        }
         if (nv + 4 <= MAXV && ni + 6 <= MAXI) {
-            const float W = (float)g_gameW, H = (float)g_gameH;
-            const float xs[4] = { 0, W, W, 0 }, ys[4] = { 0, 0, H, H };
+            // Le quad d'effacement doit couvrir TOUT L'ÉCRAN, bandes comprises :
+            // en mode isotrope aucun triangle du jeu ne touche les côtés, et
+            // sans ça ils garderaient l'image de la frame précédente. En mode
+            // "etire" scr2g*() rend exactement 0..g_gameW / 0..g_gameH.
+            const float X0 = scr2gx(0.f), X1 = scr2gx((float)SCR_W);
+            const float Y0 = scr2gy(0.f), Y1 = scr2gy((float)SCR_H);
+            const float xs[4] = { X0, X1, X1, X0 }, ys[4] = { Y0, Y0, Y1, Y1 };
             for (int k = 0; k < 4; ++k) { cv[k].x = xs[k]; cv[k].y = ys[k]; cv[k].u = 0; cv[k].v = 0;
                                           cv[k].argb = 0xFFFFFFFFu; cv[k].pal = 0.0f; }
             ci[0] = (uint16_t)(nv+0); ci[1] = (uint16_t)(nv+1); ci[2] = (uint16_t)(nv+2);
@@ -1585,6 +1826,12 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
             ++g_calls;
         }
     }
+
+    // Découpe à la fenêtre de jeu, pour les lots du JEU seulement : le quad
+    // d'effacement devait couvrir tout l'écran, les incrustations vivent en
+    // pixels écran.
+    { const ClipRect r = game_clip();
+      sceGxmSetRegionClip(g_ctx, SCE_GXM_REGION_CLIP_OUTSIDE, r.x0, r.y0, r.x1, r.y1); }
 
     // 2. THE BATCHES, IN ORDER. D2 draws painter's-style: reordering changes
     //    the image, and there's no depth buffer to compensate.
@@ -1648,6 +1895,179 @@ void d2gxm_submit(const d2gr::Vtx* v, uint32_t nv,
         sceGxmDraw(g_ctx, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16,
                    (uint16_t*)g_idxBuf[slot].p + bb.first, bb.count);
         ++g_calls;
+    }
+
+    // ---- INCRUSTATIONS D'INTERFACE, SUR LE GPU -----------------------------
+    // Dernier dessin de la scène, donc au-dessus de tout, et dans le même
+    // passage : rien à relire, rien à recopier. Les sommets sont écrits APRÈS
+    // ceux du jeu (et après le quad d'effacement, qui en consomme 4/6) dans la
+    // place libre des tampons du slot. Deux couches possibles (menu radial
+    // PUIS clavier), chacune démarrant où la précédente s'est arrêtée : uiVb/
+    // uiIb avance du nombre de sommets/indices RÉELLEMENT consommés (0 si
+    // cette couche est fermée), pour que la suivante ne piétine rien.
+    // Fin des lots du jeu : on rouvre à l'écran entier. Le menu radial et le
+    // clavier sont construits en pixels ÉCRAN et doivent pouvoir déborder des
+    // bandes.
+    sceGxmSetRegionClip(g_ctx, SCE_GXM_REGION_CLIP_OUTSIDE, 0, 0,
+                        (unsigned)(SCR_W - 1), (unsigned)(SCR_H - 1));
+
+    uint32_t uiVb = nv + 4, uiIb = ni + 6;
+
+    // ---- LES BANDES, REPEINTES APRÈS LE JEU --------------------------------
+    // sceGxmSetRegionClip ne coupe qu'à la TUILE DE 32 PX près : mesuré sur
+    // console, une découpe demandée à 117..842 agit en 96..863, laissant passer
+    // 21 px de débord — soit des triangles visibles sur les bords. La découpe
+    // reste utile (elle enlève le gros du travail inutile) mais l'exactitude au
+    // pixel vient d'ici. Sans bandes, rien n'est dessiné.
+    if (g_aspect != 0 && uiVb + 16 <= MAXV && uiIb + 24 <= MAXI) {
+        const float gx0 = scr2gx(0.f),            gx1 = scr2gx((float)SCR_W);
+        const float gy0 = scr2gy(0.f),            gy1 = scr2gy((float)SCR_H);
+        const float ix0 = 0.f,                    ix1 = (float)g_gameW;
+        const float iy0 = 0.f,                    iy1 = (float)g_gameH;
+        const float bx[4][4] = { {gx0, ix0, ix0, gx0},    // gauche
+                                 {ix1, gx1, gx1, ix1},    // droite
+                                 {gx0, gx1, gx1, gx0},    // haut
+                                 {gx0, gx1, gx1, gx0} };  // bas
+        const float by[4][4] = { {gy0, gy0, gy1, gy1},
+                                 {gy0, gy0, gy1, gy1},
+                                 {gy0, gy0, iy0, iy0},
+                                 {iy1, iy1, gy1, gy1} };
+        const bool  used[4]  = { g_projOx > 0.25f, g_projOx > 0.25f,
+                                 g_projOy > 0.25f, g_projOy > 0.25f };
+        d2gr::Vtx* bv = (d2gr::Vtx*)g_vtxBuf[slot].p + uiVb;
+        uint16_t*  bi = (uint16_t*)g_idxBuf[slot].p + uiIb;
+        int nq = 0;
+        for (int q = 0; q < 4; ++q) {
+            if (!used[q]) continue;
+            for (int c = 0; c < 4; ++c) {
+                d2gr::Vtx& t = bv[nq * 4 + c];
+                t.x = bx[q][c]; t.y = by[q][c]; t.u = 0; t.v = 0;
+                t.argb = 0xFF000000u; t.pal = 0.0f;
+            }
+            const uint16_t b0 = (uint16_t)(uiVb + nq * 4);
+            bi[nq*6+0] = b0;               bi[nq*6+1] = (uint16_t)(b0 + 1);
+            bi[nq*6+2] = (uint16_t)(b0+2); bi[nq*6+3] = b0;
+            bi[nq*6+4] = (uint16_t)(b0+2); bi[nq*6+5] = (uint16_t)(b0 + 3);
+            ++nq;
+        }
+        if (nq > 0) {
+            const bool flatBar = g_fpClear && g_pConstC;
+            sceGxmSetFragmentProgram(g_ctx, flatBar ? g_fpClear : FP[0]);
+            void* fu = nullptr;
+            sceGxmReserveFragmentDefaultUniformBuffer(g_ctx, &fu);
+            const float noir[4] = { 0.f, 0.f, 0.f, 1.f };
+            if (fu && flatBar) sceGxmSetUniformDataF(fu, g_pConstC, 0, 4, noir);
+            else if (fu) {
+                float mode[4] = { 0.0f, 0.0f, 1.0f, 0.0f }, key[4] = { 0, 0, 0, 0 };
+                sceGxmSetUniformDataF(fu, PC, 0, 4, noir);
+                sceGxmSetUniformDataF(fu, PM, 0, 4, mode);
+                if (PK) sceGxmSetUniformDataF(fu, PK, 0, 4, key);
+            }
+            if (!flatBar) {
+                bind_page(-1, SCE_GXM_TEXTURE_FILTER_POINT, 0);
+                if (!g_hwPal) sceGxmSetFragmentTexture(g_ctx, 1, &g_palTex[slot]);
+            }
+            sceGxmDraw(g_ctx, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16,
+                       (uint16_t*)g_idxBuf[slot].p + uiIb, (uint32_t)nq * 6);
+            ++g_calls;
+            uiVb += (uint32_t)nq * 4; uiIb += (uint32_t)nq * 6;
+        }
+    }
+    if (g_uiOk) {
+        if (const radial_menu::State* rm = d2vita_radial_state()) {
+            radial_menu::Quad q[2 * RM_N];
+            const int nq = radial_menu::build_quads(*rm, SCR_W, SCR_H, q, 2 * RM_N);
+            const uint32_t vb = uiVb, ib = uiIb;
+            if (nq > 0 && vb + (uint32_t)nq * 4 <= MAXV && ib + (uint32_t)nq * 6 <= MAXI) {
+                d2gr::Vtx* uv = (d2gr::Vtx*)g_vtxBuf[slot].p + vb;
+                uint16_t*  ui = (uint16_t*)g_idxBuf[slot].p + ib;
+                // build_quads rend des pixels ÉCRAN ; les sommets vivent dans
+                // l'espace de la FENÊTRE DE JEU. scr2g*() est l'inverse exacte
+                // de la projection : en mode "etire" elle annule l'étirement
+                // non isotrope (sans quoi la roue deviendrait une ellipse), en
+                // mode isotrope elle retire simplement les bandes.
+                for (int k = 0; k < nq; ++k) {
+                    for (int c = 0; c < 4; ++c) {
+                        d2gr::Vtx& v2 = uv[k * 4 + c];
+                        v2.x = scr2gx(q[k].x[c]); v2.y = scr2gy(q[k].y[c]);
+                        v2.u = q[k].u[c];      v2.v = q[k].v[c];
+                        v2.argb = 0xFFFFFFFFu; v2.pal = 0.0f;
+                    }
+                    const uint16_t b0 = (uint16_t)(vb + k * 4);
+                    ui[k*6+0] = b0;              ui[k*6+1] = (uint16_t)(b0 + 1);
+                    ui[k*6+2] = (uint16_t)(b0+2); ui[k*6+3] = b0;
+                    ui[k*6+4] = (uint16_t)(b0+2); ui[k*6+5] = (uint16_t)(b0 + 3);
+                }
+                sceGxmSetFragmentProgram(g_ctx, g_fpUi);
+                sceGxmSetFragmentTexture(g_ctx, 0, &g_uiTex);
+                sceGxmDraw(g_ctx, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16,
+                           (uint16_t*)g_idxBuf[slot].p + ib, (uint32_t)nq * 6);
+                ++g_calls;
+                uiVb += (uint32_t)nq * 4; uiIb += (uint32_t)nq * 6;
+            }
+        }
+    }
+    // ---- CLAVIER VIRTUEL TRANSLUCIDE, SUR LE GPU ---------------------------
+    // Seulement si l'opacité n'est pas 100 % (à 100, draw_keyboard() écrit
+    // déjà directement dans la CDRAM sans jamais la relire -- déjà rapide,
+    // inutile de le refaire ici) et si les tampons de texture sont armés.
+    // Rendu à part : le clavier est du texte + des rectangles reconstruits à
+    // chaque frappe, quatre coins suffisent (un seul quad, texture entière).
+    if (g_kbUiOk) {
+        const int alpha = d2vita_kb_alpha();
+        const d2kb::State* kb = (alpha > 0 && alpha < 100) ? d2vita_kb_state() : nullptr;
+        if (kb && uiVb + 4 <= MAXV && uiIb + 6 <= MAXI) {
+            // Rasterise ET retague dans un tampon RAM ORDINAIRE, jamais la
+            // texture GPU directement -- le premier essai lisait la texture
+            // pour savoir quels pixels retaguer, et a mesuré la MEME chute
+            // d'images/s qu'avant : g_kbTexBlk préfère la CDRAM (comme
+            // l'atlas du menu radial, gpu_alloc_best), et lire depuis le CPU
+            // coûte ~814 ns/pixel QUELLE QUE SOIT la texture visée -- ce
+            // n'est pas propre au framebuffer visible. Écrire y est en
+            // revanche toujours bon marché (c'est tout ce qu'un clavier
+            // opaque a jamais fait) : tout le travail qui a besoin de RELIRE
+            // se fait ici, sur un tampon RAM normal (aucun coût à le lire),
+            // et SEULE la copie finale touche la texture GPU -- en écriture
+            // seule, donc rapide même si gpu_alloc_best l'a mise en CDRAM.
+            static std::vector<uint32_t> scratch;
+            const size_t npx = (size_t)g_kbTexW * (size_t)g_kbTexH;
+            if (scratch.size() != npx) scratch.assign(npx, 0);
+            else std::memset(scratch.data(), 0, npx * 4);
+            d2kb::draw(*kb, scratch.data(), g_kbTexW, g_kbTexH, 100);
+            // d2kb::draw ne pose jamais que 0xFF au canal alpha (jamais autre
+            // chose, jamais mélangé : appelé à 100 ci-dessus) : un pixel non
+            // dessiné reste à 0 (le memset). Retague chaque pixel DESSINÉ
+            // avec l'opacité demandée ; le shader (g_fpUi, alpha de TEXTURE)
+            // s'occupe du mélange à l'écran, jamais le CPU.
+            const uint32_t aByte = (uint32_t)alpha * 255u / 100u;
+            for (size_t i = 0; i < npx; ++i)
+                if ((scratch[i] >> 24) == 0xFFu) scratch[i] = (scratch[i] & 0x00FFFFFFu) | (aByte << 24);
+            std::memcpy(g_kbTexBlk[slot].p, scratch.data(), npx * 4);
+
+            d2gr::Vtx* kv = (d2gr::Vtx*)g_vtxBuf[slot].p + uiVb;
+            uint16_t*  ki = (uint16_t*)g_idxBuf[slot].p + uiIb;
+            // La texture couvre les g_kbTexH rangées du BAS de l'écran (voir
+            // g_kbTexH plus haut : la hauteur de LAY_FULL, la plus grande des
+            // deux dispositions -- LAY_SIMPLE y dessine dans le bas, laissant
+            // le haut transparent, alpha=0 du memset).
+            const float y0 = scr2gy((float)(SCR_H - g_kbTexH)), y1 = scr2gy((float)SCR_H);
+            const float x0 = scr2gx(0.0f), x1 = scr2gx((float)SCR_W);
+            const float xs[4] = { x0, x1, x1, x0 }, ys[4] = { y0, y0, y1, y1 };
+            const float us[4] = { 0.0f, 1.0f, 1.0f, 0.0f }, vs[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+            for (int c = 0; c < 4; ++c) {
+                kv[c].x = xs[c]; kv[c].y = ys[c]; kv[c].u = us[c]; kv[c].v = vs[c];
+                kv[c].argb = 0xFFFFFFFFu; kv[c].pal = 0.0f;
+            }
+            const uint16_t b0 = (uint16_t)uiVb;
+            ki[0] = b0;              ki[1] = (uint16_t)(b0 + 1);
+            ki[2] = (uint16_t)(b0+2); ki[3] = b0;
+            ki[4] = (uint16_t)(b0+2); ki[5] = (uint16_t)(b0 + 3);
+            sceGxmSetFragmentProgram(g_ctx, g_fpUi);
+            sceGxmSetFragmentTexture(g_ctx, 0, &g_kbTex[slot]);
+            sceGxmDraw(g_ctx, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16,
+                       (uint16_t*)g_idxBuf[slot].p + uiIb, 6);
+            ++g_calls;
+        }
     }
 
     if (g_asyncMode == 2) {

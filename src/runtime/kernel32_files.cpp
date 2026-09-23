@@ -141,7 +141,28 @@ void kernel32_files_install(Bridge& br){
         // checked once, explicitly, up front (see the install preflight in
         // tools/rt_boot.cpp's main()); this stays opt-in via FILELOG like
         // every other routine probe.
-        if(!fp){ set_lasterr(c,2); if(env_filelog()) std::fprintf(stderr,"    [file MISS] %s\n",n.c_str()); return 0xFFFFFFFFu; }
+        if(!fp){ set_lasterr(c,2); if(env_filelog()) std::fprintf(stderr,"    [file MISS] %s\n",n.c_str());
+            // ... with ONE exception, which is the whole reason the paragraph
+            // above exists: an archive that is NOT one of those routine probes.
+            // A refused open of d2data.mpq or patch_d2.mpq is the difference
+            // between "the game is fine" and "the game is about to halt with a
+            // line number and nothing else", and until now it left no trace at
+            // all in boot_progress.txt. Crash signature SNALU33A2TNV5UYB could
+            // not be settled for exactly that reason: the log proved the
+            // archive was mounted and that no sector was ever read from it,
+            // and there was no way to see whether an open had been refused.
+            // Bounded, and the known probes stay silent.
+            { size_t s=n.find_last_of("\\/"); std::string base=s==std::string::npos?n:n.substr(s+1);
+              std::string lo=base; for(char& ch:lo) ch=(char)std::tolower((unsigned char)ch);
+              static const char* kProbes[]={"d2delta.mpq","d2kfixup.mpq","d2xmusic.mpq.mpq",nullptr};
+              bool probe=false; for(const char** q=kProbes;*q;++q) if(lo==*q) probe=true;
+              if(!probe && lo.size()>4 && lo.compare(lo.size()-4,4,".mpq")==0){
+                  static int mm=0; if(mm<12){ ++mm;
+                      char m[288]; std::snprintf(m,sizeof m,
+                          "archive REFUSEE %s (errno=%d) — demandee par le jeu, absente de %s",
+                          base.c_str(),errno,h.c_str());
+                      d2vita_progress(m); std::printf("    [%s]\n",m); } } }
+            return 0xFFFFFFFFu; }
         // Big stdio buffer: Storm reads MPQs in many small chunks — on a Vita
         // SD card the per-IO latency dominates without this.
         // D2_READAHEAD: UNBUFFERED stream, reads via lseek+read on the
@@ -266,17 +287,46 @@ void kernel32_files_install(Bridge& br){
         // Short/failed reads never happen under qemu but can on a real SD
         // card (or a newlib stdio bug) — and Storm feeds whatever it got to
         // the decoder. Surface the first ones in boot_progress.
+        //
+        // The line carries the OFFSET and, on the read-ahead path, errno: a
+        // 0.1.6 crash report could not be pinned down precisely because it
+        // carried neither. The stdio eof/err pair is printed only when stdio
+        // is what actually read, since the read-ahead path never touches that
+        // FILE* and its flags describe an unrelated position.
+        const bool raPath = (ioh && ioh->fd>=0);
         if(r!=n){ static int sr=0; if(sr<24){ sr++;
             auto pit=g_filePathByH.find(c.arg(0));
-            char m[256]; std::snprintf(m,sizeof m,"io: SHORT read h=%08x want=%u got=%u eof=%d err=%d file=%s",
-                c.arg(0),n,(unsigned)r,feof(it->second)?1:0,ferror(it->second)?1:0,
+            char st[72];
+            if(raPath) std::snprintf(st,sizeof st,"ra errno=%d%s",ioh->err,
+                                     ioh->err? " ECHEC":" (fin de fichier)");
+            else       std::snprintf(st,sizeof st,"stdio eof=%d err=%d",
+                                     feof(it->second)?1:0,ferror(it->second)?1:0);
+            char m[320]; std::snprintf(m,sizeof m,"io: SHORT read h=%08x off=%u want=%u got=%u %s file=%s",
+                c.arg(0),at,n,(unsigned)r,st,
                 pit!=g_filePathByH.end()?pit->second.c_str():"?");
             std::printf("[%s]\n",m); d2vita_progress(m); } }
         { FPos& s=g_fpos[c.arg(0)];
             s.real=(long)at+(long)r;                 // where the stream REALLY is
             if(!ov) s.logical=s.real;                // OVERLAPPED: logical unchanged
         }
-        if(pRead) c.write_u32(pRead,(uint32_t)r); ov_done(c,ov,(uint32_t)r); return 1u; });
+        if(pRead) c.write_u32(pRead,(uint32_t)r); ov_done(c,ov,(uint32_t)r);
+        // A read that FAILED is reported as a failure. Win32 signals the end of
+        // a file with TRUE and zero bytes, so a short read is not in itself an
+        // error and still answers TRUE -- only ra_raw's errno turns it into
+        // FALSE. Storm has its own retry behind that FALSE; answering TRUE for
+        // a failed read is what disabled it and halted the game.
+        if(raPath && ioh->err){
+            set_lasterr(c,1117u);                 // ERROR_IO_DEVICE
+            static int fr=0; if(fr<24){ fr++;
+                auto pit=g_filePathByH.find(c.arg(0));
+                char m[320]; std::snprintf(m,sizeof m,
+                    "io: READ FAIL h=%08x off=%u want=%u got=%u errno=%d -> FALSE (ERROR_IO_DEVICE) file=%s",
+                    c.arg(0),at,n,(unsigned)r,ioh->err,
+                    pit!=g_filePathByH.end()?pit->second.c_str():"?");
+                std::printf("[%s]\n",m); d2vita_progress(m); }
+            return 0u;
+        }
+        return 1u; });
     K("WriteFile",5,[ov_done](Cpu&c){ uint32_t h=c.arg(0),buf=c.arg(1),n=c.arg(2),pW=c.arg(3),ov=c.arg(4);
         auto it=g_files.find(h);
         if(it!=g_files.end()){ long at=0; size_t wn=0;
@@ -311,11 +361,44 @@ void kernel32_files_install(Bridge& br){
             { FPos& s=g_fpos[h];
                 s.real=at+(long)wn;                  // where the stream REALLY is
                 if(!ov) s.logical=s.real;            // OVERLAPPED: logical unchanged
-            } }
+            }
+            // A write that did not go through is reported as one that did not.
+            //
+            // This used to hand the guest `n` -- what it ASKED to write -- and
+            // TRUE, whatever fwrite actually managed. A save cut short by a
+            // full or flaky card therefore looked to D2 like a complete save,
+            // so it wrote on and left a truncated file behind. The character
+            // files seen in 0.1.6 reports are 335 bytes: a .d2s header and
+            // none of the six sections that follow it, which is exactly the
+            // shape "the first write landed, the next ones were lost, and
+            // nobody was told" produces. Reporting the real count and FALSE
+            // gives D2 its error back; it is the same asymmetry the read path
+            // had, on the other side.
+            if(wn!=n){ set_lasterr(c, errno==ENOSPC? 112u /*ERROR_DISK_FULL*/ : 1117u /*ERROR_IO_DEVICE*/);
+                static int fw=0; if(fw<24){ fw++;
+                    auto pit=g_filePathByH.find(h);
+                    char m[320]; std::snprintf(m,sizeof m,
+                        "io: WRITE FAIL h=%08x pos=%ld want=%u ecrit=%u errno=%d -> FALSE file=%s",
+                        h,at,n,(unsigned)wn,errno,
+                        pit!=g_filePathByH.end()?pit->second.c_str():"?");
+                    std::printf("[%s]\n",m); d2vita_progress(m); }
+                if(pW) c.write_u32(pW,(uint32_t)wn); ov_done(c,ov,(uint32_t)wn); return 0u; } }
         if(pW) c.write_u32(pW,n); ov_done(c,ov,n); return 1u; });
     K("GetOverlappedResult",4,[](Cpu&c){ uint32_t ov=c.arg(1),pN=c.arg(2);
         if(pN&&ov) c.write_u32(pN,c.read_u32(ov+4)); return 1u; });
-    K("FlushFileBuffers",1,[](Cpu&c){ auto it=g_files.find(c.arg(0)); if(it!=g_files.end()) std::fflush(it->second); return 1u; });
+    // fwrite() buffers: a write that fwrite accepted can still fail here, when
+    // the buffer reaches the card. Answering TRUE regardless is how a failed
+    // save gets reported to the game as a saved one.
+    K("FlushFileBuffers",1,[](Cpu&c){ auto it=g_files.find(c.arg(0)); if(it==g_files.end()) return 1u;
+        const bool bad = (std::fflush(it->second)!=0) || ferror(it->second)!=0;
+        if(bad){ set_lasterr(c, errno==ENOSPC? 112u : 1117u);
+            static int ff=0; if(ff<24){ ff++;
+                auto pit=g_filePathByH.find(c.arg(0));
+                char m[288]; std::snprintf(m,sizeof m,"io: FLUSH FAIL h=%08x errno=%d -> FALSE file=%s",
+                    c.arg(0),errno,pit!=g_filePathByH.end()?pit->second.c_str():"?");
+                std::printf("[%s]\n",m); d2vita_progress(m); }
+            return 0u; }
+        return 1u; });
     // SetEndOfFile is already a lie (no truncation happens). If it ever
     // became real, it should truncate to the LOGICAL position, not the
     // stream's.
@@ -327,7 +410,17 @@ void kernel32_files_install(Bridge& br){
         std::fseek(it->second,0,SEEK_END); sz=std::ftell(it->second);
         { FPos& s=g_fpos[c.arg(0)]; s.real=sz; s.dir=0; ++g_lsSize; }
         if(c.arg(1)) c.write_u32(c.arg(1),0); return (uint32_t)sz; });
-    K("CloseHandle",1,[](Cpu&c){ auto it=g_files.find(c.arg(0)); if(it!=g_files.end()){ std::fclose(it->second); g_files.erase(it); g_filePathByH.erase(c.arg(0)); g_fpos.erase(c.arg(0)); io_close(c.arg(0)); return 1u; }
+    K("CloseHandle",1,[](Cpu&c){ auto it=g_files.find(c.arg(0)); if(it!=g_files.end()){
+            // Last chance to notice a write that never reached the card: the
+            // guest gets TRUE either way (it has nothing left to do with the
+            // handle), but the log names the file, which is what a truncated
+            // save needs to be diagnosed from a crash report.
+            if(ferror(it->second)){ static int ce=0; if(ce<24){ ce++;
+                auto pit=g_filePathByH.find(c.arg(0));
+                char m[288]; std::snprintf(m,sizeof m,"io: CLOSE avec erreur d'ecriture h=%08x file=%s",
+                    c.arg(0),pit!=g_filePathByH.end()?pit->second.c_str():"?");
+                std::printf("[%s]\n",m); d2vita_progress(m); } }
+            std::fclose(it->second); g_files.erase(it); g_filePathByH.erase(c.arg(0)); g_fpos.erase(c.arg(0)); io_close(c.arg(0)); return 1u; }
         { auto fm=g_fmaps.find(c.arg(0)); if(fm!=g_fmaps.end()){ g_fmaps.erase(fm); return 1u; } }   // file mapping
         Waitable* how=wx86_handle_find(c.arg(0)); if(how){ /* keep the object; a thread handle may still be waited on */ } return 1u; });
     K("CreateDirectoryA",2,[](Cpu&c){ std::string n=gread_mb(c,c.arg(0),-1);

@@ -88,12 +88,33 @@ alors sélectionné, même si un secteur avait été survolé juste avant).
 Ce menu remplace les anciens raccourcis dédiés à chacune de ces actions
 (personnage, compétences, quêtes, automap, inventaire) : un seul geste pour
 les sept, plutôt que sept combinaisons à mémoriser. Le clavier virtuel n'y
-est volontairement pas inclus — trop utilisé pour justifier de passer par un
-menu à chaque fois, il reste sur son propre geste dédié (L + D-pad droite ;
-R + Triangle dans le schéma `scheme=mouse` legacy, où sous le schéma de visée
-c'est la compétence 7).
+est volontairement pas inclus : il s'ouvre de lui-même dès qu'un champ texte
+prend le focus, et garde sinon son propre geste dédié — L + D-pad droite sous
+le schéma de visée (compétence 7 là-bas), R + Triangle sous le schéma
+`scheme=mouse` legacy.
 
 ## Clavier virtuel (L + D-pad droite)
+
+Le clavier **s'ouvre de lui-même** quand un champ texte prend le focus — nom
+de personnage, compte et mot de passe Battle.net, nom et mot de passe de
+partie. La fermeture reste manuelle (Select ou la touche FERMER —
+Start/Entrée valide le champ mais laisse le clavier ouvert), et un clavier
+fermé ne se rouvre pas tant qu'un autre champ n'a pas pris le focus (ou que
+le même ne l'a pas perdu puis repris). L + D-pad droite l'ouvre toujours sous
+le schéma de visée (R + Triangle sous `scheme=mouse`). `D2_KBAUTO=0` dans
+`ux0:data/d2vita/env.txt` coupe l'ouverture automatique. Le clavier se
+dessine à 80 % d'opacité par défaut —
+le personnage/menu reste visible en filigrane derrière — réglable avec
+`D2_KBALPHA=0-100` (100 = ancien rendu opaque). En dessous de 100, le mélange
+se fait sur le GPU (une couche texturée à part, composée aux côtés du menu
+radial) quand ce chemin est armé ; sinon le clavier revient à un mélange CPU,
+qui relit l'écran et coûte nettement plus cher par image — opaque (100) reste
+dans tous les cas le chemin rapide. Le runtime lit pour cela l'état « contrôle
+focalisé » du jeu lui-même (lecture seule, l'en-tête du contrôle seulement —
+jamais le texte). Chaque transition est journalisée dans
+`boot_progress.txt` en `clavier: focus champ ON/OFF` (plafonné à 64 lignes
+par session). Le chat en jeu n'est
+pas encore couvert (phase 2).
 
 | Entrée | Action |
 |---|---|

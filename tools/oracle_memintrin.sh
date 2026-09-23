@@ -14,6 +14,16 @@
 #   V      : D2_MEMINTRIN=1 D2_MEMVERIFY=1 — cross-check oracle, call by call:
 #            native writes into a host buffer, the guest writes the real
 #            buffer, compared byte for byte on return; 0 divergence required.
+#   F      : D2_MEMINTRIN=3 — INLINE SHORT PATH (dyn86_memfast.h): sizes below
+#            64 bytes are copied by ARM code the translator emitted itself, no
+#            call at all. Same fingerprint required, and `appels` (what still
+#            reaches the helper) must COLLAPSE — that collapse is the proof the
+#            inline path served the rest.
+#   G      : D2_MEMINTRIN=3 D2_MEMFASTCHECK=1 — oracle OF THE INLINE PATH: at
+#            every served call, 16 guard bytes on each side of the destination
+#            are snapshot and re-checked (catches a write past the size) and
+#            the destination is compared to the source byte for byte. Same
+#            fingerprint, 0 divergence.
 # PATROUILLE=1: camp patrol script (sprites moving, console leg).
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -42,29 +52,35 @@ run() {  # $1 = label, $2... = env
   echo "  [$LAB] rc=$?"
 }
 H(){ grep -oP '\[fbhash\].*empreinte=\K0x[0-9a-f]+' "$OUT/ormi_$1$TAG.log" | tail -1; }
-echo "== ORACLE MEMINTRIN — MAXFRAMES=$MAXFRAMES patrouille=${PATROUILLE:-0} (5 passes en parallele) =="
+echo "== ORACLE MEMINTRIN — MAXFRAMES=$MAXFRAMES patrouille=${PATROUILLE:-0} (7 passes en parallele) =="
 T0=$(date +%s)
 run A  &
 run A2 &
 run P D2_MEMINTRIN=2 &
 run B D2_MEMINTRIN=1 &
 run V D2_MEMINTRIN=1 D2_MEMVERIFY=1 &
+run F D2_MEMINTRIN=3 &
+run G D2_MEMINTRIN=3 D2_MEMFASTCHECK=1 &
 wait
 echo "  duree: $(( $(date +%s) - T0 ))s"
-HA=$(H A); HA2=$(H A2); HP=$(H P); HB=$(H B); HV=$(H V)
+HA=$(H A); HA2=$(H A2); HP=$(H P); HB=$(H B); HV=$(H V); HF=$(H F); HG=$(H G)
 NA=$(grep -oP '\[fbhash\] frames hachees=\K[0-9]+' "$OUT/ormi_A$TAG.log" | tail -1)
 echo "  A  = ${HA:-ABSENTE}  (frames hachees=${NA:-0})"
 echo "  A2 = ${HA2:-ABSENTE}"
 echo "  P  = ${HP:-ABSENTE}  (D2_MEMINTRIN=2, profil seul)"
 echo "  B  = ${HB:-ABSENTE}  (D2_MEMINTRIN=1)"
 echo "  V  = ${HV:-ABSENTE}  (D2_MEMINTRIN=1 D2_MEMVERIFY=1)"
-grep -h "\[memintrin\]" "$OUT/ormi_P$TAG.log" "$OUT/ormi_B$TAG.log" "$OUT/ormi_V$TAG.log" | sed 's/^/     /'
+echo "  F  = ${HF:-ABSENTE}  (D2_MEMINTRIN=3, chemin court en ligne)"
+echo "  G  = ${HG:-ABSENTE}  (D2_MEMINTRIN=3 D2_MEMFASTCHECK=1)"
+grep -h "\[memintrin\]\|\[memfast\]" "$OUT/ormi_P$TAG.log" "$OUT/ormi_B$TAG.log" "$OUT/ormi_V$TAG.log" "$OUT/ormi_F$TAG.log" "$OUT/ormi_G$TAG.log" | sed 's/^/     /'
 fail=0
 [ -n "$HA" ] || { echo "FAIL: empreinte A manquante"; fail=1; }
 [ "${HA:-x}" = "${HA2:-y}" ] || { echo "FAIL: BANC NON DETERMINISTE (A != A2)"; fail=1; }
 [ "${HA:-x}" = "${HP:-y}" ] || { echo "FAIL: le prologue emis (profil seul) change des pixels"; fail=1; }
 [ "${HA:-x}" = "${HB:-y}" ] || { echo "FAIL: D2_MEMINTRIN=1 change des pixels"; fail=1; }
 [ "${HA:-x}" = "${HV:-y}" ] || { echo "FAIL: D2_MEMVERIFY change des pixels"; fail=1; }
+[ "${HA:-x}" = "${HF:-y}" ] || { echo "FAIL: le chemin court EN LIGNE (D2_MEMINTRIN=3) change des pixels"; fail=1; }
+[ "${HA:-x}" = "${HG:-y}" ] || { echo "FAIL: D2_MEMFASTCHECK change des pixels"; fail=1; }
 SC=$(grep -oP '\[memintrin\] memcpy: appels=[0-9]+ servis=\K[0-9]+' "$OUT/ormi_B$TAG.log" | tail -1)
 SS=$(grep -oP 'memset: appels=[0-9]+ servis=\K[0-9]+' "$OUT/ormi_B$TAG.log" | tail -1)
 [ "${SC:-0}" -gt 0 ] || { echo "FAIL: aucun memcpy servi (armement non prouve)"; fail=1; }
@@ -76,4 +92,15 @@ VD=$(grep -oP 'oracle: compares=[0-9]+ divergences=\K[0-9]+' "$OUT/ormi_V$TAG.lo
 [ "${VN:-0}" -gt 0 ] || { echo "FAIL: oracle D2_MEMVERIFY n'a compare aucun appel"; fail=1; }
 [ "${VD:-1}" -eq 0 ] || { echo "FAIL: D2_MEMVERIFY : ${VD:-?} divergences sur ${VN:-0}"; fail=1; }
 [ "${NA:-0}" -ge 360 ] || { echo "FAIL: seulement ${NA:-0} frames hachees (<360)"; fail=1; }
-[ $fail -eq 0 ] && echo "PASS: memcpy/memset natifs pixel-identiques (${SC} memcpy + ${SS} memset servis, oracle croise ${VN} appels / 0 divergence)" || exit 1
+# --- legs F/G: the inline short path ---
+FE=$(grep -oP 'sequences en ligne emises=\K[0-9]+' "$OUT/ormi_F$TAG.log" | tail -1)
+FC=$(grep -oP '\[memintrin\] memcpy: appels=\K[0-9]+' "$OUT/ormi_F$TAG.log" | tail -1)
+BC=$(grep -oP '\[memintrin\] memcpy: appels=\K[0-9]+' "$OUT/ormi_B$TAG.log" | tail -1)
+[ "${FE:-0}" -ge 2 ] || { echo "FAIL: aucune sequence en ligne emise (armement mode 3 non prouve)"; fail=1; }
+[ -n "${FC:-}" ] && [ -n "${BC:-}" ] && [ "${FC}" -lt $(( BC / 10 )) ] || {
+    echo "FAIL: le mode 3 laisse ${FC:-?} appels au helper contre ${BC:-?} en mode 1 : le chemin en ligne n'a pas servi"; fail=1; }
+GN=$(grep -oP '\[memfast\].*oracle: compares=\K[0-9]+' "$OUT/ormi_G$TAG.log" | tail -1)
+GD=$(grep -oP '\[memfast\].*oracle: compares=[0-9]+ divergences=\K[0-9]+' "$OUT/ormi_G$TAG.log" | tail -1)
+[ "${GN:-0}" -gt 0 ] || { echo "FAIL: l'oracle du chemin en ligne n'a compare aucun appel"; fail=1; }
+[ "${GD:-1}" -eq 0 ] || { echo "FAIL: chemin en ligne : ${GD:-?} divergences sur ${GN:-0}"; fail=1; }
+[ $fail -eq 0 ] && echo "PASS: memcpy/memset natifs pixel-identiques (${SC} memcpy + ${SS} memset servis, oracle croise ${VN} appels / 0 divergence ; chemin EN LIGNE : ${BC:-?} -> ${FC:-?} appels restants au helper, oracle ${GN} appels / 0 divergence)" || exit 1

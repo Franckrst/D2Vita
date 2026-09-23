@@ -17,8 +17,11 @@ extern "C" int d2_tlswrap_dump(char*, unsigned);
 #include "platform/pad_core.h"      // scheme v2 ("aim"): pure core
 #include "runtime/pad_state.h"      // per-frame guest snapshot (hooks)
 #include "runtime/scripted_input.h" // d2vita_vpad_get
+#include "runtime/text_focus_probe.h"   // d2vita_text_focus : edit box focalisee (ouverture auto du clavier)
+#include "platform/vita_gxm.h"      // d2gxm_ui_active: le menu part-il sur le GPU ?
 #include "platform/vita_host.h"        // engine: log, cores, sleep (CONSOLE-specific)
 #include "runtime/host_clock.h"           // engine: monotonic host clock
+#include "runtime/scripted_input.h"       // inj_set_bounds : le curseur injecte suit la taille du jeu
 #include "platform/present_scale.h"   // engine: generic scaling (D2_PRESENT_WX86)
 
 #include <cstdlib>
@@ -106,9 +109,41 @@ int g_game_w = 800, g_game_h = 600;    // last presented GAME resolution (input 
 extern "C" void d2vita_set_game_size(int w, int h) {
     if (w <= 0 || h <= 0) return;
     if (w == g_game_w && h == g_game_h) return;
-    g_game_w = w; g_game_h = h;
+    g_game_w = w; g_game_h = h; inj_set_bounds(w, h);
     char m[72]; std::snprintf(m, sizeof m, "entree: resolution du jeu -> %dx%d (Glide)", w, h);
     d2vita_progress(m);
+}
+// Projection écran <- fenêtre de jeu, publiée par le chemin GXM (proj_update).
+// Sans elle, l'entrée supposerait que l'image remplit l'écran : dès qu'il y a
+// des bandes (D2_ASPECT=4:3), le curseur tactile atterrirait décalé.
+// Tant qu'elle n'a pas été publiée (chemin GDI, GXM non armé), on garde
+// EXACTEMENT l'ancienne formule.
+bool  g_map_ok = false;
+float g_map_ox = 0.f, g_map_oy = 0.f, g_map_ix = 1.f, g_map_iy = 1.f;
+// Même knob que le chemin GXM (D2_ASPECT), relu ici : les deux chemins de
+// présentation sont indépendants et mutuellement exclusifs.
+bool aspect_iso() {
+    static int v = -1;
+    if (v < 0) { const char* a = getenv("D2_ASPECT");
+        v = (a && (!std::strcmp(a, "etire") || !std::strcmp(a, "stretch") ||
+                   !std::strcmp(a, "0"))) ? 0 : 1; }
+    return v != 0;
+}
+extern "C" void d2vita_set_present_map(float ox, float oy, float ix, float iy) {
+    if (ix <= 0.f || iy <= 0.f) return;
+    g_map_ox = ox; g_map_oy = oy; g_map_ix = ix; g_map_iy = iy; g_map_ok = true;
+}
+// Pavé tactile avant (1920x1088) -> espace fenêtre de jeu.
+// Sans carte publiée : l'ancienne formule entière, inchangée. Avec : on passe
+// par l'écran pour pouvoir retirer les bandes (et on perd au passage la double
+// troncature entière de l'ancienne, ce qui ne peut que rapprocher du bon
+// pixel).
+inline void pad_to_game(int px, int py, int* gx, int* gy) {
+    if (!g_map_ok) { *gx = px * g_game_w / 1920; *gy = py * g_game_h / 1088; return; }
+    const float sx = (float)px * (float)SCR_W / 1920.f;
+    const float sy = (float)py * (float)SCR_H / 1088.f;
+    *gx = (int)((sx - g_map_ox) * g_map_ix);
+    *gy = (int)((sy - g_map_oy) * g_map_iy);
 }
 uint32_t* g_fb[2] = {nullptr, nullptr};
 SceUID    g_fb_uid[2] = {0, 0};
@@ -188,7 +223,30 @@ static OverlayPub overlay_read() {
     } while ((s0 & 1u) || s0 != s1);
     return p;
 }
-inline void draw_keyboard(uint32_t* fb){ d2kb::draw(g_kb, fb, SCR_W, SCR_H); }
+uint32_t g_kb_last_focus = 0;         // ouverture auto du clavier : dernier focus texte vu
+// Translucent by default: the player can still see the character/menu behind
+// the keys while typing. D2_KBALPHA=0-100 in env.txt overrides (100 = opaque,
+// the old look); read once and clamped, like every other knob here.
+//
+// Below 100, drawing needs to READ whatever is already on screen to blend --
+// on this console that means CDRAM, measured elsewhere in this project at
+// ~814 ns PER PIXEL read (see d2gxm_kb_active below). So alpha<100 is only
+// ever drawn this (CPU) way as a fallback: the sceGxm path composes it on
+// the GPU instead (vita_gxm.cpp), which never touches CDRAM from the CPU at
+// all. This function stays correct standalone (host tests, the older GDI
+// presentation path, and the case where the GPU path isn't armed) but is
+// SLOW below 100 -- never call it for that case when d2gxm_kb_active() is
+// true, that CPU work would just be thrown away by the GPU draw underneath.
+int g_kb_alpha = -1;
+inline int kb_alpha(){
+    if (g_kb_alpha < 0){
+        const char* e = getenv("D2_KBALPHA");
+        g_kb_alpha = e ? atoi(e) : 80;
+        if (g_kb_alpha < 0) g_kb_alpha = 0; if (g_kb_alpha > 100) g_kb_alpha = 100;
+    }
+    return g_kb_alpha;
+}
+inline void draw_keyboard(uint32_t* fb){ d2kb::draw(g_kb, fb, SCR_W, SCR_H, kb_alpha()); }
 // --- async present: the scale+flip runs on its OWN Vita core -----------------
 // The guest emulation is single-core; the 960x544 palette scale (~2-5 ms of
 // A9 time per frame) moves to a second CPU via a dedicated thread (the
@@ -212,7 +270,12 @@ inline void draw_keyboard(uint32_t* fb){ d2kb::draw(g_kb, fb, SCR_W, SCR_H); }
 //      a default.
 // The palette (1 KB) is always copied on the producer side in every mode: it
 // costs nothing, and pulling it out of the race removes a risk for no gain.
-struct PresentSlot { uint8_t px[800*600]; uint8_t pal[1024]; int w,h,bpp,fps10;
+// Dimensionne sur l'ECRAN (960x544 = 522 240 o), pas sur 800x600 : avec
+// D2_RES le jeu dessine desormais jusqu'a la taille de la dalle, et l'ancien
+// tampon de 480 000 o faisait tomber l'image dans la garde SILENCIEUSE plus
+// bas. +42 Ko par emplacement, deux emplacements.
+constexpr size_t PRESENT_PX_MAX = 960u * 544u;
+struct PresentSlot { uint8_t px[PRESENT_PX_MAX]; uint8_t pal[1024]; int w,h,bpp,fps10;
                      const uint8_t* src; };   // src==px => already copied by the producer
 PresentSlot g_slot[2];
 volatile int g_pub = 0;        // slot index published for the consumer
@@ -475,9 +538,21 @@ void d2vita_overlay(uint32_t* fb) {
                      n = 0; t0 = now; }
     if (fps_en) draw_fps(fb, fps10);
     draw_reticle(fb);
-    if (g_kb.open) draw_keyboard(fb);
-    if (g_rm.open) radial_menu::draw(g_rm, fb, SCR_W, SCR_H);
+    // Opaque, or the GPU path isn't armed: draw here, same as always (write
+    // only, never reads CDRAM back -- always fast). Translucent AND armed:
+    // skip it, d2gxm_submit's own scene-injected quad composes it on the GPU
+    // instead (vita_gxm.cpp) -- drawing it here too would blend it TWICE.
+    if (g_kb.open && !(kb_alpha() < 100 && d2gxm_kb_active())) draw_keyboard(fb);
+    // The radial menu now composes entirely on the GPU (vita_gxm.cpp,
+    // d2gxm_ui_active()) -- opening it is already gated on that path being
+    // armed (see the Select handler below), so there is no CPU fallback to
+    // draw here; doing so would blend it a second time.
 }
+
+const d2kb::State* d2vita_kb_state() { return g_kb.open ? &g_kb : nullptr; }
+int d2vita_kb_alpha() { return kb_alpha(); }
+
+const radial_menu::State* d2vita_radial_state() { return g_rm.open ? &g_rm : nullptr; }
 
 void d2vita_present_init() {
     if (g_inited) return;
@@ -614,8 +689,18 @@ void do_scale_and_flip(const PresentSlot* sfr) {
         }
     }
     if (path_wx86) {
-        const wx86::DstRect full{0, 0, SCR_W, SCR_H};
-        wx86::scale_blit(dst, SCR_W, full, pixels, w, h, w * (bpp / 8),
+        // Même choix d'aspect que le chemin GXM. fit_rect() existait déjà dans
+        // le moteur (et est couvert par present_scale_selftest) mais n'était
+        // appelé nulle part : le port étirait toujours en plein écran.
+        const wx86::DstRect r = wx86::fit_rect(w, h, SCR_W, SCR_H, !aspect_iso());
+        if (r.x > 0 || r.y > 0) {
+            // Les bandes ne sont écrites par personne : sans ça elles gardent
+            // l'image de la frame précédente.
+            std::memset(dst, 0, (size_t)SCR_W * SCR_H * 4);
+            d2vita_set_present_map((float)r.x, (float)r.y,
+                                   (float)w / (float)r.w, (float)h / (float)r.h);
+        }
+        wx86::scale_blit(dst, SCR_W, r, pixels, w, h, w * (bpp / 8),
                          bpp == 8 ? wx86::SrcFormat::Pal8 : wx86::SrcFormat::Bgra32,
                          sfr->pal);
     } else {
@@ -695,7 +780,18 @@ void d2vita_present(const uint8_t* pixels, int w, int h, int bpp,
                     const uint8_t* palette) {
     if (!g_inited) d2vita_present_init();
     if (!pixels || w <= 0 || h <= 0 || !g_fb[0]) return;
-    if ((size_t)w * h * (bpp / 8) > sizeof g_slot[0].px) return;   // staging bound
+    // Borne du tampon de transit. Elle ETAIT SILENCIEUSE : une image plus
+    // grande disparaissait sans une ligne de journal, ce qui se presente comme
+    // un ecran noir sans cause. On le dit maintenant, une fois.
+    if ((size_t)w * h * (bpp / 8) > sizeof g_slot[0].px) {
+        static bool dit = false;
+        if (!dit) { dit = true;
+            char m[128]; std::snprintf(m, sizeof m,
+                "present: IMAGE JETEE %dx%dx%d (%zu o) > tampon %zu o",
+                w, h, bpp, (size_t)w * h * (bpp / 8), sizeof g_slot[0].px);
+            d2vita_progress(m); }
+        return;
+    }
     static int g_frames = 0;
     static int g_lastw = 0, g_lasth = 0;
     if (g_frames == 0) { char m[64]; std::snprintf(m, sizeof m, "first frame presented: %dx%d %dbpp", w, h, bpp); d2vita_progress(m);
@@ -709,7 +805,7 @@ void d2vita_present(const uint8_t* pixels, int w, int h, int bpp,
         d2vita_progress(b); }
     if (w != g_lastw || h != g_lasth) {   // resolution change: 800x600 menu -> 640x480 game world
         char m[80]; std::snprintf(m, sizeof m, "resolution -> %dx%d at frame %d", w, h, g_frames); d2vita_progress(m);
-        g_lastw = w; g_lasth = h; g_game_w = w; g_game_h = h;
+        g_lastw = w; g_lasth = h; g_game_w = w; g_game_h = h; inj_set_bounds(w, h);
     }
     ++g_frames;
     if ((g_frames % 500) == 0) { char m[48]; std::snprintf(m, sizeof m, "frames presented: %d", g_frames); d2vita_progress(m); }
@@ -788,7 +884,15 @@ const volatile unsigned int* g_wd_famn = nullptr;       // naps taken at seams
 // (AllocDynarecMap OOM → block retranslated every visit = silent storm).
 extern "C" uint64_t dyn86_sync_us;
 extern "C" uint32_t dyn86_fill_fail;
+// JIT pool occupancy (mman_vita.c). On the heartbeat because nothing ever
+// evicts a translated block: the pool only grows, saturation is reached about
+// 20 min into a session, and the first block that cannot be translated after
+// that kills the guest thread. fail= only moves once that is already
+// happening, and on every 0.1.6 report it moved inside the watchdog's own 10 s
+// blind window -- too late to be evidence of anything. jitp= shows it coming.
+extern "C" unsigned int dyn86_jitpool_size, dyn86_jitpool_used;
 extern "C" uint32_t d2rt_va_used_mb(void);              // VA-arena occupancy (B3 growth curve)
+extern "C" uint32_t d2rt_va_peak_mb(void);              // et son point haut (rt_boot.cpp)
 extern "C" unsigned long long d2rt_hot_stat(int);      // native-port counters
 extern "C" uint32_t d2rt_sprite_cache_kb(int which);   // D2's own sprite-cache accounting
 extern "C" unsigned long long d2rt_cs_stat(int k);     // critical sections served intrinsically
@@ -821,11 +925,17 @@ extern "C" {
     // dyn86_memintrin.h, since that header pulls in regs.h /
     // x86emu_private.h, outside the platform layer's include path.
     extern int dyn86_memintrin;
-    extern unsigned long long dyn86_mi_cpy_calls, dyn86_mi_cpy_served,
+    // `appels` is served+fb: the dedicated counter cost a 64-bit
+    // read-modify-write per call for a number that is a sum of two others.
+    extern unsigned long long dyn86_mi_cpy_served,
                               dyn86_mi_cpy_fb,    dyn86_mi_cpy_bytes;
-    extern unsigned long long dyn86_mi_set_calls, dyn86_mi_set_served,
+    extern unsigned long long dyn86_mi_set_served,
                               dyn86_mi_set_fb,    dyn86_mi_set_bytes;
     extern unsigned long long dyn86_mi_rej[4];
+    // D2_MEMINTRIN=3: calls served by the INLINE sequence never reach the
+    // helper, so they are in NONE of the counters above. What says the
+    // mechanism is armed is the number of sequences emitted.
+    extern unsigned long long dyn86_mi_fast_blocks, dyn86_mi_fc_n, dyn86_mi_fc_bad;
     // Generic native intrinsics (src/dynarec86/dyn86_intrin.h) + the D2-target
     // cross-oracle (src/runtime/d2_intrin_114.cpp).
     extern int dyn86_nopend;
@@ -838,6 +948,15 @@ extern "C" size_t d2rt_box86_custommalloc_kb(void);   // custommem.c: box86 allo
 extern "C" size_t d2rt_box86_jmptbl_kb(void);
 extern "C" unsigned int dyn86_jitpool_size, dyn86_jitpool_used;   // JIT pool (mman_vita.c)
 extern "C" unsigned int dyn86_jit_cur, dyn86_rw_cur;   // live JIT/RW memblock bytes (mman_vita)
+// Refus du tas de METADONNEES de box86 (dynablock.c). Publie ici parce que
+// c'est le seul poste memoire encore demande au noyau en pleine partie :
+// tant qu'il ne figurait nulle part, un refus se lisait comme un crash sans
+// cause (hfault_sys|SceLibKernel|0x120) au lieu d'un manque de RAM.
+extern "C" unsigned int dyn86_meta_allocfail;
+// Piscine RW des metadonnees de box86 (mman_vita.c). Publiee parce que
+// c'est la seule facon de voir, sur une console qui n'est pas la mienne,
+// si la reserve a bien ete prise et en quelle partition.
+extern "C" unsigned int dyn86_rwpool_size, dyn86_rwpool_used;
 // Optional per-guest-thread dump, registered by rt_boot once the scheduler
 // exists; called from the watchdog when the frame counter stalls.
 void (*d2vita_wd_threads)(void) = nullptr;
@@ -968,7 +1087,7 @@ int watchdog_thread(SceSize, void*) {
         sceKernelDelayThread(periode_us);
         sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DEFAULT);   // no idle dim/suspend mid-game
         char m[512];   // + champs fam=/gil=/run= (run= : 10 runners x <id>:<etat>:<blocs>)
-        std::snprintf(m, sizeof m, "alive: pump=%llu frames=%d reads=%llu eip=%08x sw=%llu io=%llums jit=%llums n=%u sync=%llums fail=%u va=%uMB spr=%u/%uMB cel=%u/%uKB big=%u jm=%uMB",
+        std::snprintf(m, sizeof m, "alive: pump=%llu frames=%d reads=%llu eip=%08x sw=%llu io=%llums jit=%llums n=%u sync=%llums fail=%u jitp=%u/%uMB va=%u/%uMB spr=%u/%uMB cel=%u/%uKB big=%u jm=%uMB",
                       g_wd_pump ? (unsigned long long)*g_wd_pump : 0ull,
                       g_wd_frames ? *g_wd_frames : -1,
                       g_wd_reads ? (unsigned long long)*g_wd_reads : 0ull,
@@ -978,7 +1097,9 @@ int watchdog_thread(SceSize, void*) {
                       g_wd_jit ? (unsigned long long)(*g_wd_jit / 1000000ull) : 0ull,
                       g_wd_jitn ? *g_wd_jitn : 0u,
                       (unsigned long long)(dyn86_sync_us / 1000ull),
-                      dyn86_fill_fail, d2rt_va_used_mb(),
+                      dyn86_fill_fail,
+                      dyn86_jitpool_used >> 20, dyn86_jitpool_size >> 20,
+                      d2rt_va_used_mb(), d2rt_va_peak_mb(),
                       d2rt_sprite_cache_kb(0) >> 10, d2rt_sprite_cache_kb(1) >> 10,
                       // cel=<usage>/<ceiling> KB: the CelData cache, hard-capped
                       // at 512,000 bytes — the only cache in the game that
@@ -1200,10 +1321,11 @@ int watchdog_thread(SceSize, void*) {
             // anyone in particular.
             char mm[288];   // must fit "dont box86: ..." without truncating
             std::snprintf(mm, sizeof mm,
-              "MEM: libre user=%d Ko cdram=%d Ko phycont=%d Ko (rc=%d) | tas newlib: en-cours=%d Ko reserve=%d/%u Ko libre=%d Ko | dont box86: custom=%u Ko sauts=%u Ko | piscine JIT %u/%u Ko",
+              "MEM: libre user=%d Ko cdram=%d Ko phycont=%d Ko (rc=%d) | tas newlib: en-cours=%d Ko reserve=%d/%u Ko libre=%d Ko | dont box86: custom=%u Ko (refus=%u) sauts=%u Ko | piscine RW %u/%u Ko | piscine JIT %u/%u Ko",
               fi.size_user>>10, fi.size_cdram>>10, fi.size_phycont>>10, r,
               (int)(mi.uordblks>>10), (int)(mi.arena>>10), _newlib_heap_size_user>>10, (int)(mi.fordblks>>10),
-              (unsigned)d2rt_box86_custommalloc_kb(), (unsigned)d2rt_box86_jmptbl_kb(),
+              (unsigned)d2rt_box86_custommalloc_kb(), dyn86_meta_allocfail, (unsigned)d2rt_box86_jmptbl_kb(),
+              dyn86_rwpool_used>>10, dyn86_rwpool_size>>10,
               dyn86_jitpool_used>>10, dyn86_jitpool_size>>10);
             d2vita_progress(mm); }
           // D2_NATPROF: TIME per trap slot within the window (native ports +
@@ -1282,17 +1404,22 @@ int watchdog_thread(SceSize, void*) {
           // knob is armed, so "calls=0" is itself a readable result instead
           // of an unexplained silence.
           if (dyn86_memintrin) {
-              char mi[224];
+              char mi[288];
               std::snprintf(mi, sizeof mi,
                   "memintrin: mode=%d | memcpy appels=%llu servis=%llu replis=%llu octets=%llu"
                   " | memset appels=%llu servis=%llu replis=%llu octets=%llu"
-                  " | rejets arene=%llu taille=%llu",
+                  " | rejets arene=%llu taille=%llu"
+                  " | en-ligne: sequences=%llu oracle=%llu/%llu",
                   dyn86_memintrin,
-                  (unsigned long long)dyn86_mi_cpy_calls, (unsigned long long)dyn86_mi_cpy_served,
+                  (unsigned long long)(dyn86_mi_cpy_served + dyn86_mi_cpy_fb),
+                  (unsigned long long)dyn86_mi_cpy_served,
                   (unsigned long long)dyn86_mi_cpy_fb,    (unsigned long long)dyn86_mi_cpy_bytes,
-                  (unsigned long long)dyn86_mi_set_calls, (unsigned long long)dyn86_mi_set_served,
+                  (unsigned long long)(dyn86_mi_set_served + dyn86_mi_set_fb),
+                  (unsigned long long)dyn86_mi_set_served,
                   (unsigned long long)dyn86_mi_set_fb,    (unsigned long long)dyn86_mi_set_bytes,
-                  (unsigned long long)dyn86_mi_rej[0],    (unsigned long long)dyn86_mi_rej[1]);
+                  (unsigned long long)dyn86_mi_rej[0],    (unsigned long long)dyn86_mi_rej[1],
+                  (unsigned long long)dyn86_mi_fast_blocks,
+                  (unsigned long long)dyn86_mi_fc_bad,    (unsigned long long)dyn86_mi_fc_n);
               d2vita_progress(mi);
           }
           // UNAL: 64-bit x87 "parity" accesses (LDRD/STRD that box86 assumes
@@ -1912,6 +2039,11 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
     }
     return true;
 }
+// Ouverture du clavier (automatique ou R+Triangle), D2_KBSIMPLE lu une fois.
+void kb_open_now(){
+    if (g_kb_simple < 0){ const char* e=getenv("D2_KBSIMPLE"); g_kb_simple = (e&&*e&&strcmp(e,"0"))?1:0; }
+    d2kb::open_kb(g_kb, g_kb_simple);
+}
 } // namespace
 
 extern "C" void d2vita_input_tick(void){
@@ -2026,6 +2158,18 @@ extern "C" void d2vita_input_tick(void){
     // L + Start = on-demand screenshot (ux0:data/d2vita/shot_<frame>.bmp) —
     // for capturing a rendering defect the test bench can't reproduce on its own.
     if ((b&B_START)&&!(was&B_START)&&(b&B_L)){ if(d2gxm_shot_request) d2gxm_shot_request(); return; }   // L+Start: screenshot
+    // Ouverture automatique quand un champ texte prend le focus (sonde
+    // text_focus_probe.cpp). La fermeture reste manuelle, d'ou le verrou : le
+    // dernier focus vu suit la sonde meme vers 0, une fermeture au Select ne
+    // rouvre rien, un retour au meme champ (focus passe par 0) est un nouveau
+    // front. Jamais sous l'autopilote : les bancs tapent le nom du perso par
+    // D2SCRIPT sans manette, le clavier resterait dessine sur toute la partie.
+    if (script_cut){
+        const uint32_t f = d2vita_text_focus();
+        const bool rise = f != 0 && f != g_kb_last_focus;
+        g_kb_last_focus = f;
+        if (rise && !g_kb.open){ kb_open_now(); d2vita_progress("clavier: ouverture automatique"); return; }
+    }
     // R+Triangle OPENS the virtual keyboard (the radial menu's own
     // "keyboard" sector maps to "character"/C instead). Triangle ALONE stays
     // W (weapon swap, generic table below). Only handles the OPEN edge: once
@@ -2039,9 +2183,8 @@ extern "C" void d2vita_input_tick(void){
         ? ((b&B_RIGHT) && !(was&B_RIGHT) && (b&B_L) && !(b&B_R))
         : ((b&B_TRI)   && !(was&B_TRI)   && layer);
     if (kb_open_edge && !g_kb.open){
-        if (g_kb_simple < 0){ const char* e=getenv("D2_KBSIMPLE"); g_kb_simple = (e&&*e&&strcmp(e,"0"))?1:0; }
         pad_leave();
-        d2kb::open_kb(g_kb, g_kb_simple);
+        kb_open_now();
         return;
     }
     if (g_kb.open){
@@ -2072,7 +2215,9 @@ extern "C" void d2vita_input_tick(void){
         SceTouchData tk; memset(&tk,0,sizeof tk);                // tap sur une touche
         if (sceTouchPeek(SCE_TOUCH_PORT_FRONT,&tk,1)>=0){
             if (tk.reportNum>0){ if(g_t_at<0){ g_t_at=g_itick; g_t_moved=false; }
-                g_t_x=tk.report[0].x/2; g_t_y=tk.report[0].y/2; }   // 1920x1088 -> 960x544
+                // Le clavier vit en pixels ÉCRAN (pas dans la fenêtre de jeu) :
+                // pas de bandes à retirer ici, seulement l'échelle du pavé.
+                g_t_x=tk.report[0].x*SCR_W/1920; g_t_y=tk.report[0].y*SCR_H/1088; }
             else if (g_t_at>=0){
                 int r=0,c=0;
                 if (g_itick-g_t_at<g_tap_ticks &&
@@ -2090,7 +2235,10 @@ extern "C" void d2vita_input_tick(void){
         const bool selDown=(b&B_SELECT)!=0, selWas=(was&B_SELECT)!=0;
         if (selDown && !selWas) {
             if (layer) { g_sel_mode=SEL_SPACE; d2vita_inject("keydown",0x20,0); }
-            else       { g_sel_mode=SEL_RADIAL; pad_leave(); radial_menu::begin(g_rm); }
+            // Le menu n'existe QUE sur le GPU. S'il n'est pas armé (.gxp
+            // absent, atlas non alloué), ne pas l'ouvrir : un menu invisible
+            // qui avale quand même les entrées serait pire que pas de menu.
+            else if (d2gxm_ui_active()) { g_sel_mode=SEL_RADIAL; pad_leave(); radial_menu::begin(g_rm); }
         }
         if (g_sel_mode==SEL_RADIAL) {
             g_lmb_stick=false; g_lmb_btn=false; lmb_update();      // release any click in progress

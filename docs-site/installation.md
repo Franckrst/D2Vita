@@ -17,7 +17,7 @@ ux0:data/d2vita/1.14d/
 ├── Game.exe
 ├── d2data.mpq      (required)
 ├── d2exp.mpq       (required, LoD expansion)
-├── patch_d2.mpq    (recommended — 1.14d patch)
+├── patch_d2.mpq    (required — 1.14d patch)
 ├── d2char.mpq
 ├── d2sfx.mpq
 ├── d2music.mpq
@@ -106,6 +106,26 @@ restricts the runtime to a private/local server instead of official
 Battle.net, which is the default. It's a network-policy choice, not a
 performance lever, so it isn't part of the config above — add it to
 `env.txt` yourself if you want it. Details: [Online play](en-ligne.md).
+
+### The picture
+
+Nothing to set: once you're in a game the game itself draws at the screen's
+own 960×544, one texel per pixel. The knobs exist only to undo that.
+`D2_RES=0` puts the game back to its 800×600 (so back to the side bars);
+`D2_RES=1280x720` forces another size. `D2_ASPECT=etire` stretches the
+menus to full width instead of bordering them — menu art is fixed-size, so
+it is never redrawn at 960×544. `D2_HUDFILL=0` stops the HUD bar from
+filling the two gaps that its 800-wide art leaves on a 960-wide screen,
+and stops the black column between two open panels (character sheet plus
+inventory or skill tree) from being filled with the frame's own stone.
+`D2_RES_PANNEAUX=centre` centres the 800 layout as one block instead of
+keeping the panels at the screen edges (they then touch, with an 80 px
+stone strip on each side); `D2_RES_PANNEAUX=0` leaves the game its own
+inventory tables and border frame (items, clicks and frame then sit off
+the panels).
+
+The wider field of view a native resolution gives is an advantage in play:
+keep it to solo and private servers.
 
 ## Verifying the install
 

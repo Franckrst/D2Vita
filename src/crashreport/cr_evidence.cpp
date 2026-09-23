@@ -177,9 +177,21 @@ Evidence build_evidence(IoApi& io, const SessionRecord& prev, int64_t now_unix, 
     // non-zero main exit code exit_process. The code itself is reported as-is,
     // so a divide-by-zero is distinguishable from an access violation.
     Abnormal ab;
-    auto main_exit = [&ab, &no_frames](uint32_t code) {
+    // A main_thread_fault used to be reported with NO frames at all, even when
+    // the very same log carried a NATIVE FAULT block naming the faulting EIP.
+    // abnormal_exit outranks guest_fault, so the empty-framed abnormal_exit
+    // won and the fault's own addresses were demoted to a bare "guest_fault"
+    // hint. Every such death then canonicalised to the same
+    // "exit|main_thread_fault|<code>|-" with nothing to tell one apart from
+    // another: signature SMRD2J34ZXU2A55I is that bucket, 90 claims across 27
+    // consoles and every build from 0.1.0 to 0.1.6, holding crashes that have
+    // nothing to do with each other. Reusing the frames the parser already
+    // extracted splits the bucket by fault site, and costs nothing: the field
+    // is the contract's own (claim.v1 AbnormalExitFeatures.frames).
+    auto main_exit = [&ab, &no_frames, &pf](uint32_t code) {
         if (code == 0) return;
-        if (is_fault_exit_code(code)) ab.consider(5, "main_thread_fault", true, code, "", no_frames);
+        const std::vector<Addr>& fr = pf.native_fault ? pf.fault_frames : no_frames;
+        if (is_fault_exit_code(code)) ab.consider(5, "main_thread_fault", true, code, "", fr);
         else ab.consider(6, "exit_process", true, code, "", no_frames);
     };
     if (pf.unshimmed) ab.consider(0, "unshimmed_import", false, 0, pf.unshimmed_import, no_frames);

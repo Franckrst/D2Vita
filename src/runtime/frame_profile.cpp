@@ -13,6 +13,16 @@
 #include <cstring>
 using namespace d2rt;
 extern "C" uint32_t d2rt_timeprof_base;   // also declared in tools/rt_boot.cpp
+// Fenetre VirtualAlloc de l'invite : usage courant et POINT HAUT. Publie ici
+// en plus de la ligne alive: de la console, parce que alive: est console-only
+// et qu'un chiffre qu'aucun barreau de l'echelle ne peut verifier avant le
+// materiel n'est pas un chiffre, c'est une esperance.
+extern "C" uint32_t d2rt_va_used_mb(void);
+extern "C" uint32_t d2rt_va_peak_mb(void);
+// MESURE (branche fix/box86-rw-pool) — cf. la ligne "rwmeta:" plus bas.
+extern "C" size_t d2rt_box86_custommalloc_kb(void);   // custommem.c, sous TRACE_MEMSTAT
+extern "C" size_t d2rt_box86_jmptbl_kb(void);
+extern "C" unsigned long long dyn86_emit_blocks, dyn86_emit_arm_bytes;
 
 // ====== D2_LOOPWATCH: what the RENDER THREAD does between two frames =======
 // The 25 fps ceiling isn't proven with an average frames-per-second figure: it
@@ -692,17 +702,35 @@ void fp_tick(int frame){
     if(r.dt_us > g_fpWinWorst.dt_us) g_fpWinWorst = r;
     if(cur.t - g_fpWinT0 >= 10000000ull){       // one line every 10 s
         FpRec w = fp_delta((uint32_t)frame, g_fpWinBase, cur);
-        char m[224];
+        // 288 et non 224 : la ligne portait deja ~200 caracteres dans le pire cas,
+        // et le couple va= en ajoute une vingtaine. snprintf tronquerait sans
+        // rien dire, et le champ ajoute serait le premier a disparaitre.
+        char m[288];
         std::snprintf(m,sizeof m,
-            "frames: n=%u fps=%u.%u pire=%ums@f%u (blocs=%u jit=%ums sync=%ums reads=%u scomp=%u sw=%u) | fen: blocs=%u jit=%ums reads=%u",
+            "frames: n=%u fps=%u.%u pire=%ums@f%u (blocs=%u jit=%ums sync=%ums reads=%u scomp=%u sw=%u) | fen: blocs=%u jit=%ums reads=%u | va=%u/%u Mo",
             g_fpWinFrames,
             (unsigned)((uint64_t)g_fpWinFrames*10000000ull/(cur.t-g_fpWinT0))/10u,
             (unsigned)((uint64_t)g_fpWinFrames*10000000ull/(cur.t-g_fpWinT0))%10u,
             g_fpWinWorst.dt_us/1000u, g_fpWinWorst.frame, g_fpWinWorst.blocks,
             g_fpWinWorst.jit_us/1000u, g_fpWinWorst.sync_us/1000u, g_fpWinWorst.reads,
             g_fpWinWorst.scomp, g_fpWinWorst.sw,
-            w.blocks, w.jit_us/1000u, w.reads);
+            w.blocks, w.jit_us/1000u, w.reads,
+            d2rt_va_used_mb(), d2rt_va_peak_mb());
         d2vita_progress(m); std::printf("[%s]\n",m); std::fflush(stdout);
+        // MESURE (branche fix/box86-rw-pool) — metadonnees RW de box86. Ce
+        // poste est le SEUL consommateur de RAM utilisateur qui demande encore
+        // au noyau en pleine partie (custommem.c: blocs mmap de 64 Kio), donc
+        // le seul dont le plafond n'est pas connu au boot. La Vita le publie
+        // deja dans la ligne MEM: ; ici c'est la meme mesure, hors console,
+        // pour etablir ce plafond sous qemu.
+        { char mm[176];
+          const unsigned long long nb = dyn86_emit_blocks;
+          std::snprintf(mm,sizeof mm,
+            "rwmeta: custom=%u Ko sauts=%u Ko | blocs=%llu arm=%lluo (%llu o/bloc, %llu o de metadonnee par bloc)",
+            (unsigned)d2rt_box86_custommalloc_kb(), (unsigned)d2rt_box86_jmptbl_kb(),
+            nb, dyn86_emit_arm_bytes, nb? dyn86_emit_arm_bytes/nb : 0ull,
+            nb? ((unsigned long long)d2rt_box86_custommalloc_kb()<<10)/nb : 0ull);
+          d2vita_progress(mm); std::printf("[%s]\n",mm); std::fflush(stdout); }
         pc_line(g_fpWinFrames, cur.t - g_fpWinT0);   // where the time goes (PROF_COUNTERS)
         ep_line();                                   // guest code breakdown
         gr_line(g_fpWinFrames);                      // ring buffer (silent without D2_GLIDERING)

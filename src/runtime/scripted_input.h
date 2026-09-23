@@ -17,5 +17,6 @@ void win_activate_once();               // WM_ACTIVATEAPP/ACTIVATE/SETFOCUS, ide
 void inj_parse(const char* s);          // parses D2SCRIPT into the scheduled event list
 unsigned long inj_count();              // number of scheduled D2SCRIPT events (g_inj.size())
 void inj_queue(const std::string& act, int a, int b);   // queues/executes one action now
+void inj_set_bounds(int w, int h);      // cursor clamp = the GAME size (800x600 until told otherwise)
 void inj_tick(int frame);               // fires scheduled D2SCRIPT events due at this frame
 void cmd_poll();                        // polls $D2CMDFILE for newly-appended actions

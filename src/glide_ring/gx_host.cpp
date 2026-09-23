@@ -29,6 +29,13 @@
 #endif
 using namespace d2rt;
 extern "C" void r60_gxm_arm();
+// Override de resolution de jeu (src/runtime/native_hooks_resolution.cpp).
+// FAIBLES : l'anneau Glide se compile aussi seul (tools/build_glide_ring.sh),
+// sans le runtime. Nuls dans ce cas, et grSstWinOpen garde la table Glide.
+extern "C" { __attribute__((weak)) int d2res_active(void);
+             __attribute__((weak)) int d2res_w(void);
+             __attribute__((weak)) int d2res_h(void);
+             __attribute__((weak)) int d2res_centre(void); }
 #ifdef __vita__
 extern "C" int d2vita_pin_self(int mask, unsigned* relu);
 #endif
@@ -525,8 +532,8 @@ static uint64_t g_grpTexHashUs=0, g_gxTexHashN=0, g_gxTexHashB=0;   // hashed P8
 // average) with a WORD-BY-WORD 64-bit FNV-1a costs real per-frame CPU time,
 // because FNV-64 is a SERIAL CHAIN of 64-bit multiplications (umull+2 mla per
 // word on ARMv7).
-//   0 (default): 64-bit FNV-1a over the words, then folded with (w<<32|h).
-//   1          : 4 independent 32-bit multiply lanes (xxHash32-style rounds:
+//   0          : 64-bit FNV-1a over the words, then folded with (w<<32|h).
+//   1 (default): 4 independent 32-bit multiply lanes (xxHash32-style rounds:
 //                v = rotl(v + w*P2, 13) * P1), FULL COVERAGE, folded into 64
 //                bits by two distinct avalanches of the 4 lanes (+ w,h,nb).
 //                Same information hashed as mode 0, without the serial chain.
@@ -536,7 +543,17 @@ static uint64_t g_grpTexHashUs=0, g_gxTexHashN=0, g_gxTexHashB=0;   // hashed P8
 //                textures differing only in unread bytes would be conflated):
 //                measurement only, never used during play.
 // Required validation (qemu bench): `hits=` and `lh=` must not change across modes.
-static int texhash_mode(){ static int v=-1; if(v<0){ const char* e=getenv("D2_TEXHASH"); v=(e&&*e)?atoi(e):0; if(v<0||v>2) v=0; } return v; }
+// Mode 1 became the default on 2026-09-22 (it had been in the validated game
+// env since 06/09, but the VPK ships no env.txt so no player ran it).
+// Console, patrol bench: 8.16 -> 5.05 ns per hashed byte, +2.7 % frames/s ON
+// ITS OWN (22.08 vs 21.49). Honest caveat: it buys NOTHING on top of
+// D2_FLUSHFIL (23.82 vs 23.92, inside the noise) because the hashing then runs
+// on the flush thread, which has ~23 ms of idle per frame. Kept as the default
+// because it is strictly less work, not because it shows up in frames/s.
+// NOT a collision risk: over a full run it produces 4499 atlas misses against
+// the control's 4475 — MORE, not fewer. A collision would conflate two
+// textures and produce fewer.
+static int texhash_mode(){ static int v=-1; if(v<0){ const char* e=getenv("D2_TEXHASH"); v=(e&&*e)?atoi(e):1; if(v<0||v>2) v=1; } return v; }
 static inline uint32_t rotl32(uint32_t x,int r){ return (x<<r)|(x>>(32-r)); }
 static uint64_t tex_hash(const uint8_t* p, uint32_t nb, uint32_t w, uint32_t h){
     const int mode=texhash_mode();
@@ -831,7 +848,17 @@ static inline void gx_sync_for_draw(){
 //      grBufferSwap, for the previous batch to be consumed (`waits=`): at most
 //      ONE frame in flight, so at most TWO frames' worth of ring occupancy —
 //      double the synchronous case, on a ring that holds about 10.
-static bool ff_on(){ static int v=-1; if(v<0){ const char* e=getenv("D2_FLUSHFIL"); v=(e&&*e&&strcmp(e,"0"))?1:0; } return v!=0; }
+// ON by default since 2026-09-22, D2_FLUSHFIL=0 to disable. It had been in the
+// validated game env since 06/09, but the VPK ships no env.txt, so no player
+// ever ran it. Console, patrol bench on the real save (4 controls dispersed by
+// 0.3 % over 8 hours): 21.49 -> 23.92 frames/s (+11.3 %), and — the reason it
+// matters more than the average — frames taking 50-100 ms drop from 1480 to 68
+// out of 6200. The game thread's time inside the flush goes from 9600 us to 3.
+// ⚠️ Removing 12-13 ms from the game thread only returns ~4.7 ms of frame time:
+// the three cores share L2 and memory bandwidth, and the walk moves ~1 MB per
+// frame. Deporting MEMORY-bound work to another core recovers about a third of
+// it, not all. Do not size future work on the un-deported figure.
+static bool ff_on(){ static int v=-1; if(v<0){ const char* e=getenv("D2_FLUSHFIL"); v=(e&&*e&&!strcmp(e,"0"))?0:1; } return v!=0; }
 static bool g_ffArmed=false;                 // the thread is running: the async path is active
 static volatile int      g_ffPending=0;      // 1 = a batch is waiting to be consumed
 static volatile uint32_t g_ffHead=0;         // handed-off head (absolute byte counter)
@@ -841,6 +868,12 @@ static uint64_t g_ffStgWaits=0, g_ffStgFallback=0, g_ffCopyUs=0, g_ffCopyB=0;
 static uint32_t g_ffOccMax=0;                // max ring occupancy (bytes)
 // Texture staging buffer, in HOST memory (not in the guest arena).
 // D2_FLUSHFIL_STG = size in MiB (default 4, forced to a power of two).
+// 4 MiB costs ~3.3 MB of the newlib heap, taking its room to grow from 11.1 to
+// 8.6 MB. 2 MiB was measured on console (patrol, 6200 frames): same frames/s
+// (24.00 vs 23.92, noise) but it recovers only ~500 KB at the high-water mark
+// and it produced one `attentes-tampon` stall where 4 MiB produced none. Kept
+// at 4; drop to 2 via the knob if heap pressure ever becomes the binding
+// constraint (see the ALLOC FAIL / heap-ceiling history).
 static uint8_t*  g_ffStg=nullptr;
 static uint32_t  g_ffStgSize=0, g_ffStgMask=0;
 static volatile uint32_t g_ffStgHead=0, g_ffStgTail=0;   // monotonic byte counters
@@ -1014,7 +1047,16 @@ static void gx_state(uint32_t op, uint32_t len, const uint32_t* rp){
       case 0x25:                                                  // grSstWinOpen
         { static const uint16_t RW[16]={320,320,400,512,640,640,640,640,800,960,856,512,1024,1280,1600,400};
           static const uint16_t RH[16]={200,240,256,384,200,350,400,480,600,720,480,256, 768,1024,1200,300};
-          if(a[1]<16){ g_gxResW=RW[a[1]]; g_gxResH=RH[a[1]];
+          // D2 ne demande jamais que l'index 7 (640x480) ou 8 (800x600). Avec
+          // D2_RES arme, on ouvre la taille demandee par l'override quel que
+          // soit l'index : c'est legitime parce que NOUS sommes le pilote
+          // Glide (meme modele que D2DX), et les crochets de
+          // native_hooks_resolution ont deja mis les globals du jeu d'accord.
+          // Sans l'override (defaut), rien ne change.
+          if(d2res_active && d2res_active()){
+              g_gxResW=(uint16_t)d2res_w(); g_gxResH=(uint16_t)d2res_h();
+              r60_gxm_lock(); d2gxm_set_window((int)g_gxResW,(int)g_gxResH); r60_gxm_unlock(); }
+          else if(a[1]<16){ g_gxResW=RW[a[1]]; g_gxResH=RH[a[1]];
               r60_gxm_lock(); d2gxm_set_window((int)g_gxResW,(int)g_gxResH); r60_gxm_unlock(); } }
         break;
       case 0x30: g_gxClear=a[1]; break;                           // grBufferClear
@@ -1101,6 +1143,261 @@ static int g_cpDumpF=-2, g_cpDumpN=0, g_cpDump2=-1, g_cpDump2N=0, g_cpLastBk=0;
 // A draw record -> triangles. `vh` = host view of the FIRST vertex (the
 // following cnt*stride bytes are contiguous: a record never straddles the
 // end of the ring).
+// ---- LES DEUX TROUS DU BANDEAU, COMBLES AVEC SA PROPRE PIERRE --------------
+//
+// D2 compose le bandeau du bas avec six vignettes de 800CtrlPnl7 dont il
+// calcule la position a partir de GeneralDisplayWidth (branche « mode 800 »
+// de Game+0x9850a, relevee au desassemblage) :
+//
+//     f0 globe gauche  x=0        117x104 |  f5 globe droit  x=W-117  117x104
+//     f1 x=W/2-235  f2 x=W/2-107  f3 x=W/2+21  f4 x=W/2+149   (y=H-55)
+//
+// plus deux boutons de sort de 48 px colles aux globes. A W=800 tout est
+// jointif. A 960 les globes suivent les bords de l'ecran pendant que les
+// quatre vignettes centrales restent centrees : DEUX TROUS de (W-800)/2 px
+// s'ouvrent a [165, W/2-235) et [W/2+235, W-165), par lesquels on voit le
+// monde. Mesure au pixel sur capture console 960x544 : 165..244 et 715..794.
+//
+// Elargir l'art est exclu — il appartient a Blizzard et ce depot n'en embarque
+// aucun octet. On comble donc avec la pierre DU BANDEAU LUI-MEME : des que f4
+// passe (reconnue a sa geometrie exacte, au pixel pres), on reemet des quads
+// qui rechantillonnent ses colonnes 46..61, la plage lisse entre le bouton et
+// la volute — liseres dore du haut et du bas comprises, donc les deux filets
+// horizontaux du bandeau se prolongent. La tuile est repetee en alternant le
+// sens pour que la repetition ne se lise pas.
+//
+// Meme cellule d'atlas, meme lot, meme etat : aucune texture ajoutee, aucun
+// octet relu depuis le CPU, une douzaine de quads par image. D2_HUDFILL=0
+// desarme (on revoit les trous), =2 journalise la premiere detection.
+static int      g_hudFill = -1;
+static uint64_t g_hudFillQuads = 0;
+static bool     g_hudFillSaid = false;
+
+// Le quad recu n'est PAS la vignette : D2 la pose dans une texture completee
+// en puissances de deux et dessine la texture ENTIERE. Releve a l'inventaire
+// (D2_HUDFILL=3, qemu, en jeu) : f4 arrive en (W/2+149, H-64) 128x64, avec
+// l'art 86x55 cale en bas a gauche et le reste transparent. Les colonnes
+// utiles gardent donc leur abscisse (l'art commence a la colonne 0 du quad) ;
+// c'est la LARGEUR de reference qui vaut 128, pas 86. La conversion en s se
+// fait par la mesure du quad, jamais par une hypothese sur la texture.
+static const float HUD_Q_W = 128.0f, HUD_Q_H = 64.0f;
+static const float HUD_SRC0 = 46.0f, HUD_SRC1 = 61.0f;   // pierre lisse de f4
+
+static void gx_panel_gapfill(uint32_t n, uint32_t stride, const uint8_t* vh,
+                             int oxy, int ost0, int oargb,
+                             const d2gr::VtxPre& pre){
+    if(g_hudFill<0){ const char* e=getenv("D2_HUDFILL");
+                     g_hudFill = (e&&*e) ? atoi(e) : 1; }
+    if(!g_hudFill || !pre.tex) return;          // sans cellule, rien a rechantillonner
+    // La taille vient des globals DU JEU, pas de g_gxResW : celui-ci n'est
+    // rafraichi qu'a grSstWinOpen, et la bascule 960x544 se fait a l'entree en
+    // partie en ecrivant GeneralDisplayWidth — c'est exactement ce que lisent
+    // les 126 sites de centrage de l'interface, donc la seule verite ici.
+    if(!(d2res_active && d2res_active())) return;
+    const float W=(float)d2res_w(), H=(float)d2res_h();
+    if(W<=800.0f) return;                       // 800x600 : le bandeau est jointif
+    if(n<3 || n>4) return;
+
+    auto ld=[&](uint32_t i,int off)->uint32_t{
+        uint32_t w; std::memcpy(&w, vh+(size_t)i*stride+(uint32_t)off, 4); return w; };
+    float xs[4],ys[4],ss[4],ts[4];
+    for(uint32_t i=0;i<n;i++){
+        union{uint32_t u;float f;} X,Y,S,T;
+        X.u=ld(i,oxy); Y.u=ld(i,oxy+4); S.u=ld(i,ost0); T.u=ld(i,ost0+4);
+        xs[i]=X.f; ys[i]=Y.f; ss[i]=S.f; ts[i]=T.f;
+    }
+    float x0=xs[0],x1=xs[0],y0=ys[0],y1=ys[0];
+    for(uint32_t i=1;i<n;i++){ if(xs[i]<x0)x0=xs[i]; if(xs[i]>x1)x1=xs[i];
+                               if(ys[i]<y0)y0=ys[i]; if(ys[i]>y1)y1=ys[i]; }
+    // D2_HUDFILL=3 : inventaire des dessins qui touchent la zone du bandeau.
+    // Sans lui, une signature qui ne colle pas ne dit RIEN de ce que le jeu a
+    // reellement emis, et il faut une deuxieme partie complete pour l'ap-
+    // prendre. Plafonne : un journal de 40 lignes reste lisible.
+    static int said3 = 0;
+    if(g_hudFill>=3 && said3<40 && y1>H-56.0f && y0>H-120.0f){
+        ++said3;
+        std::printf("hudfill?: n=%u (%.1f,%.1f)-(%.1f,%.1f) %.0fx%.0f cellule=%d\n",
+                    n,x0,y0,x1,y1,x1-x0,y1-y0,(int)g_gxSt.cell);
+        std::fflush(stdout);
+    }
+    // Signature de f4 : origine ET taille du QUAD. Un quad de 128x64 pose
+    // ailleurs, ou pose la avec une autre taille, n'est pas le bandeau.
+    const float ex=W*0.5f+149.0f, ey=H-HUD_Q_H;
+    if(n!=4 ||
+       std::fabs(x0-ex)>1.0f || std::fabs(y0-ey)>1.0f ||
+       std::fabs((x1-x0)-HUD_Q_W)>1.0f || std::fabs((y1-y0)-HUD_Q_H)>1.0f) return;
+
+    // s,t aux bords, releves sur les sommets eux-memes : valable quel que soit
+    // le remplissage de la texture d'origine et la convention sNorm/tNorm.
+    float s0=0,s1=0,t0=0,t1=0; bool gs0=false,gs1=false,gt0=false,gt1=false;
+    for(uint32_t i=0;i<4;i++){
+        if(!gs0 && std::fabs(xs[i]-x0)<0.5f){ s0=ss[i]; gs0=true; }
+        if(!gs1 && std::fabs(xs[i]-x1)<0.5f){ s1=ss[i]; gs1=true; }
+        if(!gt0 && std::fabs(ys[i]-y0)<0.5f){ t0=ts[i]; gt0=true; }
+        if(!gt1 && std::fabs(ys[i]-y1)<0.5f){ t1=ts[i]; gt1=true; }
+    }
+    if(!(gs0&&gs1&&gt0&&gt1)) return;
+    const float sA = s0 + (s1-s0)*(HUD_SRC0/HUD_Q_W);    // debut de la pierre lisse
+    const float sB = s0 + (s1-s0)*(HUD_SRC1/HUD_Q_W);    // fin
+    const float tile = HUD_SRC1-HUD_SRC0;                // 15 px de fenetre
+    const uint32_t col = (oargb>=0) ? ld(0,oargb) : 0xFFFFFFFFu;
+
+    const float holes[2][2] = { { 165.0f,        W*0.5f-235.0f },
+                                { W*0.5f+235.0f, W-165.0f     } };
+    for(int h=0; h<2; ++h){
+        float x=holes[h][0]; const float xe=holes[h][1];
+        for(int k=0; x < xe-0.01f; ++k){
+            const float w = (xe-x < tile) ? (xe-x) : tile;
+            const bool  mir = (k & 1);                   // une tuile sur deux retournee
+            const float a = mir ? sB : sA, b = mir ? sA : sB;
+            const float bc = a + (b-a)*(w/tile);         // derniere tuile : coupee, jamais etiree
+            const uint16_t i0=g_gxBuild.vertexPre(pre,x,    y0,col,a, t0);
+            const uint16_t i1=g_gxBuild.vertexPre(pre,x+w,  y0,col,bc,t0);
+            const uint16_t i2=g_gxBuild.vertexPre(pre,x+w,  y1,col,bc,t1);
+            const uint16_t i3=g_gxBuild.vertexPre(pre,x,    y1,col,a, t1);
+            g_gxBuild.tri(i0,i1,i2); g_gxBuild.tri(i0,i2,i3);
+            ++g_hudFillQuads; x += w;
+        }
+    }
+    if(g_hudFill>=2 && !g_hudFillSaid){
+        g_hudFillSaid = true;
+        std::printf("hudfill: f4 vue en (%.1f,%.1f) %.0fx%.0f, s=[%.2f,%.2f] t=[%.2f,%.2f]"
+                    " — trous %.0f..%.0f et %.0f..%.0f combles\n",
+                    x0,y0,x1-x0,y1-y0,s0,s1,t0,t1,
+                    holes[0][0],holes[0][1],holes[1][0],holes[1][1]);
+        std::fflush(stdout);
+    }
+}
+// ---- LES DEUX BANDES LATERALES, entre cadre et bord d'ecran ----------------
+//
+// Deux ancrages possibles (D2_RES_PANNEAUX, native_hooks_resolution.cpp) :
+//   bords (defaut) : panneau gauche en 0..400, droit en W-400..W. Avec les
+//     deux ouverts D2 ne dessine plus le monde du tout et la colonne
+//     400..W-400, de 0 a H-47, n'est couverte par rien : noire. Avec un seul
+//     le monde y est visible, rien a combler.
+//   centre : disposition 800 centree (panneaux 160..800, cadre 80..880 a
+//     960). D2 ne dessine le monde que du cote oppose a un panneau ouvert :
+//     la bande 0..80 (gauche) ou W-80..W (droite) reste noire, meme seule.
+//
+// Meme remede que le bandeau ci-dessus : on les comble avec la pierre DU CADRE
+// LUI-MEME, rechantillonnee depuis la barre verticale droite (piece 7 de
+// 800BorderFrame, 87x231, que l'hote rejoue en (W-80-87, (H-600)/2+253) ; le
+// jeu la pose dans une texture 128x256, art cale en bas a gauche). Sa pierre
+// lisse — les colonnes 18..46, lignes 88..216 de l'art, entre le lisere gauche
+// et la volute — est reemise en tuiles, retournees une sur deux dans chaque
+// sens. Les barres verticales du cadre (piece 2 a gauche, piece 7 a droite)
+// declenchent le comblage : au centre chacune comble sa bande des qu'elle
+// passe ; aux bords la barre droite comble la colonne si la gauche est passee
+// dans la meme image (captures console, 22-23/09/2026). Peint juste apres la
+// barre, donc sous tout ce que le jeu dessine ensuite (bandeau, curseur,
+// infobulles).
+// D2_HUDFILL=0 desarme aussi ces bandes ; =3 journalise les quads hauts.
+static const float COL_TEX_W = 128.0f, COL_TEX_H = 256.0f;   // texture de la barre
+static const float COL_ART_W = 87.0f,  COL_ART_H = 231.0f;   // art de la piece 7
+static const float COL_SRC_X0 = 18.0f, COL_SRC_X1 = 46.0f;   // pierre lisse (colonnes de l'art)
+static const float COL_SRC_Y0 = 88.0f, COL_SRC_Y1 = 216.0f;  //   ... et lignes
+static uint64_t g_colGaucheFrame = ~0ull;                     // image ou la barre gauche est passee (bords)
+static uint64_t g_colQuads = 0;
+static bool     g_colSaid = false;
+
+static void gx_colonne_fill(uint32_t n, uint32_t stride, const uint8_t* vh,
+                            int oxy, int ost0, int oargb,
+                            const d2gr::VtxPre& pre){
+    if(g_hudFill<0){ const char* e=getenv("D2_HUDFILL");
+                     g_hudFill = (e&&*e) ? atoi(e) : 1; }
+    if(!g_hudFill || !pre.tex) return;
+    if(!(d2res_active && d2res_active())) return;
+    const float W=(float)d2res_w(), H=(float)d2res_h();
+    if(W<=800.0f || n!=4) return;
+    auto ld=[&](uint32_t i,int off)->uint32_t{
+        uint32_t w; std::memcpy(&w, vh+(size_t)i*stride+(uint32_t)off, 4); return w; };
+    float xs[4],ys[4],ss[4],ts[4];
+    for(uint32_t i=0;i<n;i++){
+        union{uint32_t u;float f;} X,Y,S,T;
+        X.u=ld(i,oxy); Y.u=ld(i,oxy+4); S.u=ld(i,ost0); T.u=ld(i,ost0+4);
+        xs[i]=X.f; ys[i]=Y.f; ss[i]=S.f; ts[i]=T.f;
+    }
+    float x0=xs[0],x1=xs[0],y0=ys[0],y1=ys[0];
+    for(uint32_t i=1;i<n;i++){ if(xs[i]<x0)x0=xs[i]; if(xs[i]>x1)x1=xs[i];
+                               if(ys[i]<y0)y0=ys[i]; if(ys[i]>y1)y1=ys[i]; }
+    const float w=x1-x0, h=y1-y0;
+    if(h < 200.0f) return;                                  // les barres font 256 de haut
+    static int said3 = 0;
+    if(g_hudFill>=3 && said3<24){ ++said3;
+        jpline("colonne?: image %llu quad (%.0f,%.0f) %.0fx%.0f cellule=%d",
+               (unsigned long long)g_gxFrame, x0,y0,w,h,(int)g_gxSt.cell); }
+    // Ou le cadre pose ses barres verticales (bas 484 dans la disposition
+    // 800x600), selon l'ancrage choisi (native_hooks_resolution.cpp) :
+    //   centre : le tout translate de ((W-800)/2, (H-600)/2) ;
+    //   bords  : barre gauche en x=0, barre droite en x=W-87, bas en H-600+484.
+    const bool centre = d2res_centre && d2res_centre();
+    const float mx0 = centre ? (W - 800.0f) * 0.5f : 0.0f;
+    const float my0 = centre ? (H - 600.0f) * 0.5f : (H - 600.0f);
+    const float xg = mx0, xd = centre ? mx0 + 800.0f - COL_ART_W : W - COL_ART_W;
+    const float yb = my0 + 484.0f, yq = yb - COL_TEX_H;
+    if(std::fabs(y0-yq)>1.0f || std::fabs(w-COL_TEX_W)>1.0f || std::fabs(h-COL_TEX_H)>1.0f) return;
+    const bool gauche = std::fabs(x0-xg)<1.0f;
+    const bool droite = std::fabs(x0-xd)<1.0f;
+    if(!gauche && !droite) return;
+    // Aux bords : la zone noire est la COLONNE entre les deux panneaux
+    // (400..W-400), et seulement quand les deux sont ouverts — avec un seul,
+    // le monde y est visible. On la comble apres la barre droite, si la barre
+    // gauche est passee dans la meme image.
+    if(!centre){
+        if(gauche){ g_colGaucheFrame = g_gxFrame; return; }
+        if(g_colGaucheFrame != g_gxFrame) return;
+    }
+    float s0=0,s1=0,t0=0,t1=0; bool gs0=false,gs1=false,gt0=false,gt1=false;
+    for(uint32_t i=0;i<4;i++){
+        if(!gs0 && std::fabs(xs[i]-x0)<0.5f){ s0=ss[i]; gs0=true; }
+        if(!gs1 && std::fabs(xs[i]-x1)<0.5f){ s1=ss[i]; gs1=true; }
+        if(!gt0 && std::fabs(ys[i]-y0)<0.5f){ t0=ts[i]; gt0=true; }
+        if(!gt1 && std::fabs(ys[i]-y1)<0.5f){ t1=ts[i]; gt1=true; }
+    }
+    if(!(gs0&&gs1&&gt0&&gt1)) return;
+    // L'art est cale en bas a gauche de la texture : ligne r de l'art = ligne
+    // (256-231)+r de la texture.
+    const float sA = s0 + (s1-s0)*(COL_SRC_X0/COL_TEX_W), sB = s0 + (s1-s0)*(COL_SRC_X1/COL_TEX_W);
+    const float tA = t0 + (t1-t0)*((COL_TEX_H-COL_ART_H+COL_SRC_Y0)/COL_TEX_H);
+    const float tB = t0 + (t1-t0)*((COL_TEX_H-COL_ART_H+COL_SRC_Y1)/COL_TEX_H);
+    const float tw = COL_SRC_X1-COL_SRC_X0, th = COL_SRC_Y1-COL_SRC_Y0;
+    const uint32_t col = (oargb>=0) ? ld(0,oargb) : 0xFFFFFFFFu;
+    // Au centre : la bande de cette barre, de 0 au cadre (gauche) ou du cadre
+    // au bord (droite). Aux bords : la colonne entre les panneaux. Jusqu'au
+    // bandeau dans les deux cas.
+    const float bx0 = centre ? (gauche ? 0.0f : W - mx0) : 400.0f;
+    const float bx1 = centre ? (gauche ? mx0  : W)       : W - 400.0f;
+    const float bandes[1][2] = { { bx0, bx1 } };
+    const float cy0 = 0.0f, cy1 = H - 47.0f;
+    for(const auto& bd : bandes){
+        const float cx0 = bd[0], cx1 = bd[1];
+        if(cx1 - cx0 < 1.0f) continue;
+        int ky = 0;
+        for(float y = cy0; y < cy1-0.01f; ++ky){
+            const float hh = (cy1-y < th) ? (cy1-y) : th;
+            const bool my = (ky & 1);
+            const float ta = my ? tB : tA, tb = my ? tA : tB;
+            const float tc = ta + (tb-ta)*(hh/th);
+            int kx = 0;
+            for(float x = cx0; x < cx1-0.01f; ++kx){
+                const float ww = (cx1-x < tw) ? (cx1-x) : tw;
+                const bool mx = (kx & 1);
+                const float sa = mx ? sB : sA, sb = mx ? sA : sB;
+                const float sc = sa + (sb-sa)*(ww/tw);
+                const uint16_t i0=g_gxBuild.vertexPre(pre,x,    y,   col,sa,ta);
+                const uint16_t i1=g_gxBuild.vertexPre(pre,x+ww, y,   col,sc,ta);
+                const uint16_t i2=g_gxBuild.vertexPre(pre,x+ww, y+hh,col,sc,tc);
+                const uint16_t i3=g_gxBuild.vertexPre(pre,x,    y+hh,col,sa,tc);
+                g_gxBuild.tri(i0,i1,i2); g_gxBuild.tri(i0,i2,i3);
+                ++g_colQuads; x += ww;
+            }
+            y += hh;
+        }
+    }
+    if(g_hudFill>=2 && !g_colSaid){ g_colSaid = true;
+        jpline("colonne: barre %s vue en (%.0f, %.0f) — %s %.0f..%.0f x %.0f..%.0f comblee",
+               gauche?"gauche":"droite", x0, yq, centre?"bande":"colonne", bandes[0][0], bandes[0][1], cy0, cy1); }
+}
 static void gx_draw(uint32_t mode, uint32_t cnt, uint32_t stride, const uint8_t* vh){
     if(!g_gxAtlas.ready() || !cnt || cnt>4096) return;
     const int oxy=g_grVLoff[0x01], oargb=g_grVLoff[0x30], ost0=g_grVLoff[0x40];
@@ -1233,6 +1530,11 @@ static void gx_draw(uint32_t mode, uint32_t cnt, uint32_t stride, const uint8_t*
         ++g_gxLinesDrawn; break; }
       default: ++g_gxSkipMode; break;                    // other modes: never emitted by D2
     }
+    // Le bandeau d'interface vient d'etre pose ? Alors ses deux trous aussi,
+    // dans le MEME lot : peints juste apres lui, donc sous tout ce que le jeu
+    // dessine ensuite (objets de la ceinture, curseur, infobulles).
+    gx_panel_gapfill(n, stride, vh, oxy, ost0, oargb, pre);
+    gx_colonne_fill(n, stride, vh, oxy, ost0, oargb, pre);
 }
 // HASH OF THE BUILT BATCHES (D2_GXMLOTSHASH=1). The ring's `h=` proves the
 // host READ the same sequence of records; it says nothing about what it DID

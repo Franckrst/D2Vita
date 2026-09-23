@@ -563,8 +563,13 @@ vita-mksfoex -s TITLE_ID="$TITLE" -d ATTRIBUTE2=12 "$APPNAME" "$OUT/param.sfo" >
 # DOES say so and falls back to normal rendering, but nothing would have been
 # measured. The ck/palck/half/fixed .gxp variants were dropped along with
 # their knobs (regressed, no measurable gain, or broke rendering).
+# d2_ring_f_rgba: l'incrustation d'interface (menu radial) sur le GPU. Celui-la
+# n'est PAS une variante de mesure comme les trois precedentes : sans lui le
+# menu retombe sur le blitter CPU, qui relit le framebuffer CDRAM et fait
+# tomber le jeu de 24,5 a 8,2 images/s (mesure console du 2026-09-20). Il doit
+# voyager dans le VPK.
 SHADER_ARGS=()
-for sh in d2_ring_v d2_ring_f d2_ring_f_flat d2_ring_f_pal d2_ring_f_clear; do
+for sh in d2_ring_v d2_ring_f d2_ring_f_flat d2_ring_f_pal d2_ring_f_clear d2_ring_f_rgba; do
   [ -f "$ROOT/shaders/$sh.gxp" ] && SHADER_ARGS+=(-a "$ROOT/shaders/$sh.gxp=shaders/$sh.gxp")
 done
 # glide3x.dll: the port's OWN Glide renderer DLL (build-glide/, x86 MinGW). D2

@@ -15,8 +15,10 @@ the source of truth for the public repository.
       Unicorn oracle (generic engine, now lives in the
       `third_party/winx86` submodule)
 - [x] Boot → menus → solo play, on Vita3K **and** real console
-- [x] Rogue Encampment playable: full physical controls + system virtual
-      keyboard (upper/lowercase, digits, punctuation)
+- [x] Rogue Encampment playable: full physical controls + virtual keyboard
+      (upper/lowercase, digits, punctuation; opens by itself on text fields —
+      validated on the console on 2026-09-21 for every menu field: character
+      name, Battle.net account and password, game name; in-game chat is phase 2)
 - [x] Native scheduler (real preemption): the default; the older
       cooperative scheduler remains as a benchmarking instrument
       (the virtual-clock oracles depend on it)
@@ -24,6 +26,44 @@ the source of truth for the public repository.
       raised to 38 MiB)
 - [x] GPU rendering (sceGxm) via a guest-side reconstructed Glide3x ring,
       asynchronous submission
+- [x] Native 960×544 resolution (`D2_RES`, on by default; `D2_RES=0` or
+      `D2_RES=WxH`, 640×480 to 1280×1024, to override): the game itself
+      draws 960×544 (one texel = one pixel, no filter, no pillarbox),
+      driven by `alternate` hooks on D2's own resolution plumbing, so the
+      126 interface centering sites downstream follow without their own
+      changes. Menus stay 800×600 pillarboxed: their art is fixed-size.
+      4:3 aspect preserved by default for 800×600 (no stretch;
+      `D2_ASPECT=etire` for the old stretched behavior)
+- [x] HUD bar at 960×544: D2's 800-wide bar opens two `(W-800)/2` px gaps
+      (80 px each at 960), which the bar fills with its own stone
+      re-sampled from the texture the game already loaded — no Blizzard
+      art is added or shipped. `D2_HUDFILL=0` shows the gaps again.
+      **Confirmed on console** (2026-09-22); the qemu gate
+      `tools/hudfill_arm_check.sh` only proves the hook and its numbers,
+      since GPU submission there is a sink.
+- [x] Side panels at 960×544 (inventory, skill tree, stash, trade, belt):
+      D2's UI-draw routine rewrites its screen shift to the 800×600 values
+      (+80/−60) at the start of every frame, so the whole 800 layout
+      (panel art, buttons, tooltips) was drawn with one shift while clicks,
+      evaluated outside the draw with the shift our hook had set, landed
+      80 px away — the button under the cursor lit up, the click did
+      nothing (measured on console, 2026-09-23). The shift is now written
+      at the *entry* of that routine (its prologue replayed from the host,
+      zero bytes of `.text` changed), so drawing and clicks share it. By
+      default the panels stay at the screen edges (left panel 0..400,
+      right panel `W−400..W`, the game's own +80/−60 shift); the
+      `inventory.bin`/`belts.bin` tables and the replayed `800BorderFrame`
+      follow that anchoring. `D2_RES_PANNEAUX=centre` centres the 800
+      layout as one block instead (panels contiguous, SGD2FreeRes's
+      model, an 80 px stone strip on each side); `D2_RES_PANNEAUX=0`
+      keeps the game's own tables and frame, for A/B. With two panels
+      open the game draws no world, so the column between them (or, when
+      centred, the side strips) is filled in the Glide ring with the
+      frame's own stone (`D2_HUDFILL=0` to disable). Verified on console:
+      close buttons respond to a scripted click and to a separated
+      press/release, captures of each panel and of two panels open.
+      Known gap: the GDI path (`-w`) never resizes its DIB, so `D2_RES`
+      only works under Glide (the default)
 - [x] DirectSound audio (host mixer, natively-ported Storm codecs) —
       implemented, **enabled by default**; `D2_SON=0` opts back out to
       `DSERR_NODRIVER`, faithful to a machine with no sound card
@@ -43,10 +83,96 @@ the source of truth for the public repository.
       `VirtualProtect` tracking, self `OpenProcess` still denied — detailed
       backlog in [Fidelity Warden / anti-cheat](https://franckrst.github.io/D2Vita/fidelite-warden/). None of it
       blocks play; it only matters if Warden ever activates.
-- [ ] **RAM budget**: the multi-segment JIT pool (path 5.2) is partially
-      refuted — a `ForVM` block larger than 16 MiB is refused by the kernel
-      (a kernel ceiling, not a project choice); the risk of `std::bad_alloc`
-      in real play is still open, with no known zero-cost fix
+- [x] **RAM budget, box86's RW metadata**: box86's per-block metadata (one
+      `dynablock_t` per translated block, the red-black tree nodes) was the
+      only memory this port still asked the kernel for *once play had
+      started*, and `customMalloc` did not test `mmap`: a refusal wrote 64 KiB
+      through `MAP_FAILED`. That is crash signature
+      `hfault_sys|SceLibKernel|0x120` — 11 claims, five consoles, 0.1.7 and
+      0.1.9. It now has a reserve of its own, 8 MiB in the **PHYCONT**
+      partition (26 624 KiB no session has ever seen move), and a refusal is
+      handled rather than fatal. Measured on console: metadata 100 % served by
+      the pool (`custom=1152 Ko` = `piscine RW 1152/8192 Ko`), zero
+      `mmap FAIL`, user partition 1 MiB less in the red, A/B cost bounded by
+      0,5 % over 4+4 patrol passes (three armed passes bracket the control
+      mean). Ceiling measured at 124–131 bytes per translated block on three
+      sessions, console and qemu.
+- [ ] **RAM budget, the JIT pool's second segment**: the entry above used to
+      blame a kernel ceiling. That is not what binds. The budget is, and the
+      console log prints the whole subtraction: 317 440 KiB free before the
+      arena, the arena takes 291 MiB, **19 456 KiB are left** — enough for
+      exactly one 16 MiB segment plus 3 MiB of change. Splitting the request
+      into 2 × 16 MiB (path 5.2) removed a real obstacle, the per-block 16 MiB
+      ceiling, but a second segment was never affordable; at 88 s the ladder
+      is refused at 16, 8, 4, 2 and 1 MiB with `libre user` already negative.
+      Freeing 16 MiB would mean shrinking the guest VA window (220 → 204 MiB)
+      to ~4 MiB above its measured 200,2 MiB peak — and that peak is Act I
+      only. No affordable fix known.
+- [x] **`D2_JITFLOOR_KB` retired**: the floor reserved ~3 MiB of user RAM for
+      box86's metadata, which now has its own phycont pool — it protected
+      nobody. It also protected nobody *before*: guarded by `free_kb >= 0`
+      while `size_user` reads NEGATIVE from 13 s onward (`libre user=-2048 Ko`
+      in every field log), so the one situation where it would have had
+      something to protect was exactly the one where it did not apply. Gone,
+      along with its deferral path and log line. The anticipated grow now
+      takes the largest step that fits: a selftest scenario that used to
+      assert "1 MiB taken, not 2, floor honoured" now asserts 4 MiB. On a
+      console whose gauge reads negative this changes NOTHING, and the A/B
+      shows it: segment 2 is refused from 16 MiB down to 1 MiB at 88 s in all
+      four passes, RW pool armed or not. The pool returns ~1 MiB of user RAM
+      (free user goes -2048 -> -1024 KiB) and the floor returns nothing it
+      never took; the ladder's smallest step is 1 MiB and a negative balance
+      cannot pay it. The removal is worth having on a console that reads a
+      positive gauge, not on this one.
+- [ ] **The JIT pool is never evicted, and that is fatal**: nothing frees a
+      translated block, so the pool saturates after roughly 20 minutes of
+      play. Once it is full and the kernel refuses a new segment, the first
+      block that has never been translated kills the guest thread outright —
+      there is no interpreter to fall back to. This is what the field
+      reports: signature `SMRD2J34ZXU2A55I`, 143 claims across 42 consoles as
+      of 22/09, the #1 crash by volume, still open. 0.1.10 already shipped
+      real eviction-and-retry machinery (PR #3, `fix/jit-eviction`) — but
+      both its trigger points were gated on `dyn86_jit_allocfail` alone, the
+      low-level arena allocator's own refusal counter, on the unstated
+      assumption that nothing else could reach the death branch. A qemu-arm
+      reproduction (`tools/qemu_jitfail_repro.sh`, driving the arena's own
+      `D2_JITFAILAFTER` fault-injection knob — the real pool ceiling in
+      `mman_vita.c` is Vita-only and unreachable under qemu) confirms that
+      assumption for the case tested: the allocator does refuse before
+      death, and eviction is genuinely working — tens of thousands of blocks
+      reclaimed — before eventually losing one race under artificial
+      pressure. Both trigger points are now ALSO armed directly by pool
+      occupancy (`dyn86_pool_near_full()`, >=95 %), independent of whether
+      the allocator's own counter ever moved, closing a second, silent path
+      to the same death. The retry budget (`DYN86_EV_ROUNDS` 8→24,
+      `DYN86_OOM_EXITS` 64→192) was raised as a low-risk bet — same locking,
+      same bounded retries, just more of them — not a proven fix: repeated
+      qemu runs at identical injection parameters showed >10x variance in
+      how long eviction ran before a death (cumulative rounds 69 to 728
+      across otherwise-identical runs), too noisy for one before/after run
+      to settle. Every death now dumps the full eviction ledger
+      unconditionally, labeled by which case fired, instead of the old
+      allocator-only-gated dump that stayed silent on exactly the case most
+      worth seeing — the next field report settles this directly. **Not
+      console-validated**: whether this actually stops the crash across real
+      20+ minute sessions is still open. If it does not, the remaining gap
+      is very likely the RAM budget entry above (2nd segment never
+      affordable) rather than eviction itself, since eviction is now
+      demonstrably working — just still bounded by how much the pool can
+      ever hold.
+- [ ] **`Crash.txt` reports a stack address where the game writes
+      `_ReturnAddress()`**: all six `halt` reports received show it, on every
+      build. The line number pushed as an immediate is correct, so only EAX
+      is wrong at `Game+0x8090` (`mov eax,[esp]`). Mechanism not understood;
+      it degrades every `Crash.txt` we receive.
+- [ ] **Signature `SNALU33A2TNV5UYB` (halt 3544) unresolved**: the game is
+      refused `grey.dat` from `d2data.mpq` 8 s into boot, while the log proves
+      the archive was mounted and that no sector was ever read from it — so
+      the failure is in name resolution, in memory, before any I/O. The two
+      candidates left are a hash table whose CONTENT is wrong without being
+      truncated, and a signature that covers more than one cause. A refused
+      archive open is now named in `boot_progress.txt`, which is the evidence
+      that was missing.
 
 ## Not started
 

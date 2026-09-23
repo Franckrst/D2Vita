@@ -56,3 +56,6 @@ jobs:
         with:
           files: build-vita/d2vita.vpk
           generate_release_notes: true
+          # A tag with a pre-release suffix (v0.1.11-beta) is published as a
+          # GitHub pre-release: shown as such, never the "latest" download.
+          prerelease: ${{ contains(github.ref_name, '-') }}

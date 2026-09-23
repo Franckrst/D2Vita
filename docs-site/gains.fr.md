@@ -100,3 +100,12 @@ D2_SON=1
 bloc n'en est qu'une copie. `D2_NOCAP` n'y figure pas volontairement — c'est
 un outil de banc qui débraye les limiteurs d'images internes du jeu, pas un
 réglage à garder en jeu réel.)
+
+`D2WRITE` désigne le dossier dans lequel le jeu écrit — sauvegardes,
+`crash.log`, journal quotidien de D2. Jusqu'à la 0.1.6, un dossier nommé ici
+n'était **pas** créé sur console : toutes les écritures échouaient, et la
+bibliothèque C du jeu tuait le processus au bout d'une dizaine de secondes,
+sans un mot sur le dossier en cause. Depuis la 0.1.7, le démarrage crée la
+racine nommée (et son sous-dossier `Save`), vérifie qu'elle est inscriptible,
+et bascule sur `ux0:data/d2vita/save` avec une ligne dans
+`boot_progress.txt` quand ce n'est pas le cas.

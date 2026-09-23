@@ -34,7 +34,11 @@ LOGPATH = os.environ.get("BNCS_LOG", os.path.join(os.path.dirname(__file__), "bn
 # RANDOM FORMULA (valueString) per connection (lockdown seed, e.g. "+NYYsAAA").
 SERVER_TOKEN = 0xDEADBEEF
 UDP_VALUE    = 0x00000000
-# filetime of CheckRevision.mpq as captured from the real server (see grab_checkrevision.py)
+# filetime of CheckRevision.mpq, releve UNE FOIS sur le serveur reel et fige
+# ici. L'outil de capture qui l'avait releve est supprime : il appelait un
+# serveur officiel, ce que la regle de la maison n2 interdit, et son MPQ de
+# reference est archive depuis longtemps (~/d2-vita-refs/1.14d). L'oracle
+# hors ligne est tools/checkrevision_ref.py.
 MPQ_FILETIME = int(os.environ.get("BNCS_FILETIME", "134124260780000000"))
 MPQ_FILENAME = os.environ.get("BNCS_MPQ", "CheckRevision.mpq")
 CR_FORMULA   = os.environ.get("BNCS_FORMULA", "")   # "" => random seed per connection
