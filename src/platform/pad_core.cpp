@@ -369,19 +369,16 @@ void Scheme::tick(const Ctl& c, const Ctx& x, const View& v, const Unit* u, int 
 // Start / D-pad / Alt — identical in both modes.
 void Scheme::commonButtons(const Ctl& c, uint32_t down, uint32_t up, Actions& out) {
     const bool layer = (c.buttons & B_R) != 0;
-    if (down & B_START) {
-        if (layer) { out.push(A_KEYDOWN, 0x57); wkey_ = true; }       // W: weapon swap
-        else       { out.push(A_KEYDOWN, 0x1B); esc_ = true; }        // Escape
-    }
-    if (up & B_START) {
-        if (wkey_) { out.push(A_KEYUP, 0x57); wkey_ = false; }
-        if (esc_)  { out.push(A_KEYUP, 0x1B); esc_ = false; }
-    }
+    // Start is Escape, layer or not. R + Start used to swap weapons; L + Up
+    // does that now, and one gesture per action beats two.
+    if (down & B_START) { out.push(A_KEYDOWN, 0x1B); esc_ = true; }
+    if ((up & B_START) && esc_) { out.push(A_KEYUP, 0x1B); esc_ = false; }
     const bool lmod = (c.buttons & B_L) != 0;
     for (int i = 0; i < 4; ++i) {
-        // Alt browses with the D-pad, and L + Left is the right click: neither
-        // may reach the belt.
-        if (kDpadBits[i] == B_LEFT && lmod && !layer) continue;
+        // Alt browses with the D-pad, and L claims Up (weapon swap) and Down
+        // (right click): none of those may reach the belt. L + Left is the
+        // belt again, and L + Right is consumed before us by the keyboard.
+        if (lmod && !layer && (kDpadBits[i] == B_UP || kDpadBits[i] == B_DOWN)) continue;
         if (!alt_ && (down & kDpadBits[i])) {
             dpad_[i].vk = 0x31 + i; dpad_[i].shift = layer;
             if (layer) shiftOwn(SH_DPAD << i, true, out);              // Shift + belt key = potion to the mercenary
@@ -393,6 +390,9 @@ void Scheme::commonButtons(const Ctl& c, uint32_t down, uint32_t up, Actions& ou
             dpad_[i] = Held{};
         }
     }
+    // L + Up: weapon swap. A tap, not a hold -- it is a toggle in the game.
+    if ((down & B_UP) && lmod && !layer && !alt_) out.push(A_KEY, 0x57);
+
     // Alt (ground item labels): BOTH shoulders, in either order. Requiring R
     // first was invisible to the player -- console, 21/09: "it works, but it
     // should not care about the order". Whichever lands second arms it, and
@@ -425,15 +425,13 @@ void Scheme::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
         lTicks_ = 0; lTap_ = false;
     }
 
-    // ---- L + D-pad left: right click ----
-    // The world lost its right click when Triangle became a skill, and the
-    // mercenary's inventory is opened by right-clicking his portrait. L is
-    // the modifier; Left is the only direction under it that is still free
-    // (Right opens the keyboard, Up is the lag marker).
-    if ((down & B_LEFT) && (c.buttons & B_L) && !layer && !alt_ && !rmbL_ && castSlot_ < 0) {
+    // ---- L + D-pad down: right click ----
+    // A general right click, not the one special case of the mercenary
+    // portrait. It clicks wherever the cursor is, whatever is under it.
+    if ((down & B_DOWN) && (c.buttons & B_L) && !layer && !alt_ && !rmbL_ && castSlot_ < 0) {
         out.push(A_RDOWN, cx_, cy_); rmb_ = true; rmbL_ = true;
     }
-    if (rmbL_ && (!(c.buttons & B_LEFT) || !(c.buttons & B_L))) {
+    if (rmbL_ && (!(c.buttons & B_DOWN) || !(c.buttons & B_L))) {
         out.push(A_RUP, cx_, cy_); rmb_ = false; rmbL_ = false;
     }
 

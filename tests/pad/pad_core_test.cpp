@@ -342,11 +342,11 @@ static void test_scheme_interact_and_keys() {
     CHECK(hasAct(a, pad::A_KEYDOWN, 0x10) && hasAct(a, pad::A_KEYDOWN, 0x32));
     c.buttons = pad::B_R; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
     CHECK(hasAct(a, pad::A_KEYUP, 0x32) && hasAct(a, pad::A_KEYUP, 0x10));
-    // R + Start = W ; Start = Escape
+    // Start = Escape, with or without R (the weapon swap moved to L + Up)
     c.buttons = pad::B_R | pad::B_START; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYDOWN, 0x57));
+    CHECK(hasAct(a, pad::A_KEYDOWN, 0x1B) && !hasAct(a, pad::A_KEYDOWN, 0x57));
     c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYUP, 0x57));
+    CHECK(hasAct(a, pad::A_KEYUP, 0x1B));
     c.buttons = pad::B_START; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
     CHECK(hasAct(a, pad::A_KEYDOWN, 0x1B));
     c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
@@ -1035,21 +1035,40 @@ static void test_a_hovered_unit_is_never_given_up_on() {
     CHECK(s.interacting());                                   // held on a unit the game confirms
 }
 
-static void test_l_plus_dpad_left_is_a_right_click() {
-    // The merc's inventory is opened by right-clicking his portrait, and the
-    // world had no right click left once Triangle became a skill.
+static void test_l_plus_down_is_the_general_right_click() {
+    // A right click that works wherever the cursor is, rather than the single
+    // case of the mercenary portrait. The binding was free without anyone
+    // noticing: L holds Shift, so L + down used to send Shift + '3', which is
+    // "give potion 3 to the mercenary" -- exactly what R + down already does.
     pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     s.setCursor(120, 80);                                     // the merc portrait, top left
     c.buttons = pad::B_L; s.tick(c, x, v, nullptr, 0, a);
-    c.buttons = pad::B_L | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    c.buttons = pad::B_L | pad::B_DOWN; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
     CHECK(hasAct(a, pad::A_RDOWN, 120, 80));
-    CHECK(!hasAct(a, pad::A_KEYDOWN, 0x32));                  // and NOT belt potion 2
+    CHECK(!hasAct(a, pad::A_KEYDOWN, 0x33));                  // and NOT belt potion 3
     c.buttons = pad::B_L; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
     CHECK(hasAct(a, pad::A_RUP));
-    // without L it is still the belt
-    c.buttons = pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    // down alone is still the belt, and L + left is the belt again
+    c.buttons = pad::B_DOWN; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_KEYDOWN, 0x33));
+    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    c.buttons = pad::B_L | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
     CHECK(hasAct(a, pad::A_KEYDOWN, 0x32));
+}
+
+static void test_l_plus_up_swaps_weapons_and_start_is_only_escape() {
+    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    c.buttons = pad::B_L; s.tick(c, x, v, nullptr, 0, a);
+    c.buttons = pad::B_L | pad::B_UP; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_KEY, 0x57));                       // W: weapon swap
+    CHECK(!hasAct(a, pad::A_KEYDOWN, 0x31));                  // and NOT belt potion 1
+    // R + Start is gone: Start is Escape, layer or not
+    pad::Config cfg2; pad::Scheme s2(cfg2); pad::Ctx x2; x2.inGame = true;
+    pad::Ctl c2; pad::Actions a2;
+    c2.buttons = pad::B_R | pad::B_START; s2.tick(c2, x2, v, nullptr, 0, a2);
+    CHECK(hasAct(a2, pad::A_KEYDOWN, 0x1B) && !hasAct(a2, pad::A_KEYDOWN, 0x57));
 }
 
 // --- second console round, 21/09 ------------------------------------------
@@ -1365,6 +1384,7 @@ static void test_l_is_a_modifier_in_panels_too() {
     CHECK(hasAct(a, pad::A_LDOWN, 200, 200));          // Cross still clicks
 }
 
+
 int main() {
     test_projection();
     test_clamp_and_box();
@@ -1418,7 +1438,8 @@ int main() {
     test_pick_at_prefers_the_unit_under_the_cursor();
     test_a_unit_the_game_never_hovers_is_given_up_on();
     test_a_hovered_unit_is_never_given_up_on();
-    test_l_plus_dpad_left_is_a_right_click();
+    test_l_plus_down_is_the_general_right_click();
+    test_l_plus_up_swaps_weapons_and_start_is_only_escape();
     test_alt_does_not_care_which_shoulder_came_first();
     test_scenery_the_game_never_hovers_is_learned_by_class();
     test_a_hovered_object_is_never_learned_as_scenery();

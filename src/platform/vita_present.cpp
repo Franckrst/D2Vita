@@ -1985,10 +1985,10 @@ extern "C" void d2vita_input_tick(void){
     // potion would still fire — but every potion drink then logged a FALSE
     // marker too, whether or not anything was actually wrong. A marker that
     // fires on its own is no better than no marker.
-    // L+Up isn't used anywhere else (R is the alternate layer; L is only
-    // otherwise combined with Start for screenshots), so it's intercepted
-    // outright: no lost potion, no spurious marker.
-    if ((b&B_UP) && !(was&B_UP) && (b&B_L) && lagmark_on()) {
+    // Intercepted outright, so no lost potion and no spurious marker.
+    // L + LEFT, not L + Up: Up is the weapon swap now. Left is free again
+    // since the right click moved to L + Down.
+    if ((b&B_LEFT) && !(was&B_LEFT) && (b&B_L) && lagmark_on()) {
         static uint64_t lastMark = 0; static unsigned nMark = 0;
         const uint64_t now = d2vita_now_us();
         if (!lastMark || now - lastMark > 1000000ull) {

@@ -19,11 +19,12 @@
 | L held | **Stand still** (Shift): cast and attack without moving |
 | L, short press | Toggle run/walk |
 | L + D-pad → | Virtual keyboard |
-| L + D-pad ← | **Right click** at the cursor (mercenary's inventory: hover his portrait) |
+| L + D-pad ↓ | **Right click** at the cursor — wherever it is, whatever is under it |
+| L + D-pad ↑ | **Weapon swap** |
 | R then L (held) | Alt — ground item labels ; D-pad = move the selection cursor from item to item (nearest to the cursor in that direction), Cross = pick up the selected item (cyan marker) |
 | D-pad ↑ / ← / ↓ / → | Belt potions 1 / 2 / 3 / 4 |
 | R + D-pad | Potion to the mercenary |
-| Start | Escape; R + Start: weapon swap |
+| Start | Escape |
 | Select | Radial menu (see below); R + Select: Space |
 | Touch screen | Absolute cursor; short tap = left click |
 

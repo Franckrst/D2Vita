@@ -18,11 +18,12 @@
 | L maintenu | **Sur place** (Maj) : lancer et attaquer sans bouger |
 | L, pression brève | Marche/course (bascule) |
 | L + D-pad → | Clavier virtuel |
-| L + D-pad ← | **Clic droit** au curseur (inventaire du mercenaire : survoler son portrait) |
+| L + D-pad ↓ | **Clic droit** au curseur — où qu'il soit, quoi qu'il y ait dessous |
+| L + D-pad ↑ | **Échange d'armes** |
 | R puis L (maintenus) | Alt — étiquettes des objets au sol ; D-pad = déplacer le curseur d'objet en objet (vers le plus proche du curseur dans cette direction), Croix = ramasser l'objet sélectionné (repère cyan) |
 | D-pad ↑ / ← / ↓ / → | Potions ceinture 1 / 2 / 3 / 4 |
 | R + D-pad | Potion au mercenaire |
-| Start | Échap ; R + Start : échange d'armes |
+| Start | Échap |
 | Select | Menu radial (voir plus bas) ; R + Select : Espace |
 | Écran tactile | Curseur absolu ; tap bref = clic gauche |
 
