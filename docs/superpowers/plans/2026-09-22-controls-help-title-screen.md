@@ -967,19 +967,23 @@ CLAUDE.md forbids. Use the real build instead:
 ```bash
 export VITASDK=/usr/local/vitasdk
 export PATH="$VITASDK/bin:$PATH"
+tools/build_glide_ring.sh    # one-time per fresh worktree: produces
+                              # build-glide/glide3x.dll, which the VPK link
+                              # step below requires and won't build itself
 tools/build_rt_boot_vpk.sh
 ```
 
-(Confirm `arm-vita-eabi-g++ --version` succeeds first — if VitaSDK isn't
-installed/exported in your environment, say so explicitly rather than
-falling back to `rt_boot_arm_check.sh` and calling it equivalent; that
-distinction matters and must be reported honestly.) This build compiles the
-whole real Vita target including `vita_present.cpp`, incrementally (only
-changed units recompile). Expected: it completes and produces `d2vita.vpk`
-(check `build-vita/` or `$D2VPK_OUT`) with no compile error for
+Already confirmed working end to end in this exact worktree (VitaSDK present
+at `/usr/local/vitasdk`, both commands run successfully, produced
+`build-vita/d2vita.vpk`) — so this is a real, available verification path,
+not a hypothetical. This build compiles the whole real Vita target including
+`vita_present.cpp`, incrementally (only changed units recompile). Expected:
+it completes and produces `build-vita/d2vita.vpk` with no compile error for
 `vita_present.cpp` — this function isn't called from anywhere yet (Task 6
 wires it in), so a clean compile is all this step proves, but it needs to be
-a REAL compile, not the qemu-arm oracle.
+a REAL compile, not the qemu-arm oracle. If either command fails for an
+environment reason (not a code reason), report that precisely rather than
+substituting `rt_boot_arm_check.sh` and calling it equivalent.
 
 - [ ] **Step 3: Commit**
 
@@ -1098,10 +1102,12 @@ compile `vita_present.cpp` and cannot verify this step. Use:
 ```bash
 export VITASDK=/usr/local/vitasdk
 export PATH="$VITASDK/bin:$PATH"
+tools/build_glide_ring.sh    # skip if build-glide/glide3x.dll already exists
+                              # from Task 5's build
 tools/build_rt_boot_vpk.sh
 ```
 
-Expected: completes, produces `d2vita.vpk`, no compile error. If identifiers
+Expected: completes, produces `build-vita/d2vita.vpk`, no compile error. If identifiers
 from Step 2 don't match the real local names in this file, this is where
 that surfaces as a compile error — fix by matching the existing names, not
 by inventing new state.
