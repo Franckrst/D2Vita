@@ -7,10 +7,11 @@
 [![Pages](https://github.com/Franckrst/D2Vita/actions/workflows/pages.yml/badge.svg)](https://franckrst.github.io/D2Vita/)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-PS%20Vita-8c52ff)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/8tTb7YmDY)
 
 ![Diablo II: Lord of Destruction running on PS Vita, main menu, 1.14d](.github/images/screenshot-menu.png)
 
-[**Documentation**](https://franckrst.github.io/D2Vita/) · [Installation](https://franckrst.github.io/D2Vita/installation/) · [Roadmap](ROADMAP.md) · [Ground rules](CLAUDE.md)
+[**Documentation**](https://franckrst.github.io/D2Vita/) · [Installation](https://franckrst.github.io/D2Vita/installation/) · [Roadmap](ROADMAP.md) · [Ground rules](CLAUDE.md) · [Discord](https://discord.gg/8tTb7YmDY)
 
 </div>
 
@@ -38,6 +39,14 @@ Both the source and compiled VPK releases are public. Read [`CLAUDE.md`](CLAUDE.
 > the client to a private/local server instead. That risk is the player's to accept, not
 > something this project guarantees away. See [Online
 > play](https://franckrst.github.io/D2Vita/en-ligne/) for exactly what is and isn't proven.
+
+## Community
+
+Looking for beta testers — new builds get shaken out fastest with more people running them
+on real hardware. Join the [Discord](https://discord.gg/8tTb7YmDY) to grab pre-release VPKs,
+report issues live, and chat with other players. For a confirmed bug or a feature idea,
+[open an issue](https://github.com/Franckrst/D2Vita/issues/new/choose) instead — see
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the day-to-day workflow.
 
 ## Building
 

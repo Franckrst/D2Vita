@@ -1,0 +1,29 @@
+name: Feature request / idea
+description: Suggest something D2Vita doesn't do yet.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        See [ROADMAP.md](../../ROADMAP.md) first — it may already be planned
+        or explicitly out of scope (remember the project's rule: **run
+        Diablo, don't rewrite Diablo** — see [CLAUDE.md](../../CLAUDE.md)).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's missing or annoying
+      description: The gap or friction this would address.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach (optional)
+      description: If you have a concrete idea of how this could work, share it.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered (optional)

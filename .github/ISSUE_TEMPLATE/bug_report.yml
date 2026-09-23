@@ -1,0 +1,70 @@
+name: Bug report
+description: Something doesn't work — crash, freeze, wrong behavior, bad input mapping, build failure.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. D2Vita is maintained by one
+        person, so the more precise the report, the faster it's actionable.
+
+        Before filing: please check [ROADMAP.md](../../ROADMAP.md) for known
+        gaps, and search existing issues for a duplicate.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what actually happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to trigger it. Include the game act/area if relevant (e.g. character select, in a game, online lobby).
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where did this happen?
+      options:
+        - Real PS Vita / PSTV hardware
+        - Vita3K
+        - qemu-arm (desktop repro)
+        - Host-side build (CMake, desktop tools)
+      default: 0
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: D2Vita version / commit
+      description: VERSION file, release tag, or git commit hash.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Watchdog log / env.txt / console output, if you have it.
+
+        **Do not paste CD keys, account credentials, or anything from
+        `ux0:data/d2vita_secret/`.** Redact them first if they show up in a log.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I did not attach any Blizzard binary, asset, or MPQ file to this report.
+          required: true
+        - label: I did not include a CD key, account password, or other secret in this report.
+          required: true
