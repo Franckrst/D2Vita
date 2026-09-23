@@ -20,6 +20,7 @@ nav:
   - "Three-level validation": validation.md
   - "Native ports and measured gains": gains.md
   - Installation: installation.md
+  - Changelog: changelog.md
   - "Online play": en-ligne.md
   - "Fidelity Warden / anti-cheat": fidelite-warden.md
   - "Controller and keyboard": controles.md
