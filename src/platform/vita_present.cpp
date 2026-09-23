@@ -23,6 +23,7 @@ extern "C" int d2_tlswrap_dump(char*, unsigned);
 #include "runtime/host_clock.h"           // engine: monotonic host clock
 #include "runtime/scripted_input.h"       // inj_set_bounds : le curseur injecte suit la taille du jeu
 #include "platform/present_scale.h"   // engine: generic scaling (D2_PRESENT_WX86)
+#include "crashreport/build_id.h"     // d2cr::build_id() : etiquette de build a l'ecran
 
 #include <cstdlib>
 #include <cstring>
@@ -563,6 +564,26 @@ void d2vita_overlay(uint32_t* fb) {
                      n = 0; t0 = now; }
     if (fps_en) draw_fps(fb, fps10);
     draw_reticle(fb);
+    // Etiquette de build (haut droite) : "<VERSION>+<12 hex>[-dirty]", la
+    // meme chaine que le rapport de crash (crashreport/build_id.h). Sert a
+    // lever l'ambiguite sur une capture d'ecran de rapport de bug -- le
+    // 23/09/2026, un joueur a signale un defaut deja corrige la veille sans
+    // qu'on puisse savoir s'il avait la correction ou une build plus vieille.
+    // Actif par defaut ; D2VITA_BUILDTAG=0 la masque. Reutilise la police du
+    // clavier (d2kb::draw_detail::text) plutot que d'en dupliquer une.
+    static int buildtag_en = -1;
+    if (buildtag_en < 0) { const char* e = getenv("D2VITA_BUILDTAG"); buildtag_en = !(e && !std::strcmp(e, "0")); }
+    if (buildtag_en) {
+        const char* id = d2cr::build_id();
+        const int n = (int)std::strlen(id);
+        const int S = 1, GW = 8, GH = 16;
+        const int wpx = n * GW * S + 8, hpx = GH * S + 8;
+        const int X0 = SCR_W - wpx - 4, Y0 = 4;
+        for (int y = 0; y < hpx; ++y)
+            for (int x = 0; x < wpx; ++x)
+                fb[(size_t)(Y0 + y) * SCR_W + (X0 + x)] = 0xFF000000u;
+        d2kb::draw_detail::text(fb, SCR_W, SCR_H, id, X0 + 4, Y0 + 4, S, 0xFFFFFFFFu);
+    }
     // Opaque, or the GPU path isn't armed: draw here, same as always (write
     // only, never reads CDRAM back -- always fast). Translucent AND armed:
     // skip it, d2gxm_submit's own scene-injected quad composes it on the GPU
