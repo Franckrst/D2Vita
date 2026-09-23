@@ -1671,8 +1671,16 @@ const char* act_label(const Act& a) {
         case 0x33: return "Potion 3"; case 0x34: return "Potion 4";
         case 0x70: return "F1"; case 0x71: return "F2";
         case 0x72: return "F3"; case 0x73: return "F4";
+        case 0x74: return "F5"; case 0x75: return "F6";
+        case 0x76: return "F7"; case 0x77: return "F8";
         case 0x1B: return "Escape";
         case 0x20: return "Space";
+        case 0x09: return "Tab / Automap";
+        case 0x49: return "Inventory";
+        case 0x43: return "Character";
+        case 0x54: return "Skills";
+        case 0x51: return "Quests";
+        case 0x0D: return "Enter";
         default:   return "?";
     }
 }
