@@ -29,3 +29,7 @@ void native_hooks_resolution_install(d2rt::Cpu* cpu, d2rt::Bridge& br);
 extern "C" int d2res_active(void);
 extern "C" int d2res_w(void);
 extern "C" int d2res_h(void);
+// 1 = disposition 800 centree d'un bloc (D2_RES_PANNEAUX=centre), 0 = panneaux
+// aux bords (defaut) : l'anneau Glide comble la zone que le jeu laisse noire
+// selon le cas (bandes laterales, ou colonne entre les deux panneaux).
+extern "C" int d2res_centre(void);

@@ -44,24 +44,26 @@ the source of truth for the public repository.
 - [x] Side panels at 960×544 (inventory, skill tree, stash, trade, belt):
       D2's UI-draw routine rewrites its screen shift to the 800×600 values
       (+80/−60) at the start of every frame, so the whole 800 layout
-      (panel art, buttons, tooltips) was drawn left-anchored while clicks,
-      evaluated outside the draw with our centred shift, landed 80 px away
-      — the button under the cursor lit up, the click did nothing
-      (measured on console, 2026-09-23). The shift is now written at the
-      *entry* of that routine (its prologue replayed from the host, zero
-      bytes of `.text` changed): the 800 layout is centred as one block,
-      panels contiguous at 160..800, border frame at 80..880, and the
-      `inventory.bin`/`belts.bin` tables plus the replayed `800BorderFrame`
-      follow the same `((W−800)/2, (H−600)/2)` vector (SGD2FreeRes's
-      model). `D2_RES_PANNEAUX=0` keeps the game's own tables and frame,
-      for A/B. The game never draws the world on the side of an open panel,
-      so the 80 px strip between that panel's frame bar and the screen
-      edge is filled, in the Glide ring, with the frame's own stone (same
-      knob as the HUD bar fill, `D2_HUDFILL=0`). Verified on console
-      (2026-09-23): captures of each panel and of two panels open, close
-      buttons responding to a scripted click and to a separated
-      press/release. Known gap: the GDI path (`-w`) never resizes its
-      DIB, so `D2_RES` only works under Glide (the default)
+      (panel art, buttons, tooltips) was drawn with one shift while clicks,
+      evaluated outside the draw with the shift our hook had set, landed
+      80 px away — the button under the cursor lit up, the click did
+      nothing (measured on console, 2026-09-23). The shift is now written
+      at the *entry* of that routine (its prologue replayed from the host,
+      zero bytes of `.text` changed), so drawing and clicks share it. By
+      default the panels stay at the screen edges (left panel 0..400,
+      right panel `W−400..W`, the game's own +80/−60 shift); the
+      `inventory.bin`/`belts.bin` tables and the replayed `800BorderFrame`
+      follow that anchoring. `D2_RES_PANNEAUX=centre` centres the 800
+      layout as one block instead (panels contiguous, SGD2FreeRes's
+      model, an 80 px stone strip on each side); `D2_RES_PANNEAUX=0`
+      keeps the game's own tables and frame, for A/B. With two panels
+      open the game draws no world, so the column between them (or, when
+      centred, the side strips) is filled in the Glide ring with the
+      frame's own stone (`D2_HUDFILL=0` to disable). Verified on console:
+      close buttons respond to a scripted click and to a separated
+      press/release, captures of each panel and of two panels open.
+      Known gap: the GDI path (`-w`) never resizes its DIB, so `D2_RES`
+      only works under Glide (the default)
 - [x] DirectSound audio (host mixer, natively-ported Storm codecs) —
       implemented, **enabled by default**; `D2_SON=0` opts back out to
       `DSERR_NODRIVER`, faithful to a machine with no sound card

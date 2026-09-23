@@ -116,10 +116,13 @@ own 960×544, one texel per pixel. The knobs exist only to undo that.
 menus to full width instead of bordering them — menu art is fixed-size, so
 it is never redrawn at 960×544. `D2_HUDFILL=0` stops the HUD bar from
 filling the two gaps that its 800-wide art leaves on a 960-wide screen,
-and stops the black strip between an open panel's frame and the screen
-edge from being filled with the frame's own stone. `D2_RES_PANNEAUX=0`
-leaves the game its own inventory tables and border frame (items, clicks
-and frame then sit 80 px off the panels).
+and stops the black column between two open panels (character sheet plus
+inventory or skill tree) from being filled with the frame's own stone.
+`D2_RES_PANNEAUX=centre` centres the 800 layout as one block instead of
+keeping the panels at the screen edges (they then touch, with an 80 px
+stone strip on each side); `D2_RES_PANNEAUX=0` leaves the game its own
+inventory tables and border frame (items, clicks and frame then sit off
+the panels).
 
 The wider field of view a native resolution gives is an advantage in play:
 keep it to solo and private servers.

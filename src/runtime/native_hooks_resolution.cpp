@@ -111,6 +111,17 @@ const BorderPiece BORDER_L[5] = { {0,0,253}, {1,256,63}, {2,0,484}, {3,0,553}, {
 const BorderPiece BORDER_R[5] = { {5,400,63}, {6,544,253}, {7,713,484}, {8,544,553}, {9,400,553} };
 
 int g_on = 0, g_applied = 0, g_w = 960, g_h = 544;
+// Ancrage de la disposition 800x600 sur notre ecran (D2_RES_PANNEAUX) :
+//   0 (defaut, « bords ») : decalage ecran 80/-60, celui du jeu en mode 2. Le
+//     panneau de gauche reste colle a gauche (cadre 0..80, art 80..400), celui
+//     de droite est colle a droite (art W-400..W-80, cadre W-80..W) ; entre
+//     les deux, le monde. C'est l'aspect voulu sur une dalle de 960.
+//   1 (« centre ») : decalage W/2-320, -(H/2-240), la disposition 800 entiere
+//     centree d'un bloc, panneaux jointifs (modele SGD2FreeRes) ; laisse une
+//     bande de 80 px entre le cadre et le bord de l'ecran.
+// Dans les deux cas le MEME decalage sert au dessin et aux clics (crochet 3),
+// et tables (crochet 4) comme cadre (crochet 5) suivent ce meme ancrage.
+int g_centre = 0;
 uint32_t g_base = 0;
 
 // Ces fonctions ne sont pas reentrantes (un changement de resolution a la
@@ -139,8 +150,8 @@ void apply(Cpu& c) {
     c.write_u32(g_base + G_WCPY, (uint32_t)g_w);
     c.write_u32(g_base + G_WCP2, (uint32_t)g_w);
     c.write_u32(g_base + G_HM40, (uint32_t)(g_h - 40));
-    c.write_u32(g_base + G_SHX,  (uint32_t)(int32_t)(g_w / 2 - 320));
-    c.write_u32(g_base + G_SHY,  (uint32_t)(int32_t)(-(g_h / 2 - 240)));
+    c.write_u32(g_base + G_SHX,  (uint32_t)(int32_t)(g_centre ? g_w / 2 - 320 : 80));
+    c.write_u32(g_base + G_SHY,  (uint32_t)(int32_t)(g_centre ? -(g_h / 2 - 240) : -60));
     c.write_u32(g_base + G_INV,  1u);
     c.write_u32(g_base + G_GLW,  (uint32_t)g_w);
     c.write_u32(g_base + G_GLH,  (uint32_t)g_h);
@@ -150,7 +161,7 @@ void apply(Cpu& c) {
     if (premier) {
         jpline("res: %dx%d applique (relecture %ux%u, decalage %d,%d)", g_w, g_h,
                c.read_u32(g_base + G_W), c.read_u32(g_base + G_H),
-               g_w / 2 - 320, -(g_h / 2 - 240)); }
+               g_centre ? g_w / 2 - 320 : 80, g_centre ? -(g_h / 2 - 240) : -60); }
 }
 
 // Pose un trap de sortie sur l'adresse de retour invitee, puis rejoue le
@@ -191,7 +202,23 @@ uint32_t original(Cpu& c, Bridge& br, uint32_t entry) {
 // maintenant le decalage A L'ENTREE de DrawUI, et tout suit le meme centre.
 int dx_centre(uint32_t mode) { return mode ? (g_w - 800) / 2 : (g_w - 640) / 2; }
 int dy_centre(uint32_t mode) { return mode ? (g_h - 600) / 2 : (g_h - 480) / 2; }
+int dx_droite(uint32_t mode) { return mode ? (g_w - 800)     : (g_w - 640); }
 int dy_bas(uint32_t mode)    { return mode ? (g_h - 600)     : (g_h - 480); }
+// Le vecteur d'une ligne de table selon l'ancrage : au centre, toutes les
+// lignes bougent de ((W-800)/2, (H-600)/2) ; aux bords, une ligne de gauche
+// (coffre, echange, PNJ : invLeft 80) ne bouge pas en x, une ligne de droite
+// (le personnage : invLeft 400 ; 320 en mode 640) suit le bord droit, et
+// toutes descendent de H-600 (le haut des panneaux est en H+SHY-480).
+int dx_tab(Cpu& c, uint32_t rec, uint32_t mode) {
+    if (g_centre) return dx_centre(mode);
+    const int32_t l = (int32_t)c.read_u32(rec);
+    if (l < 0) return 0;
+    return l >= (mode ? 400 : 320) ? dx_droite(mode) : 0;
+}
+int dy_tab(uint32_t mode) { return g_centre ? dy_centre(mode) : dy_bas(mode); }
+// Le cadre : chaque moitie suit son panneau.
+int dx_cadre(bool droite) { return g_centre ? dx_centre(1) : (droite ? dx_droite(1) : 0); }
+int dy_cadre()            { return g_centre ? dy_centre(1) : dy_bas(1); }
 
 // Un rectangle de table : gauche, droite, haut, bas.
 void copie_rect(Cpu& c, uint32_t src, uint32_t dst, int dx, int dy, bool vide_si_moins1) {
@@ -222,7 +249,7 @@ uint32_t inv_pos(Cpu& c, Bridge& br) {
     const uint32_t idx = c.read_u32(E + 4), mode = c.read_u32(E + 8), out = c.read_u32(E + 12);
     const uint32_t rec = g_applied ? inv_ligne(c, idx, mode) : 0;
     if (!rec) { original(c, br, g_base + RVA_INVPOS); return 0; }
-    copie_rect(c, rec, out, dx_centre(mode), dy_centre(mode), true);
+    copie_rect(c, rec, out, dx_tab(c, rec, mode), dy_tab(mode), true);
     return 1;
 }
 uint32_t inv_grille(Cpu& c, Bridge& br) {
@@ -234,7 +261,7 @@ uint32_t inv_grille(Cpu& c, Bridge& br) {
     const uint32_t dims = c.read_u32(rec + 0x10);
     c.write_u32(out, dims);
     const bool vide = !(dims & 0xff) || !((dims >> 8) & 0xff);
-    copie_rect(c, rec + 0x14, out + 4, vide ? 0 : dx_centre(mode), vide ? 0 : dy_centre(mode), true);
+    copie_rect(c, rec + 0x14, out + 4, vide ? 0 : dx_tab(c, rec, mode), vide ? 0 : dy_tab(mode), true);
     c.write_u32(out + 0x14, c.read_u32(rec + 0x24));
     return 1;
 }
@@ -244,7 +271,7 @@ uint32_t inv_case(Cpu& c, Bridge& br) {
     const uint32_t rec = g_applied ? inv_ligne(c, idx, mode) : 0;
     if (!rec) { original(c, br, g_base + RVA_INVSLOT); return 0; }
     const uint32_t slot = rec + 0x28 + n * 0x14;   // dix emplacements de 5 mots : rectangle + largeur|hauteur
-    copie_rect(c, slot, out, dx_centre(mode), dy_centre(mode), true);
+    copie_rect(c, slot, out, dx_tab(c, rec, mode), dy_tab(mode), true);
     c.write_u32(out + 0x10, c.read_u32(slot + 0x10));
     return 1;
 }
@@ -310,8 +337,8 @@ void border_suite(Cpu& c, Bridge& br) {
         c.write_u32(s.ctx + 0x34, cel);
         c.write_u32(A + 0x00, s_trapBord);
         c.write_u32(A + 0x04, s.ctx);
-        c.write_u32(A + 0x08, (uint32_t)(p.x + dx_centre(1)));
-        c.write_u32(A + 0x0c, (uint32_t)(p.y + dy_centre(1)));
+        c.write_u32(A + 0x08, (uint32_t)(p.x + dx_cadre(s.pieces == BORDER_R)));
+        c.write_u32(A + 0x0c, (uint32_t)(p.y + dy_cadre()));
         c.write_u32(A + 0x10, 0xffffffffu);
         c.write_u32(A + 0x14, 5u);
         c.write_u32(A + 0x18, 0u);
@@ -346,6 +373,7 @@ uint32_t border_entree(Cpu& c, Bridge& br, uint32_t entry, const BorderPiece* pi
 extern "C" int d2res_active(void) { return g_on && g_applied; }
 extern "C" int d2res_w(void)      { return g_w; }
 extern "C" int d2res_h(void)      { return g_h; }
+extern "C" int d2res_centre(void) { return g_centre; }
 
 void native_hooks_resolution_install(Cpu* cpu, Bridge& br) {
     if (const char* e = getenv("D2_RES")) {
@@ -460,8 +488,10 @@ void native_hooks_resolution_install(Cpu* cpu, Bridge& br) {
     // eboot, et un repli si un jour une table modifiee ne se recale pas bien.
     const char* pn = getenv("D2_RES_PANNEAUX");
     const bool panneaux = !(pn && *pn && (!std::strcmp(pn, "0") || !std::strcmp(pn, "non") || !std::strcmp(pn, "off")));
+    g_centre = (pn && (!std::strcmp(pn, "centre") || !std::strcmp(pn, "center"))) ? 1 : 0;
     int poses = 3;
     if (!panneaux) jpline("res: panneaux laisses au jeu (D2_RES_PANNEAUX=%s)", pn);
+    else jpline("res: panneaux ancres %s", g_centre ? "au centre (D2_RES_PANNEAUX=centre)" : "aux bords");
 
     // 4. Les cinq accesseurs de table : remplaces, recales sur le centre.
     //    Tout ou rien, comme ci-dessus.

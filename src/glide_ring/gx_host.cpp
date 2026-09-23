@@ -34,7 +34,8 @@ extern "C" void r60_gxm_arm();
 // sans le runtime. Nuls dans ce cas, et grSstWinOpen garde la table Glide.
 extern "C" { __attribute__((weak)) int d2res_active(void);
              __attribute__((weak)) int d2res_w(void);
-             __attribute__((weak)) int d2res_h(void); }
+             __attribute__((weak)) int d2res_h(void);
+             __attribute__((weak)) int d2res_centre(void); }
 #ifdef __vita__
 extern "C" int d2vita_pin_self(int mask, unsigned* relu);
 #endif
@@ -1269,12 +1270,14 @@ static void gx_panel_gapfill(uint32_t n, uint32_t stride, const uint8_t* vh,
 }
 // ---- LES DEUX BANDES LATERALES, entre cadre et bord d'ecran ----------------
 //
-// Un panneau lateral ouvert : D2 ne dessine le monde que dans l'autre moitie
-// de l'ecran, et a 800x600 le panneau plus sa barre du cadre 800BorderFrame
-// couvrent la sienne jusqu'au bord. A 960x544 la disposition 800 est centree
-// (panneaux 160..800, cadre 80..880, voir native_hooks_resolution.cpp) : la
-// bande 0..80 (panneau gauche) ou 880..960 (panneau droit), de 0 a H-47,
-// n'est couverte par rien et reste noire.
+// Deux ancrages possibles (D2_RES_PANNEAUX, native_hooks_resolution.cpp) :
+//   bords (defaut) : panneau gauche en 0..400, droit en W-400..W. Avec les
+//     deux ouverts D2 ne dessine plus le monde du tout et la colonne
+//     400..W-400, de 0 a H-47, n'est couverte par rien : noire. Avec un seul
+//     le monde y est visible, rien a combler.
+//   centre : disposition 800 centree (panneaux 160..800, cadre 80..880 a
+//     960). D2 ne dessine le monde que du cote oppose a un panneau ouvert :
+//     la bande 0..80 (gauche) ou W-80..W (droite) reste noire, meme seule.
 //
 // Meme remede que le bandeau ci-dessus : on les comble avec la pierre DU CADRE
 // LUI-MEME, rechantillonnee depuis la barre verticale droite (piece 7 de
@@ -1282,16 +1285,18 @@ static void gx_panel_gapfill(uint32_t n, uint32_t stride, const uint8_t* vh,
 // jeu la pose dans une texture 128x256, art cale en bas a gauche). Sa pierre
 // lisse — les colonnes 18..46, lignes 88..216 de l'art, entre le lisere gauche
 // et la volute — est reemise en tuiles, retournees une sur deux dans chaque
-// sens. Chaque barre verticale du cadre (piece 2 a gauche, en x=80 ; piece 7
-// a droite) comble la bande de son cote des qu'elle passe : le jeu ne rend le
-// monde que dans l'autre moitie, la bande serait noire meme avec un seul
-// panneau ouvert (capture console, 23/09/2026). Peint juste apres la barre,
-// donc sous tout ce que le jeu dessine ensuite (bandeau, curseur, infobulles).
+// sens. Les barres verticales du cadre (piece 2 a gauche, piece 7 a droite)
+// declenchent le comblage : au centre chacune comble sa bande des qu'elle
+// passe ; aux bords la barre droite comble la colonne si la gauche est passee
+// dans la meme image (captures console, 22-23/09/2026). Peint juste apres la
+// barre, donc sous tout ce que le jeu dessine ensuite (bandeau, curseur,
+// infobulles).
 // D2_HUDFILL=0 desarme aussi ces bandes ; =3 journalise les quads hauts.
 static const float COL_TEX_W = 128.0f, COL_TEX_H = 256.0f;   // texture de la barre
 static const float COL_ART_W = 87.0f,  COL_ART_H = 231.0f;   // art de la piece 7
 static const float COL_SRC_X0 = 18.0f, COL_SRC_X1 = 46.0f;   // pierre lisse (colonnes de l'art)
 static const float COL_SRC_Y0 = 88.0f, COL_SRC_Y1 = 216.0f;  //   ... et lignes
+static uint64_t g_colGaucheFrame = ~0ull;                     // image ou la barre gauche est passee (bords)
 static uint64_t g_colQuads = 0;
 static bool     g_colSaid = false;
 
@@ -1321,17 +1326,27 @@ static void gx_colonne_fill(uint32_t n, uint32_t stride, const uint8_t* vh,
     if(g_hudFill>=3 && said3<24){ ++said3;
         jpline("colonne?: image %llu quad (%.0f,%.0f) %.0fx%.0f cellule=%d",
                (unsigned long long)g_gxFrame, x0,y0,w,h,(int)g_gxSt.cell); }
-    // La disposition 800x600 est centree : bas des barres verticales 484,
-    // barres en x=0 et x=800-87, le tout translate de ((W-800)/2, (H-600)/2)
-    // comme tout le cadre (native_hooks_resolution.cpp, dx_centre/dy_centre).
-    const float mx0 = (W - 800.0f) * 0.5f, my0 = (H - 600.0f) * 0.5f;
+    // Ou le cadre pose ses barres verticales (bas 484 dans la disposition
+    // 800x600), selon l'ancrage choisi (native_hooks_resolution.cpp) :
+    //   centre : le tout translate de ((W-800)/2, (H-600)/2) ;
+    //   bords  : barre gauche en x=0, barre droite en x=W-87, bas en H-600+484.
+    const bool centre = d2res_centre && d2res_centre();
+    const float mx0 = centre ? (W - 800.0f) * 0.5f : 0.0f;
+    const float my0 = centre ? (H - 600.0f) * 0.5f : (H - 600.0f);
+    const float xg = mx0, xd = centre ? mx0 + 800.0f - COL_ART_W : W - COL_ART_W;
     const float yb = my0 + 484.0f, yq = yb - COL_TEX_H;
     if(std::fabs(y0-yq)>1.0f || std::fabs(w-COL_TEX_W)>1.0f || std::fabs(h-COL_TEX_H)>1.0f) return;
-    // Chaque barre verticale comble SA bande : le monde n'est jamais dessine
-    // au-dela du panneau qu'elle borde (le jeu ne rend que l'autre moitie).
-    const bool gauche = std::fabs(x0-mx0)<1.0f;
-    const bool droite = std::fabs(x0-(mx0+800.0f-COL_ART_W))<1.0f;
+    const bool gauche = std::fabs(x0-xg)<1.0f;
+    const bool droite = std::fabs(x0-xd)<1.0f;
     if(!gauche && !droite) return;
+    // Aux bords : la zone noire est la COLONNE entre les deux panneaux
+    // (400..W-400), et seulement quand les deux sont ouverts — avec un seul,
+    // le monde y est visible. On la comble apres la barre droite, si la barre
+    // gauche est passee dans la meme image.
+    if(!centre){
+        if(gauche){ g_colGaucheFrame = g_gxFrame; return; }
+        if(g_colGaucheFrame != g_gxFrame) return;
+    }
     float s0=0,s1=0,t0=0,t1=0; bool gs0=false,gs1=false,gt0=false,gt1=false;
     for(uint32_t i=0;i<4;i++){
         if(!gs0 && std::fabs(xs[i]-x0)<0.5f){ s0=ss[i]; gs0=true; }
@@ -1347,9 +1362,12 @@ static void gx_colonne_fill(uint32_t n, uint32_t stride, const uint8_t* vh,
     const float tB = t0 + (t1-t0)*((COL_TEX_H-COL_ART_H+COL_SRC_Y1)/COL_TEX_H);
     const float tw = COL_SRC_X1-COL_SRC_X0, th = COL_SRC_Y1-COL_SRC_Y0;
     const uint32_t col = (oargb>=0) ? ld(0,oargb) : 0xFFFFFFFFu;
-    // La bande de cette barre : de 0 au cadre (gauche) ou du cadre au bord
-    // (droite) ; jusqu'au bandeau.
-    const float bandes[1][2] = { { gauche ? 0.0f : W - mx0, gauche ? mx0 : W } };
+    // Au centre : la bande de cette barre, de 0 au cadre (gauche) ou du cadre
+    // au bord (droite). Aux bords : la colonne entre les panneaux. Jusqu'au
+    // bandeau dans les deux cas.
+    const float bx0 = centre ? (gauche ? 0.0f : W - mx0) : 400.0f;
+    const float bx1 = centre ? (gauche ? mx0  : W)       : W - 400.0f;
+    const float bandes[1][2] = { { bx0, bx1 } };
     const float cy0 = 0.0f, cy1 = H - 47.0f;
     for(const auto& bd : bandes){
         const float cx0 = bd[0], cx1 = bd[1];
@@ -1377,8 +1395,8 @@ static void gx_colonne_fill(uint32_t n, uint32_t stride, const uint8_t* vh,
         }
     }
     if(g_hudFill>=2 && !g_colSaid){ g_colSaid = true;
-        jpline("colonne: barre %s vue en (%.0f, %.0f) — bande %.0f..%.0f x %.0f..%.0f comblee",
-               gauche?"gauche":"droite", x0, yq, bandes[0][0], bandes[0][1], cy0, cy1); }
+        jpline("colonne: barre %s vue en (%.0f, %.0f) — %s %.0f..%.0f x %.0f..%.0f comblee",
+               gauche?"gauche":"droite", x0, yq, centre?"bande":"colonne", bandes[0][0], bandes[0][1], cy0, cy1); }
 }
 static void gx_draw(uint32_t mode, uint32_t cnt, uint32_t stride, const uint8_t* vh){
     if(!g_gxAtlas.ready() || !cnt || cnt>4096) return;
