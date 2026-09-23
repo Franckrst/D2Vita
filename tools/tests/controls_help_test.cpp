@@ -78,6 +78,29 @@ static void t_open_with_content_draws_something() {
           "panel open with content: framebuffer must change");
 }
 
+// t_open_with_content_draws_something (above) only proves the framebuffer
+// changed from an un-drawn 0xDEADBEEF reference — the panel's own opaque
+// background fill (rect() over the whole screen, before any row text is
+// touched) is ALONE enough to make that pass, regardless of whether row
+// text is ever drawn. It would have passed against the pre-Task-8 stub, and
+// would pass again if the row-text call were ever deleted by accident.
+// This test instead draws two DIFFERENT sets of lines into two separate
+// framebuffers and asserts the two results differ from EACH OTHER, not
+// just from a blank reference — a regression that stops rendering row text
+// collapses both to the same background-only image, which this catches.
+static void t_open_with_different_content_draws_differently() {
+    State s; std::memset(&s, 0, sizeof s);
+    s.open = true; s.row_count = 1; s.visible_rows = 6;
+    const char* lines_a[1] = {"Cross: Test"};
+    const char* lines_b[1] = {"Circle: Shift"};
+    std::vector<uint32_t> fb_a(960 * 544, 0xDEADBEEFu);
+    std::vector<uint32_t> fb_b(960 * 544, 0xDEADBEEFu);
+    draw(s, fb_a.data(), 960, 544, lines_a);
+    draw(s, fb_b.data(), 960, 544, lines_b);
+    CHECK(std::memcmp(fb_a.data(), fb_b.data(), fb_a.size() * 4) != 0,
+          "different content must render differently, not just 'something changed from blank'");
+}
+
 int main() {
     t_icon_hit_rect_confined_to_left_band();
     t_open_close_toggle();
@@ -85,6 +108,7 @@ int main() {
     t_scroll_drag_delta();
     t_content_shorter_than_view_never_scrolls();
     t_open_with_content_draws_something();
+    t_open_with_different_content_draws_differently();
     std::printf("%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }
