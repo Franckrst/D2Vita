@@ -63,7 +63,21 @@ the source of truth for the public repository.
       close buttons respond to a scripted click and to a separated
       press/release, captures of each panel and of two panels open.
       Known gap: the GDI path (`-w`) never resizes its DIB, so `D2_RES`
-      only works under Glide (the default)
+      only works under Glide (the default).
+      **Vertical anchor (2026-09-23):** X and Y are anchored independently.
+      Staying bottom-flush in Y — like the game's own +80/−60 — left only
+      ~4 px above the panel on a 544-tall screen (600-tall design), enough
+      to slice the ornate corner clean off while the bottom stayed intact
+      (reported by a beta tester as "mercenary inventory still not right";
+      confirmed on console, zoomed captures of the mercenary and inventory
+      panels). Y is now always centred (X keeps following
+      `D2_RES_PANNEAUX`), splitting the 56 px shortfall instead of taking
+      it all from the top. `dy_tab`/`dy_cadre` (our tables and the replayed
+      border) and the native `ScreenShiftY` DrawUI reads now derive from
+      the *same* `dy_centre()` value, so they cannot drift apart the way
+      draw and click could in X before this fix. Verified on console: full
+      ornament visible top and bottom on both panels, inventory close-click
+      still lands after the shift (594,432 vs the old 594,404)
 - [x] DirectSound audio (host mixer, natively-ported Storm codecs) —
       implemented, **enabled by default**; `D2_SON=0` opts back out to
       `DSERR_NODRIVER`, faithful to a machine with no sound card
@@ -75,6 +89,11 @@ the source of truth for the public repository.
       available by default (unconditionally refused while any debugging
       tool is active; `D2_LOCAL_ONLY=1` restricts to a private/local server)
       — see [`docs-site/en-ligne.md`](docs-site/en-ligne.md)
+- [x] On-screen build tag (top-right, always on): the same `<VERSION>+<12
+      hex>[-dirty]` string as the crash report (`crashreport/build_id.h`),
+      drawn with the virtual keyboard's own font. Added 2026-09-23 after a
+      beta tester's bug report could not be tied to a specific build with
+      confidence; `D2VITA_BUILDTAG=0` hides it
 
 ## In progress / open
 
