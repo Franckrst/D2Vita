@@ -4,6 +4,12 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.11-beta4 — 2026-09-23
+
+- LiveArea background updated (community contribution, issue #19): adds
+  the Blizzard Entertainment mark and moves the full "Diablo II: Lord of
+  Destruction" logo to the top, same base art and border otherwise.
+
 ## v0.1.11-beta3 — 2026-09-23
 
 - On-screen build tag (top-right corner: version + commit hash) so a bug

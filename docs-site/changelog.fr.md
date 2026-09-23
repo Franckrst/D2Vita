@@ -5,6 +5,13 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.11-beta4 — 2026-09-23
+
+- Fond LiveArea mis à jour (contribution communautaire, issue #19) :
+  ajoute la marque Blizzard Entertainment et déplace le logo complet
+  « Diablo II: Lord of Destruction » en haut, même illustration de base
+  et même bordure sinon.
+
 ## v0.1.11-beta3 — 2026-09-23
 
 - Étiquette de build à l'écran (coin haut-droit : version + hash de
