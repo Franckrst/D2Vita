@@ -481,6 +481,32 @@ void* alloc_fb(SceUID* uid) {
 }
 } // namespace
 
+// blend_px used to live in radial_menu::draw_detail, shared with the radial
+// menu's own CPU blitter -- removed there by b34f0bc ("le compositer sur le
+// GPU (81 ms par image supprimes)"), which measured ~814 ns per CDRAM pixel
+// READ back to blend, ~57 ms/frame of the menu's 81 ms regression, and says
+// explicitly not to reintroduce CPU compositing for THAT rendering path.
+// draw_reticle below is a different scale, not the same call: a target
+// diamond (~40 px) plus at most one loot bracket (~50 px), a couple hundred
+// blended pixels at alpha=220 versus the menu's full wedge+icon atlas -- at
+// ~814 ns/px that is worst-case low hundreds of microseconds, not tens of
+// milliseconds, so it is kept local (not shared back into radial_menu.h,
+// which stays GPU-only on principle) rather than ported to the GPU path.
+// Not console-measured; if this overlay is ever seen costing real frame
+// time, follow the menu/keyboard's own precedent and move it there.
+static void blend_px(uint32_t* fb, int W, int H, int x, int y,
+                      uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    if (x < 0 || x >= W || y < 0 || y >= H || a == 0) return;
+    const size_t o = (size_t)y * W + x;
+    if (a == 255) { fb[o] = 0xFF000000u | ((uint32_t)b << 16) | ((uint32_t)g << 8) | r; return; }
+    const uint32_t dst = fb[o];
+    const uint8_t dr = (uint8_t)(dst & 0xFF), dg = (uint8_t)((dst >> 8) & 0xFF), db = (uint8_t)((dst >> 16) & 0xFF);
+    const uint8_t nr = (uint8_t)(((uint32_t)r * a + (uint32_t)dr * (255 - a)) / 255);
+    const uint8_t ng = (uint8_t)(((uint32_t)g * a + (uint32_t)dg * (255 - a)) / 255);
+    const uint8_t nb = (uint8_t)(((uint32_t)b * a + (uint32_t)db * (255 - a)) / 255);
+    fb[o] = 0xFF000000u | ((uint32_t)nb << 16) | ((uint32_t)ng << 8) | nr;
+}
+
 // Scheme v2 overlay: a diamond on the current hostile target (gold once the
 // game is verified to hover it, white before) and cyan corner brackets on the
 // ground-item browse cursor (Phase 2). No ground-aim dot: the cast lands where
@@ -489,7 +515,6 @@ void* alloc_fb(SceUID* uid) {
 static void draw_reticle(uint32_t* fb) {
     const OverlayPub ov = overlay_read();
     if (!ov.retHas && !ov.lootHas) return;
-    using radial_menu::draw_detail::blend_px;
     const int gw = g_game_w > 0 ? g_game_w : 800, gh = g_game_h > 0 ? g_game_h : 600;
     if (ov.retHas) {
         const int cx = ov.retX * SCR_W / gw, cy = ov.retY * SCR_H / gh - 8;
