@@ -9,6 +9,8 @@
 #include <cstdio>
 #include <cstring>
 
+#include "platform/vita_kb.h"   // d2kb::draw_detail::text — reuse the existing pixel font, don't duplicate one
+
 namespace d2ch {
 
 // Left letterbox band on the title screen (960x544 physical screen, D2's own
@@ -72,19 +74,27 @@ inline void rect(uint32_t* fb, int fw, int fh, int x0, int y0, int x1, int y1, u
 } // namespace draw_detail
 
 // Draws the persistent icon (when !s.open) or the full panel (when s.open).
-// `labels`/`bindings` are `row_count` parallel arrays of already-formatted,
-// null-terminated strings (built by the caller from g_btn[] + the fixed
-// non-remappable list — see controls_help_format.h, Task 6).
-inline void draw(const State& s, uint32_t* fb, int fw, int fh,
-                  const char* const* labels, const char* const* bindings) {
-    (void)labels; (void)bindings;   // text rendering: same primitive kit as vita_kb.h's draw_detail::text/ch, reused as-is
+// `lines` is `row_count` already-formatted "<button>: <action>" strings
+// (built by the caller from g_btn[] + the fixed non-remappable list — see
+// format_controls_help() in vita_present.cpp, Task 5). One string per row,
+// not two parallel arrays — matches what that formatter actually produces.
+inline void draw(const State& s, uint32_t* fb, int fw, int fh, const char* const* lines) {
     using namespace draw_detail;
     if (!s.open) {
         rect(fb, fw, fh, BAND_X0 + 8, BAND_Y1 - 24, BAND_X1 - 8, BAND_Y1 - 8, rgb(40, 40, 40));
+        d2kb::draw_detail::text(fb, fw, fh, "Controls", BAND_X0 + 12, BAND_Y1 - 20, 1, rgb(220, 220, 220));
         return;
     }
     // Full-screen translucent panel background.
     rect(fb, fw, fh, 0, 0, fw, fh, rgb(10, 10, 10));
+    if (!lines) return;
+    const int x = 20, y0 = 16, row_h = s.row_px > 0 ? s.row_px : 20;
+    const int last = s.scroll + s.visible_rows;
+    for (int i = s.scroll; i < s.row_count && i < last; ++i) {
+        const int y = y0 + (i - s.scroll) * row_h;
+        if (y + row_h > fh) break;
+        if (lines[i]) d2kb::draw_detail::text(fb, fw, fh, lines[i], x, y, 1, rgb(230, 230, 230));
+    }
 }
 
 } // namespace d2ch

@@ -205,6 +205,12 @@ uint32_t g_kb_last_focus = 0;         // ouverture auto du clavier : dernier foc
 // sites referencing it before its declaration.
 d2ch::State g_ch;
 char g_ch_labels[64][64];
+// d2ch::draw() takes one array of row pointers (const char* const*), not a
+// 2D char array -- char[64][64] does NOT convert to that (different memory
+// layout: one is a flat block of bytes, the other an array of pointers).
+// This is populated to mirror g_ch_labels right after format_controls_help()
+// fills it, and is what the draw call sites below actually pass.
+const char* g_ch_lines[64];
 int  g_ch_count = 0;
 bool d2ch_title_active_cached = false;   // recomputed every ~4 ticks by
                                           // d2vita_input_tick; read by that
@@ -488,7 +494,7 @@ void d2vita_overlay(uint32_t* fb) {
     if (g_kb.open && !(kb_alpha() < 100 && d2gxm_kb_active())) draw_keyboard(fb);
     // Controls-help icon/panel: only ever active on D2's literal title
     // screen (d2ch_title_active_cached, maintained by d2vita_input_tick).
-    if (d2ch_title_active_cached) d2ch::draw(g_ch, fb, SCR_W, SCR_H, /*labels=*/nullptr, /*bindings=*/nullptr);
+    if (d2ch_title_active_cached) d2ch::draw(g_ch, fb, SCR_W, SCR_H, g_ch_count ? g_ch_lines : nullptr);
 }
 
 const d2kb::State* d2vita_kb_state() { return g_kb.open ? &g_kb : nullptr; }
@@ -705,7 +711,7 @@ void do_scale_and_flip(const PresentSlot* sfr) {
     // (d2vita_overlay) — this is the GDI/historical presentation path's own
     // copy, needed so the overlay is visible whichever path is actually
     // presenting the title screen.
-    if (d2ch_title_active_cached) d2ch::draw(g_ch, dst, SCR_W, SCR_H, /*labels=*/nullptr, /*bindings=*/nullptr);
+    if (d2ch_title_active_cached) d2ch::draw(g_ch, dst, SCR_W, SCR_H, g_ch_count ? g_ch_lines : nullptr);
     SceDisplayFrameBuf fb;
     std::memset(&fb, 0, sizeof fb);
     fb.size        = sizeof fb;
@@ -2041,6 +2047,7 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
                     d2ch::tap(g_ch, ch_tap_x0, ch_tap_y0);
                     if (g_ch.open) {
                         g_ch_count = format_controls_help(g_ch_labels, 64);
+                        for (int i = 0; i < g_ch_count; ++i) g_ch_lines[i] = g_ch_labels[i];
                         g_ch.row_count = g_ch_count;
                         g_ch.visible_rows = 20;   // tuned on-device in Task 8
                     }

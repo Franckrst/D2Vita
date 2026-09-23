@@ -68,12 +68,23 @@ static void t_content_shorter_than_view_never_scrolls() {
     CHECK(s.scroll == 0, "fewer rows than the view: max scroll is 0");
 }
 
+static void t_open_with_content_draws_something() {
+    State s; std::memset(&s, 0, sizeof s);
+    s.open = true; s.row_count = 2; s.visible_rows = 6;
+    const char* lines[2] = {"Cross: Test", "Circle: Shift"};
+    std::vector<uint32_t> fb(960 * 544, 0xDEADBEEFu), ref = fb;
+    draw(s, fb.data(), 960, 544, lines);
+    CHECK(std::memcmp(fb.data(), ref.data(), fb.size() * 4) != 0,
+          "panel open with content: framebuffer must change");
+}
+
 int main() {
     t_icon_hit_rect_confined_to_left_band();
     t_open_close_toggle();
     t_scroll_dpad_step();
     t_scroll_drag_delta();
     t_content_shorter_than_view_never_scrolls();
+    t_open_with_content_draws_something();
     std::printf("%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }

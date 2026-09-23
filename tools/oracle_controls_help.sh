@@ -8,7 +8,8 @@ rc=0
 
 echo "== 1. compilation stricte =="
 if g++ -std=gnu++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined \
-       -I "$ROOT/src" -o "$BIN" "$ROOT/tools/tests/controls_help_test.cpp"; then echo "   OK"; else echo "   ECHEC"; rc=1; fi
+       -I "$ROOT/src" -I "$ROOT/third_party/winx86/src" \
+       -o "$BIN" "$ROOT/tools/tests/controls_help_test.cpp"; then echo "   OK"; else echo "   ECHEC"; rc=1; fi
 
 echo "== 2. oracle de comportement =="
 if [ -x "$BIN" ]; then "$BIN" || rc=1; else rc=1; fi
