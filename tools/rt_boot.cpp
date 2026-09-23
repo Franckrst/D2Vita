@@ -175,14 +175,16 @@ static void apply_compact_layout(){
     const char* l=getenv("D2LAYOUT");
     if(!l||(std::strcmp(l,"compact")&&std::strcmp(l,"haut"))) return;
     // HARDWARE-FIT PACK, 1.14d calibration: sizes derive from the measured 1.14d
-    // Rogue profile (heap peak 15.6 MiB, VA peak 200.2 MiB, monolith Game.exe
-    // image 5.9 MiB — relocatable, loads in the module window; misc < 2 MiB),
-    // trimmed to that observed usage plus headroom (not a leak — the working
-    // set here is stable). Total span 0x11700000 = 279 MiB; D2ARENA =
-    // 0x12700000 (295 MiB incl. the 16 MiB membase-rounding slack) — inside the
-    // ~330 MiB real-Vita user budget (ATTRIBUTE2=12); the bench scripts pass
-    // 0x12900000, which still covers this span. The span above VA
-    // (stacks/TIBs/trap window/D2ARENA) is byte-identical regardless of these sizes.
+    // Rogue profile (heap peak 15.6 MiB, monolith Game.exe image 5.9 MiB —
+    // relocatable, loads in the module window; misc < 2 MiB), trimmed to that
+    // observed usage plus headroom (not a leak — the working set here is
+    // stable). The VA figure this paragraph used to cite here is retired —
+    // see the note at VA_SIZE below. Total span 0x11300000 = 275 MiB;
+    // D2ARENA = 0x12300000 (291 MiB incl. the 16 MiB membase-rounding slack)
+    // — inside the ~330 MiB real-Vita user budget (ATTRIBUTE2=12); the bench
+    // scripts pass 0x12900000, which still covers this (smaller) span. The
+    // span above VA (stacks/TIBs/trap window/D2ARENA) is byte-identical
+    // regardless of these sizes.
     // Heap history: 20 -> ~24.9 MiB by dropping the FLOOR to 0x00020000 (the old
     // ~5 MiB null-guard slack; 124 KiB of guard is kept, still enough to fault
     // on a null pointer plus a normal struct offset), then -> ~32.9 MiB by
@@ -213,25 +215,30 @@ static void apply_compact_layout(){
     // refusal, not a silent overwrite.
     MISC_BASE=0x02A00000; MISC_SIZE=0x00200000;   // 2 MiB   -> ends 0x02C00000 (= VA_BASE)
     // VirtualAlloc arena: Storm's MPQ decompressor (SCOMP) grows a doubling
-    // working buffer during level load; the 1.14d Rogue Encampment run peaks
-    // at 200.2 MiB of VA (measured, soak). 216 MiB leaves ~16 MiB
-    // anti-fragmentation headroom. Undersizing makes SCOMP hit "error 8" and
-    // the Storm I/O worker dies through a smashed frame (deterministic VA
-    // exhaustion). Later acts may peak higher — re-measure past Act 1.
-    // membase must be 16 MiB aligned, but the kernel only returns bases aligned
-    // to 1 MiB — up to 15 MiB can be lost to alignment slop with no way to
-    // reclaim it (observed anywhere from 3 to 13 MiB between runs). The guest VA
-    // extent is the only knob available to compensate.
-    // Without this headroom the JIT cache cannot grow; since this build has no
+    // working buffer during level load. 2026-09-23: retired the old sizing
+    // rationale here (it cited a 200.2 MiB "measured" peak and a specific
+    // alignment-slop budget) -- that peak dates from a since-fixed texture
+    // compression/splitting bug and does not describe current consumption.
+    // No replacement peak is known yet: the actual high-water mark needs a
+    // fresh soak on this build (dyn86_jitpool's sibling gauge, `va=%u/%uMB`,
+    // has been on the console `alive:`/qemu `frames:` lines since 0.1.10 --
+    // see d2rt_va_peak_mb(), tools/rt_boot.cpp). Shrunk 220->216 MiB (-4 MiB)
+    // to hand that room to the JIT pool (custommem.c/mman_vita.c), which is
+    // short by ~2-4 MiB per two independent estimates (Game.exe .text size *
+    // measured ARM expansion; the 0.1.6 field growth-curve). Undersizing
+    // makes SCOMP hit "error 8" and the Storm I/O worker die through a
+    // smashed frame (deterministic VA exhaustion) -- watch `va=` on the next
+    // real session, this has not been soak-tested past a short qemu run.
+    // Without headroom the JIT cache cannot grow; since this build has no
     // interpreter fallback (shim_impl.c: Run() sets quit=1), a refused block
-    // kills the guest thread outright — this is not a soft degradation.
+    // kills the guest thread outright -- this is not a soft degradation.
     // The bridge holds its own copy of the module/stack/trap bases; they are no
     // longer allowed to drift, they are pushed to it from here (see the
     // D2_MODBASE/D2_STACKBASE/D2_TRAPBASE block after the HIGH-layout shift).
-    VA_BASE  =0x02C00000; VA_SIZE  =0x0DC00000;   // 220 MiB -> ends 0x10800000 (= bridge stack_base_)
-    // main guest stack 0x10800000..0x10A00000 (2 MiB, bridge stack_base_)
-    MAIN_STACK_TOP=0x10A00000;
-    SCHED_STACKS=0x10A00000; SCHED_TIBS=0x11400000;   // worker stacks/TIBs, below the 0x11600000 trap window
+    VA_BASE  =0x02C00000; VA_SIZE  =0x0D800000;   // 216 MiB -> ends 0x10400000 (= bridge stack_base_)
+    // main guest stack 0x10400000..0x10600000 (2 MiB, bridge stack_base_)
+    MAIN_STACK_TOP=0x10600000;
+    SCHED_STACKS=0x10600000; SCHED_TIBS=0x11000000;   // worker stacks/TIBs, below the 0x11200000 trap window
     // ---- HIGH layout (D2LAYOUT=haut): the same pack, shifted above 0x80000000,
     // membase=0. This is the byte-identical model run under qemu to validate
     // the Vita layout (src/runtime/layout.h); offset 0 for "compact" makes the
@@ -252,8 +259,8 @@ static void apply_compact_layout(){
     // trap_hi_ and the sentinel are re-derived by the bridge from trap_base_.
     { const uint32_t HI=d2rt::layout_hi(); char b[16];
       std::snprintf(b,sizeof b,"%08x",HI+0x02100000u); setenv("D2_MODBASE",  b,0);
-      std::snprintf(b,sizeof b,"%08x",HI+0x10800000u); setenv("D2_STACKBASE",b,0);
-      std::snprintf(b,sizeof b,"%08x",HI+0x11600000u); setenv("D2_TRAPBASE", b,0); }
+      std::snprintf(b,sizeof b,"%08x",HI+0x10400000u); setenv("D2_STACKBASE",b,0);
+      std::snprintf(b,sizeof b,"%08x",HI+0x11200000u); setenv("D2_TRAPBASE", b,0); }
     // The engine owns current-TIB logic; this port only supplies where its
     // memory layout places the main TIB. Set here as soon as the layout is
     // fixed, before any shim runs.
@@ -2585,8 +2592,8 @@ int main(int argc,char**argv){
     // write into nothing. The probe stays WORD FOR WORD the same for
     // "compact"; it is simply skipped under the HIGH layout.
     if(getenv("D2LAYOUT") && !d2rt::layout_hi()){
-        static const uint32_t rungs[]={0x01000000,0x0F000000,0x10000000,0x10800000,
-                                       0x10BF0000,0x11000000,0x11400000,0x118FF000};
+        static const uint32_t rungs[]={0x01000000,0x0F000000,0x10000000,0x10400000,
+                                       0x107F0000,0x10C00000,0x11000000,0x114FF000};
         for(uint32_t a:rungs){ uint32_t v=0xD2A0BEEF; cpu->write(a,&v,4);
             char m[64]; std::snprintf(m,sizeof m,"arena probe ok: 0x%08x",a);
             d2vita_progress(m); }

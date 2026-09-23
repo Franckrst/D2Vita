@@ -145,14 +145,15 @@ const char* d2vita_platform_init() {
     setenv("GAMEEXE", "1", 1);
     setenv("D2ARGS", "game.exe -3dfx", 1);   // Glide is the default renderer; see the perf block below
     setenv("D2LAYOUT", "compact", 1);
-    setenv("D2ARENA", "12700000", 1);   // 295 MiB single block: covers the packed
-                                          // 1.14d compact span up to the 0x11700000
+    setenv("D2ARENA", "12300000", 1);   // 291 MiB single block: covers the packed
+                                          // 1.14d compact span up to the 0x11300000
                                           // trap ceiling + 16 MiB membase-rounding
                                           // slack (~330 MiB real-Vita user budget).
-                                          // Grew with the 8 MiB heap-ceiling raise in
-                                          // apply_compact_layout (rt_boot.cpp) — the two
-                                          // MUST move together or the span overflows the
-                                          // arena and H(va)=va+membase leaves the block.
+                                          // 2026-09-23: -4 MiB alongside VA_SIZE's
+                                          // shrink (apply_compact_layout, rt_boot.cpp)
+                                          // — the two MUST move together or the span
+                                          // overflows the arena and H(va)=va+membase
+                                          // leaves the block.
     // MAXFRAMES / MAXSW deliberately NOT baked: unset = unlimited. A real play
     // session must never self-terminate (the old baked MAXFRAMES=40000 ended
     // every session after ~30-45 min, losing unsaved progress). The test
