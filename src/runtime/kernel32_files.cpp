@@ -85,22 +85,33 @@ void kernel32_files_install(Bridge& br){
         uint32_t access=c.arg(1), disp=c.arg(4);
         bool wantWrite=(access & 0x40000000u)||disp==1||disp==2; // GENERIC_WRITE, CREATE_NEW, CREATE_ALWAYS
         // Automap overlay files (<char>.map / .ma0 / .ma1 / .ma2): D2 opens them
-        // read+write with OPEN_ALWAYS on level-enter to LOAD the explored-map
-        // overlay. A fresh character has none, and honoring OPEN_ALWAYS by creating
-        // it empty hands D2 a 0-byte file whose fixed-size header read returns EOF —
-        // which spins the act-load (the client never finishes loading the level, so
-        // it never sends LOADCOMPLETE and the GS drops it). Report ENOENT for a
-        // MISSING-or-EMPTY automap so D2 takes its "no saved automap -> generate a
-        // fresh one" path; a real (non-empty) automap still opens normally, and the
-        // later CREATE_ALWAYS save path still creates the file.
+        // read+write with OPEN_ALWAYS from one opener (Game+0x57f40: 24-byte
+        // header read, delete + recreate if invalid), for the LOAD on level
+        // entry (caller Game+0x5876c) and for the SAVE of a level's layer
+        // (Game+0x5820f). Until 2026-09-24 a missing-or-empty file was answered
+        // ENOENT here -- a workaround for a fresh character's act load spinning
+        // on the 0-byte file -- which also refused the SAVE: the file never
+        // came into existence and the explored map was lost on every waypoint
+        // trip. Windows creates the file and the game copes with the empty
+        // header itself; that is what happens now. Every automap open is
+        // logged (caller two frames up: EBP is the CreateFileA wrapper's frame,
+        // Game+0x6960) so a regression of the old spin names its exact step.
         { size_t s=n.find_last_of("\\/"); std::string base=s==std::string::npos?n:n.substr(s+1);
           size_t dot=base.find_last_of('.'); std::string ext=dot==std::string::npos?"":base.substr(dot);
           for(char& ch:ext) ch=(char)std::tolower((unsigned char)ch);
-          if((disp==3||disp==4) && (ext==".map"||ext==".ma0"||ext==".ma1"||ext==".ma2")){
+          if(ext==".map"||ext==".ma0"||ext==".ma1"||ext==".ma2"){
               std::string wp=g_writeRoot+"/"+base; struct stat st;
-              if(::stat(wp.c_str(),&st)!=0 || st.st_size==0){ set_lasterr(c,2);
-                  std::printf("    [automap] %s missing/empty -> ENOENT (D2 regenerates)\n",base.c_str());
-                  return 0xFFFFFFFFu; } } }
+              const bool absent = ::stat(wp.c_str(),&st)!=0;
+              const long size = absent ? -1 : (long)st.st_size;
+              uint32_t retA=0, retB=0;
+              { const uint32_t ebp1=c.reg(R_EBP);
+                if(ebp1>0x10000u){ retA=c.read_u32(ebp1+4); const uint32_t ebp2=c.read_u32(ebp1);
+                                   if(ebp2>0x10000u) retB=c.read_u32(ebp2+4); } }
+              char sz[32]={0}; if(!absent) std::snprintf(sz,sizeof sz," (%ld o)",size);
+              char m[220]; std::snprintf(m,sizeof m,"[automap] %s disp=%u acces=0x%08x %s%s appelant=Game+0x%x/Game+0x%x",
+                    base.c_str(),disp,access,absent?"absent":"present",sz,
+                    (unsigned)(retA?retA-g_d2base:0),(unsigned)(retB?retB-g_d2base:0));
+              d2vita_progress(m); } }
         if(wantWrite){                                          // game-created files (saves, logs) live in the write dir
             size_t s=n.find_last_of("\\/"); std::string base=s==std::string::npos?n:n.substr(s+1);
             std::string wp=g_writeRoot+"/"+base;

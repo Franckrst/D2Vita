@@ -5,6 +5,20 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.11-beta7 — 2026-09-24
+
+- **La carte explorée est conservée d'un waypoint à l'autre (et d'une
+  partie à l'autre).** D2 garde l'automap d'une zone dans
+  `<personnage>.ma0/.ma1/.ma2` (un par difficulté) : il écrit le fichier en
+  quittant la zone et le relit en y entrant. Le runtime répondait « fichier
+  introuvable » à toute ouverture d'un automap absent — un vieux
+  contournement pour le chargement d'acte d'un nouveau personnage — ce qui
+  refusait aussi la sauvegarde : le fichier n'existait jamais et chaque
+  entrée de zone repartait d'une carte vierge. Toutes les ouvertures
+  d'automap sont maintenant honorées comme sur Windows (le jeu gère lui-même
+  le fichier vide, vérifié sur console : aucun blocage), et chacune est
+  journalisée dans `boot_progress.txt`.
+
 ## v0.1.11-beta6 — 2026-09-24
 
 - **Le menu principal n'est plus décentré après Save & Exit.** Au retour

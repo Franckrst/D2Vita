@@ -4,6 +4,18 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.11-beta7 — 2026-09-24
+
+- **Explored map kept across waypoint trips (and across games).** D2 keeps a
+  level's automap in `<character>.ma0/.ma1/.ma2` (one per difficulty): it
+  writes the file when leaving a level and reads it back on entry. The
+  runtime answered "no such file" to every open of a missing automap — an
+  old workaround for a fresh character's act load — which also refused the
+  save, so the file never existed and every level entry started from a blank
+  map. All automap opens are now honoured as on Windows (the game copes with
+  the empty file itself, verified on console: no stall), and every automap
+  open is logged in `boot_progress.txt`.
+
 ## v0.1.11-beta6 — 2026-09-24
 
 - **Main menu no longer off-centre after Save & Exit.** Returning from a
