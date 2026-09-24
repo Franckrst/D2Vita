@@ -213,8 +213,57 @@ void d2vita_show_version_warning_screen(const std::string& dir, const std::vecto
     present(fb);
     sceDisplayWaitVblankStart();
 }
+void d2vita_show_kubridge_notice_screen() {
+    using namespace d2kb::draw_detail;
+    SceUID uid;
+    void* base = alloc_fb(&uid);
+    if (!base) return;
+    uint32_t* fb = (uint32_t*)base;
+
+    rect(fb, kScrW, kScrH, 0, 0, kScrW, kScrH, rgb(0x10, 0x10, 0x10));
+    const int panelX = 60, panelY = 60, panelW = kScrW - 120, panelH = kScrH - 120;
+    rect(fb, kScrW, kScrH, panelX, panelY, panelW, panelH, rgb(0x20, 0x20, 0x20));
+    frame(fb, kScrW, kScrH, panelX, panelY, panelW, panelH, rgb(0x60, 0xA0, 0xE0));
+
+    int y = panelY + 20, x = panelX + 24;
+    text(fb, kScrW, kScrH, "KUBRIDGE PLUGIN NOT FOUND", x, y, 1, rgb(0x80, 0xC0, 0xFF)); y += 32;
+    text(fb, kScrW, kScrH, "D2Vita runs without it, with these limits:", x, y, 1, rgb(0xE0, 0xE0, 0xE0)); y += 26;
+    text(fb, kScrW, kScrH, "- JIT cache capped at 16 MiB (kernel VM quota): more re-translation", x, y, 1, rgb(0xD0, 0xD0, 0xD0)); y += 20;
+    text(fb, kScrW, kScrH, "  in long sessions", x, y, 1, rgb(0xD0, 0xD0, 0xD0)); y += 20;
+    text(fb, kScrW, kScrH, "- crash reports without the game's own Crash.txt and exact x86 state", x, y, 1, rgb(0xD0, 0xD0, 0xD0)); y += 20;
+    text(fb, kScrW, kScrH, "- no guard pages, no self-modifying-code barrier", x, y, 1, rgb(0xD0, 0xD0, 0xD0)); y += 30;
+    text(fb, kScrW, kScrH, "Recommended: put kubridge.skprx (v0.3 or later) in ur0:tai/,", x, y, 1, rgb(0xE0, 0xE0, 0xE0)); y += 20;
+    text(fb, kScrW, kScrH, "add it under *KERNEL in ur0:tai/config.txt, then reboot.", x, y, 1, rgb(0xE0, 0xE0, 0xE0)); y += 20;
+    text(fb, kScrW, kScrH, "See the installation guide (github.com/Franckrst/D2Vita).", x, y, 1, rgb(0xA0, 0xA0, 0xA0));
+
+    y = panelY + panelH - 36;
+    text(fb, kScrW, kScrH, ">>> Press X to continue (or wait 10 s) <<<", x, y, 1, rgb(0x80, 0xC0, 0xFF));
+
+    present(fb);
+    sceDisplayWaitVblankStart();
+
+    // Same residual-press seeding as the screens above; unlike the version
+    // warning this one times out -- an optional plugin must never gate the
+    // game, only inform.
+    uint32_t prevButtons = 0;
+    { SceCtrlData seed; std::memset(&seed, 0, sizeof seed);
+      if (sceCtrlPeekBufferPositive(0, &seed, 1) >= 1) prevButtons = seed.buttons; }
+    for (int tick = 0; tick < 10 * 30; ++tick) {
+        SceCtrlData pad; std::memset(&pad, 0, sizeof pad);
+        if (sceCtrlPeekBufferPositive(0, &pad, 1) >= 1) {
+            const uint32_t pressed = pad.buttons & ~prevButtons;
+            prevButtons = pad.buttons;
+            if (pressed & SCE_CTRL_CROSS) break;
+        }
+        sceKernelDelayThread(33 * 1000);
+    }
+    rect(fb, kScrW, kScrH, 0, 0, kScrW, kScrH, rgb(0x10, 0x10, 0x10));
+    present(fb);
+    sceDisplayWaitVblankStart();
+}
 #else
 void d2vita_show_missing_files_screen(const std::string&, const std::vector<std::string>&) {}
 void d2vita_show_version_error_screen(const std::string&, const std::string&) {}
 void d2vita_show_version_warning_screen(const std::string&, const std::vector<std::string>&) {}
+void d2vita_show_kubridge_notice_screen() {}
 #endif

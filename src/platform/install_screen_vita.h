@@ -33,3 +33,7 @@ void d2vita_show_version_error_screen(const std::string& dir, const std::string&
 // above. No-op off Vita, or if `warnings` is empty. Same sceGxm-free
 // framebuffer as above.
 void d2vita_show_version_warning_screen(const std::string& dir, const std::vector<std::string>& warnings);
+// kubridge (kernel plugin) not loaded: D2Vita still runs, with a 16 MiB JIT
+// pool and no game-side crash report. Says so once at boot; Cross continues,
+// and so does a 10 s timeout (an optional plugin must not gate the game).
+void d2vita_show_kubridge_notice_screen();

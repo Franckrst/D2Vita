@@ -86,6 +86,19 @@ README](https://github.com/Franckrst/D2Vita#building); the result lands at
 
 Install the VPK with VitaShell, like any homebrew.
 
+Recommended: the [kubridge](https://github.com/bythos14/kubridge) kernel
+plugin (v0.3 or later — the same plugin the big Vita ports require). Put
+`kubridge.skprx` in `ur0:tai/` and list it under `*KERNEL` in
+`ur0:tai/config.txt` (or `ux0:tai/config.txt`), then reboot. With it the
+translation cache (JIT) grows to 32 MiB instead of the kernel's 16 MiB
+per-process VM quota — fewer re-translations in long sessions. It is
+optional: without it D2Vita runs on 16 MiB, a notice says so at boot (X
+to continue, or wait 10 s), and `boot_progress.txt` says which case applies
+(`JIT: kubridge present` / `absent`). The plugin also arms
+a user-mode fault handler: a crash report then carries the exact x86 state at
+the fault, and the memory under the game's heap is guarded against null
+dereferences.
+
 ## Configuration (`env.txt`)
 
 The runtime's behavior is configured through an `env.txt` file placed

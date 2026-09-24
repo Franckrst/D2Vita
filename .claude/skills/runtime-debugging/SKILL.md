@@ -31,11 +31,18 @@ Drive gameplay deterministically with `D2SCRIPT` (frame:action events, see
 
 ## Resolving a guest EIP / crash address
 
-`Game.exe` loads unrelocated at its preferred base `0x00400000` — byte-
-identical to disk (see `ARCHITECTURE.md`) — so
+On the desktop (sparse layout) `Game.exe` loads unrelocated at its preferred
+base `0x00400000` — byte-identical to disk (see `ARCHITECTURE.md`) — so
 `objdump -D -b binary -m i386 --adjust-vma=0x00400000` directly on `Game.exe`
 turns any `eip=` from the watchdog log or a crash report into
 `Game.exe+0x…`, no layout arithmetic needed.
+
+**On console (and under `D2LAYOUT=haut`) it is relocated into the module
+window** of the compact pack: base `0x03900000` since 2026-09-24,
+`0x02100000` from 0.1.7 to 0.1.11-beta5, `0x01900000` up to 0.1.6. A raw
+console `eip=` or a `Crash.txt` DBG-ADDR is `base + RVA`; `tools/x86dis.py`
+knows the three windows and rebases for you. Crash reports pulled with
+`tools/crash/crash.py` are already `Game+0x…`.
 
 `CheckRevision.dll` is the one other module the runtime loads, and only
 dynamically, at Battle.net connect — resolve its EIPs the same way, against

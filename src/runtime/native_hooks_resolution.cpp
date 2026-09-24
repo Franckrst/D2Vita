@@ -25,6 +25,13 @@ namespace {
 // la fusion de blocs du dynarec l'avalerait.
 constexpr uint32_t RVA_GETSIZE = 0x000f5570;  // GetResolutionSize(mode,*w,*h), stdcall, ret 0xc
 constexpr uint32_t RVA_SETRES  = 0x0004ba20;  // D2Client SetResolution(ecx=mode)
+// Ses appelants (desassemblage + trace console 24/09/2026) : D2Launch juste
+// avant de lancer la partie (Game+0x7f201, mode 2 ou 0 selon la cle de
+// registre « Resolution ») puis D2Client a l'entree (Game+0x7dd27 via un
+// thunk ; +0x4f656/+0x4f713 selon classic/expansion). Au RETOUR AU MENU
+// (Save & Exit) rien n'est appele — ni SetResolution ni GetResolutionSize :
+// le jeu reutilise sa fenetre Glide telle quelle. C'est pour cela que le
+// retour au menu se detecte ailleurs (d2res_menu_tick, boucle de Fog).
 constexpr uint32_t RVA_SHIFT   = 0x00056ee0;  // D2Client DrawUI(ecx) : ecrit le decalage ecran PUIS dessine
 constexpr uint32_t RVA_SHIFT_SUITE = 0x00056f24; // ... la suite, une fois le decalage ecrit
 constexpr uint32_t RVA_SHIFT_SORTIE = 0x000572d8; // ... et sa sortie precoce (epilogue)
@@ -131,6 +138,9 @@ uint32_t g_base = 0;
 struct Slot { bool busy; uint32_t ret; };
 Slot s_set{false,0};
 uint32_t s_trapSet = 0;
+uint32_t s_setMode = 2;          // ecx a l'entree de SetResolution (dernier mode demande)
+Cpu*     g_cpuRes = nullptr;     // pour ecrire les globals hors trap (d2res_menu_tick)
+int      g_winW = 0, g_winH = 0; // derniere taille poussee au GXM
 
 bool sig_ok(Cpu* c, uint32_t rva, const uint8_t* want, size_t n, const char* who) {
     uint8_t got[16];
@@ -173,6 +183,17 @@ int dy_bas(uint32_t mode)    { return mode ? (g_h - 600)     : (g_h - 480); }
 // deux donnent le meme haut de panneau par cette relation).
 int shy_de_dy(int dy) { return dy - (int)g_h + 540; }
 
+// La fenetre GXM suit l'etat : 960x544 en partie, la taille native au menu.
+// Le jeu ne rouvre pas sa fenetre Glide au retour au menu (trace console
+// 24/09/2026 : ni grSstWinOpen, ni SetResolution, ni GetResolutionSize), donc
+// c'est ici que la taille change, et seulement quand elle change.
+void set_window(int w, int h) {
+    if (!d2gxm_set_window || (g_winW == w && g_winH == h)) return;
+    g_winW = w; g_winH = h;
+    d2gxm_set_window(w, h);
+    jpline("res: fenetre GXM %dx%d", w, h);
+}
+
 // Ce que SetResolution aurait ecrit s'il connaissait notre taille. Ce sont des
 // ecritures de DONNEES : le jeu fait exactement les memes.
 void apply(Cpu& c) {
@@ -190,10 +211,31 @@ void apply(Cpu& c) {
     c.write_u32(g_base + G_GLH,  (uint32_t)g_h);
     const bool premier = !g_applied;
     g_applied = 1;
-    if (premier && d2gxm_set_window) d2gxm_set_window(g_w, g_h);
+    set_window(g_w, g_h);
     if (premier) {
         jpline("res: %dx%d applique (relecture %ux%u, decalage %d,%d)", g_w, g_h,
                c.read_u32(g_base + G_W), c.read_u32(g_base + G_H), shx, shy); }
+}
+
+// Retour au menu : les menus ont un art fixe (800x600, ou 640x480 en mode 0)
+// et le presentateur les centre lui-meme tant que d2res_active() est faux —
+// exactement l'etat du premier boot. On retablit donc les globals que
+// SetResolution aurait laisses pour ce mode et on desarme la bascule ; la
+// prochaine entree en partie (SetResolution depuis D2Client) la rearme.
+void unapply(Cpu& c, uint32_t mode) {
+    const uint32_t w = mode == 0 ? 640u : 800u, h = mode == 0 ? 480u : 600u;
+    c.write_u32(g_base + G_W,    w);
+    c.write_u32(g_base + G_H,    h);
+    c.write_u32(g_base + G_WCPY, w);
+    c.write_u32(g_base + G_WCP2, w);
+    c.write_u32(g_base + G_HM40, h - 40u);
+    c.write_u32(g_base + G_SHX,  mode == 0 ? 0u : 80u);
+    c.write_u32(g_base + G_SHY,  mode == 0 ? 0u : (uint32_t)(int32_t)-60);
+    c.write_u32(g_base + G_GLW,  w);
+    c.write_u32(g_base + G_GLH,  h);
+    g_applied = 0;
+    set_window((int)w, (int)h);
+    jpline("res: menu — %ux%u natif retabli, bascule desarmee jusqu'a la prochaine partie (mode %u)", w, h, mode);
 }
 
 // Pose un trap de sortie sur l'adresse de retour invitee, puis rejoue le
@@ -392,6 +434,13 @@ uint32_t border_entree(Cpu& c, Bridge& br, uint32_t entry, const BorderPiece* pi
 // Le glide3x ne doit ouvrir la grande fenetre qu'APRES la bascule : les
 // MENUS ont un art en 800x600 fixe et ne peuvent pas remplir 960x544.
 extern "C" int d2res_active(void) { return g_on && g_applied; }
+// Boucle principale de Fog (menus et chargements), une fois par tour : si la
+// bascule est encore armee, on est revenu au menu sans que le jeu ait rien
+// appele — retablir le natif et la fenetre. L'entree en partie suivante
+// (SetResolution -> apply) rearme tout.
+extern "C" void d2res_menu_tick(void) {
+    if (g_on && g_applied && g_cpuRes) unapply(*g_cpuRes, s_setMode);
+}
 extern "C" int d2res_w(void)      { return g_w; }
 extern "C" int d2res_h(void)      { return g_h; }
 extern "C" int d2res_centre(void) { return g_centre; }
@@ -410,6 +459,7 @@ void native_hooks_resolution_install(Cpu* cpu, Bridge& br) {
         jpline("res: %dx%d hors bornes (640x480 a 1280x1024)", g_w, g_h); return; }
     if (!g_114 || !g_d2base) { jpline("res: REFUS — 1.14d non detecte"); return; }
     g_base = g_d2base;
+    g_cpuRes = cpu;
 
     // Tout ou rien : un crochet sur deux donnerait une image incoherente.
     if (!sig_ok(cpu, RVA_GETSIZE, SIG_GETSIZE, sizeof SIG_GETSIZE, "GetResolutionSize") ||
@@ -427,6 +477,11 @@ void native_hooks_resolution_install(Cpu* cpu, Bridge& br) {
             const uint32_t E = c.reg(R_ESP);
             const uint32_t mode = c.read_u32(E + 4);
             const uint32_t pW = c.read_u32(E + 8), pH = c.read_u32(E + 12);
+            // Trace (bornee) : qui dimensionne quoi, et dans quel etat de la
+            // bascule — c'est ce qui manque pour reconnaitre le retour au menu.
+            { static int n = 0; if (n < 16) { ++n;
+                jpline("res: GetResolutionSize(mode=%u) depuis Game+0x%x applied=%d", mode,
+                       (unsigned)(c.read_u32(E) - g_base), g_applied); } }
             uint32_t w, h;
             switch (mode) {
                 case 0:  w = 640;  h = 480;  break;   // le « petit » mode reste intact
@@ -455,6 +510,9 @@ void native_hooks_resolution_install(Cpu* cpu, Bridge& br) {
 
         Shim s; s.argc = 0; s.stdcall_cleanup = false; s.tag = "native!d2_setres_114";
         s.fn = [&br](Cpu& c) -> uint32_t {
+            s_setMode = c.reg(R_ECX);
+            jpline("res: SetResolution(mode=%u) depuis Game+0x%x", s_setMode,
+                   (unsigned)(c.read_u32(c.reg(R_ESP)) - g_base));
             enter(c, br, s_set, s_trapSet, g_base + RVA_SETRES, R_ESI);
             return c.reg(R_EAX); };
         br.register_shim("native.hook", "d2_setres_114", s);

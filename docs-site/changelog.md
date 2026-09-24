@@ -4,6 +4,64 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.11-beta6 — 2026-09-24
+
+- **Main menu no longer off-centre after Save & Exit.** Returning from a
+  game, D2 calls neither `SetResolution` nor `GetResolutionSize` and keeps
+  its Glide window as is, so the 960x544 in-game switch stayed armed and the
+  800x600 menu art was drawn at the left of a 960-wide window with a black
+  band on the right (reported by two players, reproduced on the maintainer's
+  console). The runtime now notices Fog's menu loop running with the switch
+  armed, restores the native 800x600 and the window size; the next game entry
+  re-arms the switch.
+
+Memory:
+
+- Guest heap ceiling raised from ~32.9 to ~56.9 MiB: a 75-minute session
+  filled the old ceiling and died on a Blizzard "Unrecoverable internal
+  error" (Halt 904, crash report `SZDVJ7PNYRTOS54K`). The room comes from the
+  VirtualAlloc window (216 → 160 MiB; two long field sessions peaked at
+  97–98 MiB), not from the game's sprite cache, which stays at 64 MiB — no
+  fps trade.
+- Host-side heap 38 → 46 MiB (was at 31.9 MiB with 624 KiB free at the end
+  of that same session).
+- Boot log: `alive:` lines now carry `heap=<used>/<ceiling>MB` next to `va=`,
+  so a session that gets close to the wall shows it before it dies.
+
+With the [kubridge](https://github.com/bythos14/kubridge) kernel plugin
+(v0.3 or later, optional but recommended — the one the big Vita ports already
+require; a notice at boot says when it is missing, X or 10 s to continue):
+
+- **JIT pool 16 → 32 MiB.** The kernel caps `sceKernelAllocMemBlockForVM`
+  at 16 MiB per process (a second block is refused even with 220 MiB free),
+  so every player session so far ran on a single 16 MiB segment and
+  re-translated code late in a session. The pool now opens a second 16 MiB
+  RWX segment outside that quota. Without the plugin it stays at 16 MiB, and
+  `boot_progress.txt` says which case applies (`JIT: kubridge
+  present/absent`).
+- **Crash reports carry the exact x86 state at the fault:** a user-mode
+  abort handler records, before the kernel's dump, the faulting host address,
+  whether it was a read or a write, the dynablock and x86 instruction, and
+  the eight live x86 registers — `CRASH abort …` in `boot_progress.txt` and
+  `crash.log`.
+- **Win32 exception fidelity:** a guest access violation is delivered to the
+  game's own structured exception handling — the frame handlers at `fs:[0]`
+  first, then the top-level filter — with an `EXCEPTION_RECORD` and a
+  `CONTEXT` built from the live x86 registers. Fog's filter writes its real
+  `Crash.txt` (`ACCESS_VIOLATION`, call chain from the faulting instruction)
+  and terminates the process as it does on Windows; the runtime exits cleanly
+  and the report is picked up at the next boot — the reporter now reads Fog's
+  exception summaries too. Until now such a fault was a bare kernel dump with
+  no game-side report.
+- **Guard pages under the guest heap:** the 124 KiB null slack is now
+  `PROT_NONE`, so a null-plus-offset dereference by the game faults at the
+  source — and gets recorded — instead of silently corrupting a neighbour.
+- **Self-modifying-code write barrier:** box86's `protectDB` now reaches a
+  real `mprotect`, and a guest store into a translated page is served by the
+  handler (blocks marked dirty, page reopened, store resumed) instead of
+  going undetected. On by default — soaked on console with zero faults and
+  unchanged fps; `D2_PROTECTDB=0` in `env.txt` turns it off.
+
 ## v0.1.11-beta5 — 2026-09-24
 
 - Boot-time warning when a required game file's size doesn't match the

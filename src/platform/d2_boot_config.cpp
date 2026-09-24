@@ -145,15 +145,18 @@ const char* d2vita_platform_init() {
     setenv("GAMEEXE", "1", 1);
     setenv("D2ARGS", "game.exe -3dfx", 1);   // Glide is the default renderer; see the perf block below
     setenv("D2LAYOUT", "compact", 1);
-    setenv("D2ARENA", "12300000", 1);   // 291 MiB single block: covers the packed
-                                          // 1.14d compact span up to the 0x11300000
+    setenv("D2ARENA", "10300000", 1);   // 259 MiB single block: covers the packed
+                                          // 1.14d compact span up to the 0x0F300000
                                           // trap ceiling + 16 MiB membase-rounding
                                           // slack (~330 MiB real-Vita user budget).
-                                          // 2026-09-23: -4 MiB alongside VA_SIZE's
-                                          // shrink (apply_compact_layout, rt_boot.cpp)
-                                          // — the two MUST move together or the span
-                                          // overflows the arena and H(va)=va+membase
-                                          // leaves the block.
+                                          // 2026-09-24: -32 MiB with VA 216 -> 160
+                                          // and heap +24 (apply_compact_layout,
+                                          // rt_boot.cpp) — the arena and the pack
+                                          // MUST move together or the span overflows
+                                          // the arena and H(va)=va+membase leaves the
+                                          // block. The 32 MiB returned to the user
+                                          // partition are what the JIT pool's second
+                                          // 16 MiB segment had been refused for.
     // MAXFRAMES / MAXSW deliberately NOT baked: unset = unlimited. A real play
     // session must never self-terminate (the old baked MAXFRAMES=40000 ended
     // every session after ~30-45 min, losing unsaved progress). The test

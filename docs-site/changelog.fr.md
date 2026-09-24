@@ -5,6 +5,70 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.11-beta6 — 2026-09-24
+
+- **Le menu principal n'est plus décentré après Save & Exit.** Au retour
+  d'une partie, D2 n'appelle ni `SetResolution` ni `GetResolutionSize` et
+  garde sa fenêtre Glide telle quelle : la bascule 960×544 de la partie
+  restait armée et l'art 800×600 du menu était dessiné à gauche d'une
+  fenêtre de 960 avec une bande noire à droite (signalé par deux joueurs,
+  reproduit sur la console du mainteneur). Le runtime détecte maintenant la
+  boucle des menus de Fog tournant avec la bascule armée, rétablit le 800×600
+  natif et la taille de fenêtre ; l'entrée en partie suivante réarme la
+  bascule.
+
+Mémoire :
+
+- Plafond du tas invité relevé de ~32,9 à ~56,9 Mio : une session de
+  75 minutes a rempli l'ancien plafond et s'est terminée sur une
+  « Unrecoverable internal error » de Blizzard (Halt 904, rapport
+  `SZDVJ7PNYRTOS54K`). La place vient de la fenêtre VirtualAlloc (216 →
+  160 Mio ; deux longues sessions du parc ont culminé à 97–98 Mio), pas du
+  cache de sprites du jeu, qui reste à 64 Mio — aucun compromis sur les fps.
+- Tas hôte 38 → 46 Mio (il était à 31,9 Mio avec 624 Kio libres à la fin de
+  cette même session).
+- Journal de démarrage : les lignes `alive:` portent maintenant
+  `heap=<utilisé>/<plafond>MB` à côté de `va=`, pour voir une session
+  s'approcher du mur avant qu'elle ne meure.
+
+Avec le plugin noyau [kubridge](https://github.com/bythos14/kubridge)
+(v0.3 ou plus, optionnel mais recommandé — celui que les gros portages Vita
+exigent déjà ; un avis au démarrage le signale quand il manque, X ou 10 s
+pour continuer) :
+
+- **Pool JIT 16 → 32 Mio.** Le noyau plafonne `sceKernelAllocMemBlockForVM`
+  à 16 Mio par processus (un second bloc est refusé même avec 220 Mio
+  libres) : toutes les sessions des joueurs tournaient jusqu'ici sur un seul
+  segment de 16 Mio, avec retraduction du code en fin de session. Le pool
+  ouvre maintenant un second segment RWX de 16 Mio hors de ce quota. Sans le
+  plugin il reste à 16 Mio, et `boot_progress.txt` dit dans quel cas on est
+  (`JIT: kubridge present/absent`).
+- **Les rapports de crash portent l'état x86 exact au moment de la faute :**
+  un handler d'abort en mode utilisateur enregistre, avant le dump du noyau,
+  l'adresse hôte fautive, lecture ou écriture, le dynablock et l'instruction
+  x86, et les huit registres x86 vivants — ligne `CRASH abort …` dans
+  `boot_progress.txt` et `crash.log`.
+- **Fidélité des exceptions Win32 :** une violation d'accès du jeu est
+  livrée à sa propre gestion structurée des exceptions — les handlers de
+  cadres en `fs:[0]` d'abord, puis le filtre de dernier niveau — avec un
+  `EXCEPTION_RECORD` et un `CONTEXT` construits depuis les registres x86
+  vivants. Le filtre de Fog écrit son vrai `Crash.txt` (`ACCESS_VIOLATION`,
+  chaîne d'appels depuis l'instruction fautive) et termine le processus
+  comme sur Windows ; le runtime sort proprement et le rapport est ramassé
+  au démarrage suivant — le rapporteur lit maintenant aussi les résumés
+  d'exception de Fog. Jusqu'ici une telle faute n'était qu'un dump noyau
+  sans rapport côté jeu.
+- **Pages de garde sous le tas invité :** les 124 Kio de marge nulle sont
+  en `PROT_NONE`, un déréférencement nul-plus-décalage par le jeu faute à la
+  source — et est enregistré — au lieu de corrompre silencieusement un
+  voisin.
+- **Barrière d'écriture pour le code auto-modifiant :** le `protectDB` de
+  box86 atteint maintenant un vrai `mprotect`, et une écriture invitée dans
+  une page traduite est servie par le handler (blocs marqués, page rouverte,
+  écriture reprise) au lieu de passer inaperçue. Active par défaut —
+  éprouvée sur console sans aucune faute et à cadence inchangée ;
+  `D2_PROTECTDB=0` dans `env.txt` la coupe.
+
 ## v0.1.11-beta5 — 2026-09-24
 
 - Avertissement au démarrage quand un fichier de jeu requis n'a pas la

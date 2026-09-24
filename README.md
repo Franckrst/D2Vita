@@ -91,6 +91,10 @@ for `qemu-arm`, letting the actual guest code run on the desktop for fast iterat
 [`tools/bancs/README.md`](tools/bancs/README.md) for the driving scripts.
 
 Install the VPK on-device with VitaShell (or `tools/push_console.sh` over FTP).
+Recommended: the [kubridge](https://github.com/bythos14/kubridge) kernel plugin (v0.3+,
+`ur0:tai/kubridge.skprx` under `*KERNEL`) — it lets the JIT pool grow to 32 MiB instead of
+the kernel's 16 MiB VM quota, and arms a user-mode fault handler (exact x86 state in crash
+reports, guard pages). Optional: without it D2Vita runs on 16 MiB with the plain kernel dump.
 
 ## Data files
 

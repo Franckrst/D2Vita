@@ -12,6 +12,9 @@
 #include <cstdlib>
 #include <functional>
 #include <map>
+#ifdef __vita__
+extern "C" void dyn86_set_seh_filter(uint32_t va);   // engine, fault_vita.c
+#endif
 using namespace d2rt;
 
 using KThread = WxThread;         // engine (guest_sync.h); same alias as tools/rt_boot.cpp's own
@@ -188,9 +191,18 @@ void toolhelp_install(Bridge& br){
         if(it==g_snaps.end()||it->second.pcur>=it->second.pids.size()){ set_lasterr(c,18); return 0u; }
         it->second.pcur++; return pe32_fill(c,c.arg(1),true); });
     // SetUnhandledExceptionFilter: store the guest's top-level filter and return
-    // the PREVIOUS one (Win32 contract). The filter is RECORDED BUT NEVER
-    // INVOKED — this runtime dispatches no exception to guest code at all
-    // (documented gap). Tracking it honestly still matters: it stops
-    // D2/__report_gsfailure from mis-reading the previous filter.
-    K("SetUnhandledExceptionFilter",1,[](Cpu&c){ uint32_t prev=g_unhandledFilter; g_unhandledFilter=c.arg(0); return prev; });
+    // the PREVIOUS one (Win32 contract). On console with kubridge the engine's
+    // abort handler dispatches a guest access violation to the fs:[0] chain
+    // and then to this filter (dyn86_seh_deliver); on the desktop/qemu build
+    // it is still recorded but never invoked. Tracking it honestly matters
+    // either way: it stops D2/__report_gsfailure from mis-reading the
+    // previous filter.
+    K("SetUnhandledExceptionFilter",1,[](Cpu&c){ uint32_t prev=g_unhandledFilter; g_unhandledFilter=c.arg(0);
+#ifdef __vita__
+        // With kubridge the engine's abort handler delivers guest access
+        // violations to this filter (dyn86_seh_deliver) -- the gap above
+        // closes on console; the desktop/qemu build still records only.
+        dyn86_set_seh_filter(c.arg(0));
+#endif
+        return prev; });
 }
