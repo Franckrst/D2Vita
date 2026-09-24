@@ -5,6 +5,13 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.11-beta5 — 2026-09-24
+
+- Avertissement au démarrage quand un fichier de jeu requis n'a pas la
+  bonne taille (ex. un `patch_d2.mpq` d'un autre niveau de patch que
+  1.14d) — affiché à l'écran, nécessite d'appuyer sur X pour forcer le
+  démarrage au lieu de charger silencieusement une mauvaise version.
+
 ## v0.1.11-beta4 — 2026-09-23
 
 - Fond LiveArea mis à jour (contribution communautaire, issue #19) :

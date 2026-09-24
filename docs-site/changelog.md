@@ -4,6 +4,13 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.11-beta5 — 2026-09-24
+
+- Boot-time warning when a required game file's size doesn't match the
+  official 1.14d install (e.g. a `patch_d2.mpq` from a different patch
+  level) — shown on screen, requires pressing X to force startup anyway
+  instead of silently loading a mismatched version.
+
 ## v0.1.11-beta4 — 2026-09-23
 
 - LiveArea background updated (community contribution, issue #19): adds
