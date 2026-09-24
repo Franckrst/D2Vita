@@ -2218,6 +2218,44 @@ int main(int argc,char**argv){
               "install: %d DLL d'avant 1.14 presentes (%s) — non chargees, installation anterieure a 1.14",
               nold, old.c_str());
             d2vita_progress(m); std::printf("[%s]\n",m); } }
+      // A structurally valid MPQ from the wrong game version/patch still
+      // sails through mpq_bad() above -- header and tables are fine, the
+      // CONTENT just isn't 1.14d's. Discord bug report Repport-001 was
+      // exactly this: patch_d2.mpq 32% undersized -- a well-formed archive
+      // from a different install, silently accepted, with the actual bug
+      // being "wrong D2 version" misread as a runtime bug. This does NOT
+      // add to nmiss / missingNames -- unlike a missing/truncated file, a
+      // size mismatch alone isn't proof of a broken install, and blocking
+      // the boot outright here risks false positives we can't fully rule
+      // out. Instead it's surfaced on screen below and gated on an explicit
+      // Cross press, since Repport-001 also showed that a boot_progress.txt
+      // line alone goes unread -- the reporter never looked at it.
+      //
+      // Every archive that carries localized content is left out entirely,
+      // not just d2speech.mpq: its size is language-dependent (voice-over),
+      // not patch-dependent, and the same applies to d2xtalk.mpq (expansion
+      // dialogue) and to d2video.mpq/d2xvideo.mpq (cinematics ship dubbed or
+      // subtitled per region in some official releases). Any of those would
+      // false-positive on a legitimate non-English install. What's left is
+      // graphics/data/sfx/music -- content that doesn't vary by locale.
+      std::vector<std::string> sizeWarnings;
+      { static const struct { const char* name; long bytes; } kSizeHints[] = {
+            {"game.exe",       3618792}, {"patch_d2.mpq",   5727413},
+            {"d2data.mpq",   269191615}, {"d2exp.mpq",    250156780},
+            {"d2char.mpq",   266071130}, {"d2sfx.mpq",     48927126},
+            {"d2music.mpq",  349788775}, {"d2xmusic.mpq",   54691647} };
+        for(const auto& h : kSizeHints){
+            auto it=present.find(h.name); if(it==present.end() || it->second.second<=0) continue;
+            long got=it->second.second; double dev=(double)(got-h.bytes)/(double)h.bytes;
+            if(dev>0.08 || dev<-0.08){
+                char m[256]; std::snprintf(m,sizeof m,
+                    "install: AVERTISSEMENT %s fait %ld octets (attendu ~%ld pour 1.14d, ecart %+.0f%%)"
+                    " — cette installation ne semble pas etre la 1.14d",
+                    it->second.first.c_str(), got, h.bytes, dev*100.0);
+                d2vita_progress(m); std::printf("[%s]\n",m);
+                char l[192]; std::snprintf(l,sizeof l,"%s: %ld o (attendu ~%ld o, %+.0f%%)",
+                    it->second.first.c_str(), got, h.bytes, dev*100.0);
+                sizeWarnings.push_back(l); } } }
       if(nmiss){ char m[96]; std::snprintf(m,sizeof m,"install: %d fichier(s) manquant(s) ou invalide(s) -- voir ci-dessus",nmiss);
           d2vita_progress(m); std::printf("[%s]\n",m); std::fflush(stdout);
           // Real on-screen message, not just a log line a player has to know
@@ -2231,7 +2269,11 @@ int main(int argc,char**argv){
           // worse (later, less clear) failure to risk by letting the boot
           // limp forward. Stop here, the same way the Game.exe-missing case
           // below does.
-          return 1; } }
+          return 1; }
+      // Only reached when nmiss==0 -- a version-mismatch warning alongside
+      // an actual fatal error would be redundant with the screen above and
+      // the process is exiting either way, so this stays out of that path.
+      d2vita_show_version_warning_screen(vdir, sizeWarnings); }
     // Hardware runs at real speed — but only once the scheduler starts: the
     // DllMain init phase depends on per-call tick advance (poll loops with
     // timeouts, workers not yet running) and crawls under a real clock.

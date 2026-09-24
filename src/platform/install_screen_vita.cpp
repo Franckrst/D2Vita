@@ -150,7 +150,71 @@ void d2vita_show_version_error_screen(const std::string& dir, const std::string&
         sceKernelDelayThread(33 * 1000);
     }
 }
+void d2vita_show_version_warning_screen(const std::string& dir, const std::vector<std::string>& warnings) {
+    if (warnings.empty()) return;
+    using namespace d2kb::draw_detail;
+    SceUID uid;
+    void* base = alloc_fb(&uid);
+    if (!base) return;   // can't draw -- boot_progress.txt still has the detail
+    uint32_t* fb = (uint32_t*)base;
+
+    rect(fb, kScrW, kScrH, 0, 0, kScrW, kScrH, rgb(0x10, 0x10, 0x10));
+    const int panelX = 60, panelY = 60, panelW = kScrW - 120, panelH = kScrH - 120;
+    rect(fb, kScrW, kScrH, panelX, panelY, panelW, panelH, rgb(0x20, 0x20, 0x20));
+    frame(fb, kScrW, kScrH, panelX, panelY, panelW, panelH, rgb(0xE0, 0xA0, 0x20));
+
+    int y = panelY + 20, x = panelX + 24;
+    text(fb, kScrW, kScrH, "SUSPECT GAME VERSION", x, y, 1, rgb(0xFF, 0xC0, 0x40)); y += 32;
+    text(fb, kScrW, kScrH, "These files don't match the official 1.14d size:", x, y, 1, rgb(0xE0, 0xE0, 0xE0)); y += 26;
+
+    for (size_t i = 0; i < warnings.size() && y < panelY + panelH - 76; ++i) {
+        std::string l = "- " + warnings[i];
+        text(fb, kScrW, kScrH, l.c_str(), x, y, 1, rgb(0xFF, 0xD0, 0xA0)); y += 20;
+    }
+
+    y = panelY + panelH - 60;
+    text(fb, kScrW, kScrH, "The game may not work correctly with an unofficial version.", x, y, 1, rgb(0xC0, 0xC0, 0xC0)); y += 20;
+    char hdr[160]; std::snprintf(hdr, sizeof hdr, "detail: ux0:data/d2vita/boot_progress.txt  (folder: %s)", dir.c_str());
+    text(fb, kScrW, kScrH, hdr, x, y, 1, rgb(0x80, 0x80, 0x80)); y += 24;
+    text(fb, kScrW, kScrH, ">>> Press X to force startup anyway <<<", x, y, 1, rgb(0xFF, 0xE0, 0x60));
+
+    present(fb);
+    sceDisplayWaitVblankStart();
+
+    // Unlike the two screens above, this one does NOT auto-continue after a
+    // timeout: the whole point is an explicit, deliberate acknowledgement --
+    // the player who filed Repport-001 never looked at boot_progress.txt, so
+    // a warning that can just be waited out defeats its purpose. Cross
+    // specifically (not "any button"), same residual-press seeding as the
+    // screens above so a Cross still held down from launching the app in
+    // VitaShell doesn't edge-detect as the confirmation.
+    uint32_t prevButtons = 0;
+    { SceCtrlData seed; std::memset(&seed, 0, sizeof seed);
+      if (sceCtrlPeekBufferPositive(0, &seed, 1) >= 1) prevButtons = seed.buttons; }
+    for (;;) {
+        SceCtrlData pad; std::memset(&pad, 0, sizeof pad);
+        if (sceCtrlPeekBufferPositive(0, &pad, 1) >= 1) {
+            const uint32_t pressed = pad.buttons & ~prevButtons;
+            prevButtons = pad.buttons;
+            if (pressed & SCE_CTRL_CROSS) break;
+        }
+        sceKernelDelayThread(33 * 1000);
+    }
+
+    // Nothing downstream repaints the screen before Game.exe's own first
+    // frame -- opening the MPQs and warming up the JIT can take several
+    // seconds -- so without this the warning panel just sits there
+    // unchanged after Cross is pressed, indistinguishable from the press
+    // not having registered at all (confirmed live: a real player mashed
+    // Cross repeatedly because of exactly this). Same fix, same reasoning,
+    // as cr_consent_vita.cpp's draw_blank(): one last plain frame, no text,
+    // so the panel visibly goes away the instant the press is recognized.
+    rect(fb, kScrW, kScrH, 0, 0, kScrW, kScrH, rgb(0x10, 0x10, 0x10));
+    present(fb);
+    sceDisplayWaitVblankStart();
+}
 #else
 void d2vita_show_missing_files_screen(const std::string&, const std::vector<std::string>&) {}
 void d2vita_show_version_error_screen(const std::string&, const std::string&) {}
+void d2vita_show_version_warning_screen(const std::string&, const std::vector<std::string>&) {}
 #endif
