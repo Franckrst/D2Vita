@@ -1,0 +1,23 @@
+# Import stub for kubridge, the optional kernel plugin by TheOfficialFloW /
+# bythos14 (no license file in either repository: nothing of the plugin is
+# copied here — names and NIDs are the interface an import needs). Module
+# and library NIDs are the ones vita-elf-export derives from the names;
+# function NIDs as exported by kubridge v0.3.1_hotfix. Only the entry
+# points the JIT pool and the fault handler use (third_party/winx86 .../vita/mman_vita.c).
+# Regenerate: bash third_party/kubridge-stub/regen.sh
+modules:
+  kubridge:
+    nid: 0x9ae0fc25
+    libraries:
+      kubridge:
+        nid: 0x6db9389b
+        kernel: false
+        version: 0x1
+        functions:
+          kuKernelFlushCaches: 0x38b70744
+          kuKernelMemReserve: 0xced3608c
+          kuKernelMemCommit: 0x9c0cd758
+          kuKernelMemDecommit: 0x9bdf5881
+          kuKernelMemProtect: 0x566d2af1
+          kuKernelRegisterExceptionHandler: 0xf9025d19
+          kuKernelReleaseExceptionHandler: 0xdf9f3bed

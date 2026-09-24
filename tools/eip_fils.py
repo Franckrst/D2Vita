@@ -63,7 +63,7 @@ def main():
     ap.add_argument('dump'); ap.add_argument('--fil', type=int, default=None)
     ap.add_argument('--top', type=int, default=12)
     ap.add_argument('--exe', default=os.path.expanduser('~/d2-vita-refs/1.14d/Game.exe'))
-    ap.add_argument('--base', default='0x02100000', help='base relogee du run (compact = 0x02100000 ; 0x01900000 jusqu a 0.1.6)')
+    ap.add_argument('--base', default='0x03900000', help='base relogee du run (compact = 0x03900000 ; 0x02100000 de 0.1.7 a 0.1.11-beta5 ; 0x01900000 jusqu a 0.1.6)')
     ap.add_argument('--emit', default=None, help='rapport [emitprof] ou CSV D2_EMITCSV (blocs exacts, octets ARM)')
     ap.add_argument('--n', type=int, default=0, help='numero du vidage a lire (defaut : le dernier)')
     ap.add_argument('--delta', action='store_true', help='soustraire le vidage precedent (fenetre)')

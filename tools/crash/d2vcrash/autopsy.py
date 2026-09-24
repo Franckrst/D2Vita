@@ -15,7 +15,7 @@ import sys
 SYMBOLS_DIR_ENV = "D2VCRASH_SYMBOLS_DIR"
 # Defaults of tools/autopsie_psp2dmp.py, repeated so the command line always
 # says which bases were used.
-DEFAULT_GAME_BASE = 0x02100000   # 0x01900000 for a report from 0.1.6 or earlier
+DEFAULT_GAME_BASE = 0x03900000   # 0x02100000 for 0.1.7 .. 0.1.11-beta5, 0x01900000 up to 0.1.6
 DEFAULT_ARENA_HOST_BASE = 0x84000000
 DEFAULT_SYMBOLS_DIR = "~/d2vita-symbols"
 # d2vcrash/ -> tools/crash/ -> tools/ -> the repository root.

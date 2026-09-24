@@ -651,6 +651,23 @@ static void t_crashtxt_halt904_location() {
     CHECK_STR(addrs_str(h.frames), "Game+0x97b4,Game+0xa0ed,Game+0xb451,Game+0x20c108");
 }
 
+// Fog's top-level filter reporting a hardware exception it received from the
+// runtime's SEH delivery (console, 2026-09-24, D2_SEHTEST): a bare
+// "ACCESS_VIOLATION" summary, no line number, the halting thread's chain
+// starting at the faulting instruction (Game.exe relocated at 0x03900000).
+static void t_crashtxt_access_violation() {
+    const HaltFacts h = parse_crash_txt(fixture("crash_txt_access_violation.txt"), 0x03900000);
+    CHECK(h.is_halt, "exception summary not recognized");
+    CHECK_STR(h.error_type, "ACCESS_VIOLATION");
+    CHECK_U64(h.code, 0);
+    CHECK_STR(h.location, "");
+    CHECK_STR(addrs_str(h.frames),
+        "Game+0xfa668,Game+0x35c5e,Game+0x5a31,Game+0x5e6b,Game+0x65c7,Game+0x671f,Game+0x28291c");
+    // A lone word is not an exception name: nothing is guessed from prose.
+    const HaltFacts w = parse_crash_txt("<Inspector.Summary:>\nUNKNOWN\n<:Inspector.Summary>\n", 0);
+    CHECK(!w.is_halt, "a lone word is not an exception summary");
+}
+
 static void t_crashtxt_empty() {
     const HaltFacts h = parse_crash_txt(fixture("crash_txt_empty.txt"), 0x01900000);
     CHECK(!h.is_halt, "empty Crash.txt is not a named Halt");
@@ -2353,6 +2370,7 @@ static const TestCase kTests[] = {
     {"progress_stream", t_progress_stream},
     {"crashtxt_halt1420", t_crashtxt_halt1420},
     {"crashtxt_halt904_location", t_crashtxt_halt904_location},
+    {"crashtxt_access_violation", t_crashtxt_access_violation},
     {"crashtxt_empty", t_crashtxt_empty},
     {"crashtxt_inline_forms", t_crashtxt_inline_forms},
     {"redact_build_patterns", t_redact_build_patterns},

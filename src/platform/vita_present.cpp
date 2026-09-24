@@ -53,17 +53,20 @@ extern "C" int d2_tlswrap_dump(char*, unsigned);
 // separate memblock, so this heap is only for C++/STL + module bytes.
 extern "C" {
 unsigned int sceUserMainThreadStackSize = 4 * 1024 * 1024;    // 4 MiB host stack
-// 38 MiB newlib heap. The heap is reserved as one fixed block at boot: this
+// 46 MiB newlib heap. The heap is reserved as one fixed block at boot: this
 // ceiling is hard regardless of how much system RAM is actually free, and
-// std::bad_alloc hits it even with plenty of system memory left. It also has
-// to leave room for the JIT code cache, which draws from the same reserved
-// block and can grow to ~13 MiB mid-game. 38 MiB sits a few MiB above the
-// observed peak heap usage (~30.6 MiB) while still leaving headroom for the
-// JIT cache — a larger reservation starves that headroom instead. Total user
-// budget: arena (285 MiB, see cpu_box86.cpp) + 38 MiB heap + 4 MiB stack =
-// 327 MiB, within the extended-memory app mode budget (param.sfo ATTRIBUTE2,
-// set in build_rt_boot_vpk.sh).
-unsigned int _newlib_heap_size_user     = 38 * 1024 * 1024;
+// std::bad_alloc hits it even with plenty of system memory left. (The JIT
+// code cache no longer draws from it: it has its own VM segments, see
+// mman_vita.c.) 38 MiB was a few MiB above the peak observed at the time
+// (~30.6 MiB); a 75-minute field session on 0.1.11-beta5 ended at
+// `en-cours=31895 Ko ... libre=624 Ko` (the RegionAlloc maps grow with the
+// guest's allocation count), so 2026-09-24 raised it to 46 MiB out of the
+// 32 MiB the arena shrink returned to the user partition. Total user
+// budget: arena (259 MiB, D2ARENA in d2_boot_config.cpp) + 46 MiB heap +
+// 4 MiB stack + 2 x 16 MiB JIT segments = 341 MiB, within the
+// extended-memory app mode budget (param.sfo ATTRIBUTE2, set in
+// build_rt_boot_vpk.sh; ~355 MiB seen free at boot on console).
+unsigned int _newlib_heap_size_user     = 46 * 1024 * 1024;
 }
 
 // D2VITA_PROGRESS_PATH is defined in platform/vita_present.h (shared by
@@ -939,6 +942,8 @@ extern "C" uint32_t dyn86_fill_fail;
 extern "C" unsigned int dyn86_jitpool_size, dyn86_jitpool_used;
 extern "C" uint32_t d2rt_va_used_mb(void);              // VA-arena occupancy (B3 growth curve)
 extern "C" uint32_t d2rt_va_peak_mb(void);              // et son point haut (rt_boot.cpp)
+extern "C" uint32_t d2rt_heap_used_mb(void);            // guest heap occupancy / its ceiling: the
+extern "C" uint32_t d2rt_heap_size_mb(void);            // region whose refusal is a Halt 904
 extern "C" unsigned long long d2rt_hot_stat(int);      // native-port counters
 extern "C" uint32_t d2rt_sprite_cache_kb(int which);   // D2's own sprite-cache accounting
 extern "C" unsigned long long d2rt_cs_stat(int k);     // critical sections served intrinsically
@@ -993,6 +998,8 @@ extern "C" {
 extern "C" size_t d2rt_box86_custommalloc_kb(void);   // custommem.c: box86 allocation categories
 extern "C" size_t d2rt_box86_jmptbl_kb(void);
 extern "C" unsigned int dyn86_jitpool_size, dyn86_jitpool_used;   // JIT pool (mman_vita.c)
+extern "C" uint32_t dyn86_vita_smc_faults(void), dyn86_vita_fault_records(void);   // kubridge fault handler (fault_vita.c)
+extern "C" uint32_t dyn86_vita_mprotect_calls;                      // real mprotect calls (mman_vita.c)
 extern "C" unsigned int dyn86_jit_cur, dyn86_rw_cur;   // live JIT/RW memblock bytes (mman_vita)
 // Refus du tas de METADONNEES de box86 (dynablock.c). Publie ici parce que
 // c'est le seul poste memoire encore demande au noyau en pleine partie :
@@ -1133,7 +1140,7 @@ int watchdog_thread(SceSize, void*) {
         sceKernelDelayThread(periode_us);
         sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DEFAULT);   // no idle dim/suspend mid-game
         char m[512];   // + champs fam=/gil=/run= (run= : 10 runners x <id>:<etat>:<blocs>)
-        std::snprintf(m, sizeof m, "alive: pump=%llu frames=%d reads=%llu eip=%08x sw=%llu io=%llums jit=%llums n=%u sync=%llums fail=%u jitp=%u/%uMB va=%u/%uMB spr=%u/%uMB cel=%u/%uKB big=%u jm=%uMB",
+        std::snprintf(m, sizeof m, "alive: pump=%llu frames=%d reads=%llu eip=%08x sw=%llu io=%llums jit=%llums n=%u sync=%llums fail=%u jitp=%u/%uMB heap=%u/%uMB va=%u/%uMB spr=%u/%uMB cel=%u/%uKB big=%u jm=%uMB",
                       g_wd_pump ? (unsigned long long)*g_wd_pump : 0ull,
                       g_wd_frames ? *g_wd_frames : -1,
                       g_wd_reads ? (unsigned long long)*g_wd_reads : 0ull,
@@ -1145,6 +1152,11 @@ int watchdog_thread(SceSize, void*) {
                       (unsigned long long)(dyn86_sync_us / 1000ull),
                       dyn86_fill_fail,
                       dyn86_jitpool_used >> 20, dyn86_jitpool_size >> 20,
+                      // heap=<used>/<ceiling> MB: usage against the hard
+                      // ceiling (unlike va=, whose second figure is the
+                      // session peak). The only other place this number
+                      // shows is crash.log's ALLOC FAIL — after the Halt.
+                      d2rt_heap_used_mb(), d2rt_heap_size_mb(),
                       d2rt_va_used_mb(), d2rt_va_peak_mb(),
                       d2rt_sprite_cache_kb(0) >> 10, d2rt_sprite_cache_kb(1) >> 10,
                       // cel=<usage>/<ceiling> KB: the CelData cache, hard-capped
@@ -1365,14 +1377,15 @@ int watchdog_thread(SceSize, void*) {
             // Breakdown: what comes from box86 vs the rest of the runtime.
             // Without this split, "the heap grew by 8 MiB" doesn't point at
             // anyone in particular.
-            char mm[288];   // must fit "dont box86: ..." without truncating
+            char mm[320];   // must fit "dont box86: ..." without truncating
             std::snprintf(mm, sizeof mm,
-              "MEM: libre user=%d Ko cdram=%d Ko phycont=%d Ko (rc=%d) | tas newlib: en-cours=%d Ko reserve=%d/%u Ko libre=%d Ko | dont box86: custom=%u Ko (refus=%u) sauts=%u Ko | piscine RW %u/%u Ko | piscine JIT %u/%u Ko",
+              "MEM: libre user=%d Ko cdram=%d Ko phycont=%d Ko (rc=%d) | tas newlib: en-cours=%d Ko reserve=%d/%u Ko libre=%d Ko | dont box86: custom=%u Ko (refus=%u) sauts=%u Ko | piscine RW %u/%u Ko | piscine JIT %u/%u Ko | fautes: smc=%u rec=%u mprotect=%u",
               fi.size_user>>10, fi.size_cdram>>10, fi.size_phycont>>10, r,
               (int)(mi.uordblks>>10), (int)(mi.arena>>10), _newlib_heap_size_user>>10, (int)(mi.fordblks>>10),
               (unsigned)d2rt_box86_custommalloc_kb(), dyn86_meta_allocfail, (unsigned)d2rt_box86_jmptbl_kb(),
               dyn86_rwpool_used>>10, dyn86_rwpool_size>>10,
-              dyn86_jitpool_used>>10, dyn86_jitpool_size>>10);
+              dyn86_jitpool_used>>10, dyn86_jitpool_size>>10,
+              dyn86_vita_smc_faults(), dyn86_vita_fault_records(), dyn86_vita_mprotect_calls);
             d2vita_progress(mm); }
           // D2_NATPROF: TIME per trap slot within the window (native ports +
           // shims), top 8. The denominator is the window duration (~10 s)

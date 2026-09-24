@@ -1,0 +1,75 @@
+<Application>Diablo II
+<Inspector.ProjectId>264
+<Inspector.Module>Diablo II
+<Inspector.Milestone>D2 1.14d
+<Inspector.BuildNumber>77
+<Inspector.Platform>Windows
+<Inspector.IssueType>Exception
+<Inspector.Priority>1 - Critical
+<Inspector.PrimaryAssignment>.ClassicErrorReporter
+<Inspector.Assignments>.ClassicErrorReporter
+<Process.UserIsAdmin> TRUE
+<Process.Elevated> UNKNOWN
+<Process.Path> Unknown
+<Process.Name> Unknown
+<Process.ParentProcessPath> Unknown
+<Process.ParentProcessName> Unknown
+<Process.GrandParentProcessPath> Unknown
+<Process.GrandParentProcessName> Unknown
+<Locale.Game> English
+<Locale.System> English
+<Game.Type> Client
+<Game.Build> 79b7ae8fe1e97d05d57ebdc4b65bf012d38c797e
+<Inspector.Summary:>
+ACCESS_VIOLATION
+<:Inspector.Summary>
+<Inspector.Assertion:>
+Thread 0x00000af4 "Main Thread" [Stack Base: 0x0E600000 Used Space: 29488/2097152 bytes]
+DBG-ADDR<039FA668>("")
+DBG-ADDR<03935C5E>("")
+DBG-ADDR<03905A31>("")
+DBG-ADDR<03905E6B>("")
+DBG-ADDR<039065C7>("")
+DBG-ADDR<0390671F>("")
+DBG-ADDR<03B8291C>("")
+<:Inspector.Assertion>
+Registers:
+   EAX:0x00000af4   EBX:0x0e5faa6c   ECX:0x00000af4   EDX:0x03907980
+   ESI:0x00000af4   EDI:0x0e5fa32c
+
+   EBP:0x0e5fa9fc   ESP:0x0e5fa2fc   EIP:0x0390467d   FLG:0x00000246
+    CS:0x00000000    SS:0x00000000
+
+    DS:0x00000000    ES:0x00000000    FS:0x00000000    GS:0x00000000
+
+  CTRL:0x00000000  STAT:0x00000000
+   ST0:0x00000000 0x00000000 0x00000000   ST1:0x00000000 0x00000000 0x00000000
+   ST2:0x00000000 0x00000000 0x00000000   ST3:0x00000000 0x0000002e 0x00000000
+   ST4:0x00000000 0x00000000 0x00000000   ST5:0x00000000 0x00000000 0x00000000
+   ST6:0x00000000 0x00000000 0x00000000   ST7:0x00000074 0x00000000 0x00000000
+
+  XMM0:0x00000000 0x00000000 0x00000000 0x00000000  XMM1:0x00000000 0x00000000 0x00000000 0x00000000
+  XMM2:0x002e0000 0x00000000 0x00000000 0x00000000  XMM3:0x00000000 0x00000000 0x00000000 0x00000000
+  XMM4:0x00000000 0x00740000 0x00000000 0x00000000  XMM5:0x00000000 0x00000000 0x00000000 0x00000000
+  XMM6:0x00000000 0x0e5fa32c 0x00000af4 0x0e5faa6c  XMM7:0x03907980 0x00000af4 0x00000af4 0x0e5fa9fc
+
+Threads:
+
+
+
+
+<Inspector.DebugModules:>
+DBG-MODULE<03900000 005ba000 "game.exe" "d:\diablo2\Diablo2\Exe\Release\Game.pdb" 0 {4a206f28-8f5d-4842-b2a073b37f649ed8} 1 1464721340>
+DBG-MODULE<03ED0000 0020a000 "glide3x.dll" "" 0 {00000000-0000-0000-0000000000000000} 0 1788793586>
+<:Inspector.DebugModules>
+<Inspector.HashBlock:>
+DBG-OPTIONS<FunctionsOnly>
+DBG-ADDR<039FA668>("")
+DBG-ADDR<03935C5E>("")
+DBG-ADDR<03905A31>("")
+DBG-ADDR<03905E6B>("")
+DBG-ADDR<039065C7>("")
+DBG-ADDR<0390671F>("")
+DBG-ADDR<03B8291C>("")
+DBG-OPTIONS<>
+<:Inspector.HashBlock>

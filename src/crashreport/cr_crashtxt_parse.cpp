@@ -73,6 +73,20 @@ bool iequals(const std::string& a, const char* b) {
     return i == a.size() && !b[i];
 }
 
+// A bare exception name as the whole summary line: what Fog's top-level
+// filter writes for a hardware exception it reports itself ("ACCESS_VIOLATION"
+// -- reached on console once the runtime delivers guest faults to it). No
+// line number: code stays 0, the frames carry the signature.
+bool parse_exception_summary(const std::string& line, HaltFacts* h) {
+    if (line.size() < 4 || line.size() > 40) return false;
+    for (char c : line)
+        if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')) return false;
+    if (line.find('_') == std::string::npos) return false;   // ACCESS_VIOLATION, STACK_OVERFLOW... not a lone word
+    h->error_type = line;
+    h->code = 0;
+    return true;
+}
+
 // "[%s] (%s) failed at %s(%i)"
 bool parse_summary(const std::string& line, HaltFacts* h, std::string* file) {
     if (line.size() < 4 || line[0] != '[' || line.back() != ')') return false;
@@ -98,7 +112,7 @@ HaltFacts parse_crash_txt(const std::string& text, uint32_t game_base) {
     std::string summary_file, location_file;
     int location_line = 0;
     uint32_t module_base = 0;
-    bool in_assertion = false;
+    bool in_assertion = false, in_summary = false;
     std::vector<uint32_t> raw;           // DBG-ADDR addresses of the halting thread
 
     size_t pos = 0;
@@ -111,6 +125,8 @@ HaltFacts parse_crash_txt(const std::string& text, uint32_t game_base) {
 
         if (line == "<Inspector.Assertion:>") { in_assertion = true; continue; }
         if (line == "<:Inspector.Assertion>") { in_assertion = false; continue; }
+        if (line == "<Inspector.Summary:>") { in_summary = true; continue; }
+        if (line == "<:Inspector.Summary>") { in_summary = false; continue; }
 
         if (in_assertion && line.compare(0, 9, "DBG-ADDR<") == 0) {
             size_t p = 9;
@@ -128,6 +144,7 @@ HaltFacts parse_crash_txt(const std::string& text, uint32_t game_base) {
             if (parse_summary(line, &h, &file)) { have_summary = true; summary_file = file; }
             continue;
         }
+        if (!have_summary && in_summary && parse_exception_summary(line, &h)) { have_summary = true; continue; }
         static const char kLineNumber[] = "<Inspector.LineNumber>";
         if (line.compare(0, sizeof kLineNumber - 1, kLineNumber) == 0) {
             int n;

@@ -447,6 +447,7 @@ $CXX $CXXFLAGS -Wl,-q "${OBJS[@]}" "$@" "$DYNLIB" \
   -lSceGxm_stub $SHACC_LD \
   -lSceCommonDialog_stub \
   -ltaihen_stub_weak \
+  -L"$ROOT/third_party/kubridge-stub" -lkubridge_stub_weak -lSceVshBridge_stub \
   -Wl,-u,pthread_cancel -Wl,-u,pthread_once $WRAP_LD -lpthread -lm -lz \
   -o "$OUT/d2vita.elf"
 }

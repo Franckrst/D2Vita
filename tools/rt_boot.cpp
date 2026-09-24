@@ -179,8 +179,8 @@ static void apply_compact_layout(){
     // relocatable, loads in the module window; misc < 2 MiB), trimmed to that
     // observed usage plus headroom (not a leak — the working set here is
     // stable). The VA figure this paragraph used to cite here is retired —
-    // see the note at VA_SIZE below. Total span 0x11300000 = 275 MiB;
-    // D2ARENA = 0x12300000 (291 MiB incl. the 16 MiB membase-rounding slack)
+    // see the note at VA_SIZE below. Total span 0x0F300000 = 243 MiB;
+    // D2ARENA = 0x10300000 (259 MiB incl. the 16 MiB membase-rounding slack)
     // — inside the ~330 MiB real-Vita user budget (ATTRIBUTE2=12); the bench
     // scripts pass 0x12900000, which still covers this (smaller) span. The
     // span above VA (stacks/TIBs/trap window/D2ARENA) is byte-identical
@@ -189,7 +189,12 @@ static void apply_compact_layout(){
     // ~5 MiB null-guard slack; 124 KiB of guard is kept, still enough to fault
     // on a null pointer plus a normal struct offset), then -> ~32.9 MiB by
     // raising the CEILING: module base 0x01900000 -> 0x02100000, which shifts
-    // the whole pack above it up by 8 MiB.
+    // the whole pack above it up by 8 MiB. Then -> ~56.9 MiB (2026-09-24,
+    // module base 0x02100000 -> 0x03900000) after a field Halt 904 on
+    // 0.1.11-beta5: a 75-minute session filled the 32.9 MiB heap to 31.8 MiB
+    // (largest free block 374 KiB, an 825 KiB request refused). The 24 MiB
+    // come out of the VA window (216 -> 160 MiB, see below), which is how the
+    // pack could grow the heap without growing the arena.
     // Why the ceiling and not the floor again: the region is first-fit, so the
     // ordinary small-allocation churn fills it from the BOTTOM. Room added below
     // is eaten by that churn before any big request arrives, while room added on
@@ -203,17 +208,17 @@ static void apply_compact_layout(){
     // input". Refusing it hands D2 a null that resurfaces as the Codec
     // "corrupted size" Halt 904, not as an allocation error.
     // This pack is NOT free to grow: D2ARENA must cover the whole span
-    // (src/platform/d2_boot_config.cpp — kept in sync, 287 -> 295 MiB here)
+    // (src/platform/d2_boot_config.cpp — kept in sync, 291 -> 259 MiB here)
     // and the real-Vita user budget is ~330 MiB.
-    HEAP_BASE=0x00020000; HEAP_SIZE=0x020E0000;   // 33664 Kio -> ends 0x02100000 (= bridge next_base_)
-    // modules (bridge) 0x02100000..0x02A00000 (9 MiB reserved)
+    HEAP_BASE=0x00020000; HEAP_SIZE=0x038E0000;   // 58240 Kio -> ends 0x03900000 (= bridge next_base_)
+    // modules (bridge) 0x03900000..0x04200000 (9 MiB reserved)
     // MISC window is 9 MiB: Game.exe alone needs 8 MiB, but d2vhost (2 MiB) and
     // CheckRevision.dll (0x4b000, loaded at Battle.net connect) also live here;
     // an undersized window lets CheckRevision.dll overlap MISC's callback stubs,
     // so the main thread jumps into DLL bytes and faults. The bound is also
     // enforced at the bridge (set_module_limit): overflow becomes a named
     // refusal, not a silent overwrite.
-    MISC_BASE=0x02A00000; MISC_SIZE=0x00200000;   // 2 MiB   -> ends 0x02C00000 (= VA_BASE)
+    MISC_BASE=0x04200000; MISC_SIZE=0x00200000;   // 2 MiB   -> ends 0x04400000 (= VA_BASE)
     // VirtualAlloc arena: Storm's MPQ decompressor (SCOMP) grows a doubling
     // working buffer during level load. 2026-09-23: retired the old sizing
     // rationale here (it cited a 200.2 MiB "measured" peak and a specific
@@ -232,13 +237,23 @@ static void apply_compact_layout(){
     // Without headroom the JIT cache cannot grow; since this build has no
     // interpreter fallback (shim_impl.c: Run() sets quit=1), a refused block
     // kills the guest thread outright -- this is not a soft degradation.
+    // 2026-09-24: 216 -> 160 MiB. Two long field sessions on 0.1.11-beta5
+    // (75 and 60 min, `va=` on the alive: line) peaked at 97-98 MiB, and
+    // ~63 MiB of that is D2's own sprite cache (it lives here; `spr` and `va`
+    // move together in the log), which D2 caps at 64 MiB itself. 160 leaves
+    // ~60 MiB over the observed peak for SCOMP's doubling buffer. The 56 MiB
+    // freed went: +24 MiB to the guest heap (above), -32 MiB off the arena
+    // (D2ARENA 291 -> 259 MiB, d2_boot_config.cpp), which is what finally
+    // lets the JIT pool afford its second 16 MiB segment on a real console:
+    // the user partition was full from boot (`libre user 3072 Ko` all
+    // session long) and "segment 2/2" was refused parc-wide (mman_vita.c).
     // The bridge holds its own copy of the module/stack/trap bases; they are no
     // longer allowed to drift, they are pushed to it from here (see the
     // D2_MODBASE/D2_STACKBASE/D2_TRAPBASE block after the HIGH-layout shift).
-    VA_BASE  =0x02C00000; VA_SIZE  =0x0D800000;   // 216 MiB -> ends 0x10400000 (= bridge stack_base_)
-    // main guest stack 0x10400000..0x10600000 (2 MiB, bridge stack_base_)
-    MAIN_STACK_TOP=0x10600000;
-    SCHED_STACKS=0x10600000; SCHED_TIBS=0x11000000;   // worker stacks/TIBs, below the 0x11200000 trap window
+    VA_BASE  =0x04400000; VA_SIZE  =0x0A000000;   // 160 MiB -> ends 0x0E400000 (= bridge stack_base_)
+    // main guest stack 0x0E400000..0x0E600000 (2 MiB, bridge stack_base_)
+    MAIN_STACK_TOP=0x0E600000;
+    SCHED_STACKS=0x0E600000; SCHED_TIBS=0x0F000000;   // worker stacks/TIBs, below the 0x0F200000 trap window
     // ---- HIGH layout (D2LAYOUT=haut): the same pack, shifted above 0x80000000,
     // membase=0. This is the byte-identical model run under qemu to validate
     // the Vita layout (src/runtime/layout.h); offset 0 for "compact" makes the
@@ -258,9 +273,9 @@ static void apply_compact_layout(){
     // D2_MODBASE/D2_STACKBASE/D2_TRAPBASE from the caller still wins.
     // trap_hi_ and the sentinel are re-derived by the bridge from trap_base_.
     { const uint32_t HI=d2rt::layout_hi(); char b[16];
-      std::snprintf(b,sizeof b,"%08x",HI+0x02100000u); setenv("D2_MODBASE",  b,0);
-      std::snprintf(b,sizeof b,"%08x",HI+0x10400000u); setenv("D2_STACKBASE",b,0);
-      std::snprintf(b,sizeof b,"%08x",HI+0x11200000u); setenv("D2_TRAPBASE", b,0); }
+      std::snprintf(b,sizeof b,"%08x",HI+0x03900000u); setenv("D2_MODBASE",  b,0);
+      std::snprintf(b,sizeof b,"%08x",HI+0x0E400000u); setenv("D2_STACKBASE",b,0);
+      std::snprintf(b,sizeof b,"%08x",HI+0x0F200000u); setenv("D2_TRAPBASE", b,0); }
     // The engine owns current-TIB logic; this port only supplies where its
     // memory layout places the main TIB. Set here as soon as the layout is
     // fixed, before any shim runs.
@@ -268,7 +283,7 @@ static void apply_compact_layout(){
     // (the guest scratch allocator is armed later, at the mapping site, once
     // MISC_BASE/MISC_SIZE are final)
     // Compact REQUIRES the relocatable main exe. The pack above reserves the
-    // module window at 0x02100000 for it and starts the heap at HEAP_BASE
+    // module window at 0x03900000 for it and starts the heap at HEAP_BASE
     // (0x00020000). A non-relocated exe at its preferred base 0x00400000 (5.9 MiB
     // image, ending ~0x009E0000) OVERLAPS that heap — heap allocations then
     // trample the exe's .data, corrupting an init sync flag and DEADLOCKING the
@@ -368,6 +383,23 @@ extern "C" uint32_t d2rt_va_used_mb(void){ return g_vaA.used_bytes()>>20; }
 // seulement quand la fenetre a deja casse. Une decision de dimensionnement a
 // besoin du contraire : de combien les sessions qui TIENNENT sont passees pres.
 extern "C" uint32_t d2rt_va_peak_mb(void){ return g_vaA.peak()>>20; }
+// Le tas invite, usage courant contre son PLAFOND (pas son pic) : c'est la
+// region dont le refus devient un Halt 904 du jeu, et jusqu'ici son seul
+// chiffre publie etait la ligne ALLOC FAIL de crash.log — apres coup. La
+// courbe sur alive: dit de combien les sessions qui tiennent passent pres.
+extern "C" uint32_t d2rt_heap_used_mb(void){ return g_heapA.cur()>>20; }
+extern "C" uint32_t d2rt_heap_size_mb(void){ return (HEAP_SIZE-0x1000u)>>20; }
+extern "C" void d2res_menu_tick(void);   // native_hooks_resolution.cpp: back at the menu
+#ifdef __vita__
+// kubridge-backed arena services (engine: cpu_box86.cpp / mman_vita.c / dyn86.c).
+extern "C" int  dyn86_vita_guard_guest(uint32_t gva, uint32_t len);
+extern "C" void dyn86_vita_smc_exclude(uint32_t gva, uint32_t len);
+extern "C" void dyn86_set_protectdb(int on);
+extern "C" int  dyn86_vita_kubridge(void);
+extern "C" void dyn86_seh_set_hooks(int (*exit_requested)(void), void (*terminate)(const char*), void (*before_dispatch)(uint32_t), uint32_t sentinel_va);
+extern "C" int  dyn86_vita_unguard_guest(uint32_t gva, uint32_t len);
+static uint32_t g_sehTestPage=0;   // D2_SEHTEST: the page the knob made unreadable, reopened before the game's handlers run
+#endif
 // Counters for the native ports, exposed to the Vita watchdog: on console
 // there is no stdout, so the "alive" line from boot_progress is the only
 // channel — without them there is no way to tell whether the native ports ran at all.
@@ -2218,6 +2250,44 @@ int main(int argc,char**argv){
               "install: %d DLL d'avant 1.14 presentes (%s) — non chargees, installation anterieure a 1.14",
               nold, old.c_str());
             d2vita_progress(m); std::printf("[%s]\n",m); } }
+      // A structurally valid MPQ from the wrong game version/patch still
+      // sails through mpq_bad() above -- header and tables are fine, the
+      // CONTENT just isn't 1.14d's. Discord bug report Repport-001 was
+      // exactly this: patch_d2.mpq 32% undersized -- a well-formed archive
+      // from a different install, silently accepted, with the actual bug
+      // being "wrong D2 version" misread as a runtime bug. This does NOT
+      // add to nmiss / missingNames -- unlike a missing/truncated file, a
+      // size mismatch alone isn't proof of a broken install, and blocking
+      // the boot outright here risks false positives we can't fully rule
+      // out. Instead it's surfaced on screen below and gated on an explicit
+      // Cross press, since Repport-001 also showed that a boot_progress.txt
+      // line alone goes unread -- the reporter never looked at it.
+      //
+      // Every archive that carries localized content is left out entirely,
+      // not just d2speech.mpq: its size is language-dependent (voice-over),
+      // not patch-dependent, and the same applies to d2xtalk.mpq (expansion
+      // dialogue) and to d2video.mpq/d2xvideo.mpq (cinematics ship dubbed or
+      // subtitled per region in some official releases). Any of those would
+      // false-positive on a legitimate non-English install. What's left is
+      // graphics/data/sfx/music -- content that doesn't vary by locale.
+      std::vector<std::string> sizeWarnings;
+      { static const struct { const char* name; long bytes; } kSizeHints[] = {
+            {"game.exe",       3618792}, {"patch_d2.mpq",   5727413},
+            {"d2data.mpq",   269191615}, {"d2exp.mpq",    250156780},
+            {"d2char.mpq",   266071130}, {"d2sfx.mpq",     48927126},
+            {"d2music.mpq",  349788775}, {"d2xmusic.mpq",   54691647} };
+        for(const auto& h : kSizeHints){
+            auto it=present.find(h.name); if(it==present.end() || it->second.second<=0) continue;
+            long got=it->second.second; double dev=(double)(got-h.bytes)/(double)h.bytes;
+            if(dev>0.08 || dev<-0.08){
+                char m[256]; std::snprintf(m,sizeof m,
+                    "install: AVERTISSEMENT %s fait %ld octets (attendu ~%ld pour 1.14d, ecart %+.0f%%)"
+                    " — cette installation ne semble pas etre la 1.14d",
+                    it->second.first.c_str(), got, h.bytes, dev*100.0);
+                d2vita_progress(m); std::printf("[%s]\n",m);
+                char l[192]; std::snprintf(l,sizeof l,"%s: %ld o (attendu ~%ld o, %+.0f%%)",
+                    it->second.first.c_str(), got, h.bytes, dev*100.0);
+                sizeWarnings.push_back(l); } } }
       if(nmiss){ char m[96]; std::snprintf(m,sizeof m,"install: %d fichier(s) manquant(s) ou invalide(s) -- voir ci-dessus",nmiss);
           d2vita_progress(m); std::printf("[%s]\n",m); std::fflush(stdout);
           // Real on-screen message, not just a log line a player has to know
@@ -2231,7 +2301,19 @@ int main(int argc,char**argv){
           // worse (later, less clear) failure to risk by letting the boot
           // limp forward. Stop here, the same way the Game.exe-missing case
           // below does.
-          return 1; } }
+          return 1; }
+      // Only reached when nmiss==0 -- a version-mismatch warning alongside
+      // an actual fatal error would be redundant with the screen above and
+      // the process is exiting either way, so this stays out of that path.
+      d2vita_show_version_warning_screen(vdir, sizeWarnings);
+#ifdef __vita__
+      // kubridge is optional but recommended (JIT 32 MiB, fault handler,
+      // guard pages, SMC barrier, game-side Crash.txt): say so at boot when
+      // it is missing. The log already carries the same fact.
+      if(!dyn86_vita_kubridge()){ d2vita_progress("kubridge: ABSENT — avis affiche a l'ecran (X ou 10 s), le jeu continue avec la piscine JIT de 16 Mo et sans handler de faute");
+                                 d2vita_show_kubridge_notice_screen(); }
+#endif
+      }
     // Hardware runs at real speed — but only once the scheduler starts: the
     // DllMain init phase depends on per-call tick advance (poll loops with
     // timeouts, workers not yet running) and crawls under a real clock.
@@ -2592,8 +2674,11 @@ int main(int argc,char**argv){
     // write into nothing. The probe stays WORD FOR WORD the same for
     // "compact"; it is simply skipped under the HIGH layout.
     if(getenv("D2LAYOUT") && !d2rt::layout_hi()){
-        static const uint32_t rungs[]={0x01000000,0x0F000000,0x10000000,0x10400000,
-                                       0x107F0000,0x10C00000,0x11000000,0x114FF000};
+        // Rungs follow the pack (2026-09-24): heap, VA (two), main stack,
+        // worker stacks (two), TIBs, and one inside the arena's 16 MiB slack
+        // above the 0x0F300000 trap ceiling.
+        static const uint32_t rungs[]={0x01000000,0x0D000000,0x0E000000,0x0E400000,
+                                       0x0E7F0000,0x0EC00000,0x0F000000,0x0F4FF000};
         for(uint32_t a:rungs){ uint32_t v=0xD2A0BEEF; cpu->write(a,&v,4);
             char m[64]; std::snprintf(m,sizeof m,"arena probe ok: 0x%08x",a);
             d2vita_progress(m); }
@@ -2848,6 +2933,47 @@ int main(int argc,char**argv){
     // guest heap / VA / misc regions
     cpu->map(HEAP_BASE,HEAP_SIZE,nullptr,P_RW);
     cpu->map(VA_BASE,  VA_SIZE,  nullptr,P_RWX);
+#ifdef __vita__
+    // With kubridge (optional) the arena stops being one flat RW block:
+    //  - GUARD PAGES (PROT_NONE): the null slack under the heap floor
+    //    (0x1000..HEAP_BASE; page 0 stays readable, it is the main TIB) and
+    //    the alignment slack above the trap ceiling. A guest wild pointer
+    //    there now faults at the source -- through the kubridge handler,
+    //    which records the x86 state -- instead of silently aliasing a
+    //    neighbour (cpu_box86.cpp, "H(va)=va+membase never faults").
+    //  - EXCLUSIONS for the SMC barrier (hardware protection skipped, box86
+    //    bookkeeping untouched): MISC holds guest stubs next to strings and
+    //    structs the host rewrites all the time, the trap window holds
+    //    thunks, stacks/TIBs hold no code -- protecting a page there would
+    //    make every host write take a fault for nothing.
+    //  - box86's write barrier (protectDB -> real mprotect, faults served in
+    //    dyn86_fault_handle) is ON whenever kubridge is there; D2_PROTECTDB=0
+    //    cuts it. Soaked on console 2026-09-24: 547 pages protected over a
+    //    6-minute session with zone changes, 0 faults, fps and per-block
+    //    sync cost unchanged. The log states the mode either way.
+    { if(getenv("D2LAYOUT") && !d2rt::layout_hi()){
+          const int g1=dyn86_vita_guard_guest(0x1000u, HEAP_BASE-0x1000u);
+          // No guard above the trap ceiling: the arena's own tail (alignment
+          // reserve) is read by the host at boot -- a PROT_NONE there faulted
+          // at 6 s on console (fault-addr = ceiling + 0xF8), first thing the
+          // new handler ever recorded.
+          const int g2=0;
+          dyn86_vita_smc_exclude(MISC_BASE, MISC_SIZE);
+          dyn86_vita_smc_exclude(MAIN_STACK_TOP-0x200000u, 0x0F300000u-(MAIN_STACK_TOP-0x200000u));   // stacks, TIBs, trap window
+          // SEH delivery hooks: "did the guest ask to leave" and the clean exit.
+          dyn86_seh_set_hooks([]()->int{ return g_stop?1:0; },
+                              [](const char* why){ g_stop=true; g_stopReason=why; if(g_sched) g_sched->request_shutdown(); },
+                              [](uint32_t){ if(g_sehTestPage){ dyn86_vita_unguard_guest(g_sehTestPage,0x1000u); d2vita_progress("SEHTEST: page de test rouverte avant le dispatch"); g_sehTestPage=0; } },
+                              br.sentinel());
+          const char* pd=getenv("D2_PROTECTDB");
+          const bool smc = !(pd && *pd && std::strcmp(pd,"0")==0) && dyn86_vita_kubridge();
+          dyn86_set_protectdb(smc?1:0);
+          char m[200]; std::snprintf(m,sizeof m,"garde: pages nulles %s, marge haute %s | barriere SMC %s, exclusions MISC+piles+traps (D2_PROTECTDB=%s, kubridge %s)",
+              g1?"PROT_NONE":"non posees", g2?"PROT_NONE":"non posee (volontaire)",
+              smc?"ARMEE (protectDB -> mprotect reel)":"coupee",
+              pd?pd:"(absent)", dyn86_vita_kubridge()?"present":"absent");
+          d2vita_progress(m); std::printf("%s\n",m); } }
+#endif
     // The engine REPORTS exhaustion, it does NOT write to our log (it knows
     // neither d2_crashlog nor our line format). The callback is armed BEFORE
     // the first init: a region that refused right at creation would still
@@ -3243,6 +3369,12 @@ int main(int argc,char**argv){
         // game is running late (credit <= 0), never more than the cap
         // (8 ms), and never more than the credit minus 1 ms: drawing stays
         // triggered by the game itself.
+        // Fog's main loop (menus/loading) calls Sleep from Game+0x4fa674
+        // (`call *[IAT]`, 6 bytes: the return address is +0x4fa67a); one tick
+        // per turn tells the resolution switch it is looking at the menu again
+        // (nothing else is called on Save & Exit). Whatever the argument: the
+        // loop passes its remaining credit, not always 0.
+        if(g_d2base && c.read_u32(c.reg(R_ESP))==g_d2base+0xfa67au) d2res_menu_tick();
         if(!ms && gamesleep_on() && g_d2base){
             const uint32_t ra0=c.read_u32(c.reg(R_ESP));
             if(ra0==g_d2base+0x4c715u || ra0==g_d2base+0x4c744u){
@@ -3601,6 +3733,18 @@ int main(int argc,char**argv){
     static int g_maxFrames = getenv("MAXFRAMES")?atoi(getenv("MAXFRAMES")):0;
     static int g_traceAfter = getenv("TRACEAFTER")?atoi(getenv("TRACEAFTER")):0;
     auto frameTick=[](Cpu& c){ inj_tick(g_frame);
+#ifdef __vita__
+        // D2_SEHTEST=<frame>[:<rva hex>]: at that frame, make the Game.exe
+        // page holding <rva> unreadable (default 0x2cc000, the import address
+        // table: every API call reads it, so the fault is immediate and comes
+        // from translated code) -> the kubridge handler -> SEH delivery to
+        // the game's own filter. Test knob, kubridge only.
+        { static int st=-2; static uint32_t rva=0x2cc000u;
+          if(st==-2){ const char* e=getenv("D2_SEHTEST"); st=-1; if(e){ st=atoi(e); if(const char* c=std::strchr(e,':')) rva=(uint32_t)strtoul(c+1,nullptr,16); } }
+          if(st>=0 && g_frame==st && g_d2base){ const uint32_t pg=(g_d2base+rva)&~0xFFFu; char m[96];
+            std::snprintf(m,sizeof m,"SEHTEST: page %08x (Game+0x%x) rendue illisible a l'image %d",(unsigned)pg,(unsigned)rva,g_frame);
+            d2vita_progress(m); g_sehTestPage=pg; dyn86_vita_guard_guest(pg,0x1000u); } }
+#endif
         // THE HOST AUDIO SINK IS PULLED HERE. On every presented frame,
         // produce exactly the frames for the GUEST timeline elapsed so far:
         // zero threads, zero pinning, zero GIL release, and a WAV duration

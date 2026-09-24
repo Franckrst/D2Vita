@@ -116,17 +116,43 @@ the source of truth for the public repository.
       0,5 % over 4+4 patrol passes (three armed passes bracket the control
       mean). Ceiling measured at 124–131 bytes per translated block on three
       sessions, console and qemu.
-- [ ] **RAM budget, the JIT pool's second segment**: the entry above used to
-      blame a kernel ceiling. That is not what binds. The budget is, and the
-      console log prints the whole subtraction: 317 440 KiB free before the
-      arena, the arena takes 291 MiB, **19 456 KiB are left** — enough for
-      exactly one 16 MiB segment plus 3 MiB of change. Splitting the request
-      into 2 × 16 MiB (path 5.2) removed a real obstacle, the per-block 16 MiB
-      ceiling, but a second segment was never affordable; at 88 s the ladder
-      is refused at 16, 8, 4, 2 and 1 MiB with `libre user` already negative.
-      Freeing 16 MiB would mean shrinking the guest VA window (220 → 204 MiB)
-      to ~4 MiB above its measured 200,2 MiB peak — and that peak is Act I
-      only. No affordable fix known.
+- [x] **RAM budget, the JIT pool's second segment** — settled 2026-09-24,
+      and neither earlier theory was right. It is not the user budget: after
+      the arena shrink (VA 216 → 160 MiB, arena 291 → 259 MiB) the console
+      had 34 816 KiB free and the kernel still refused a second
+      `sceKernelAllocMemBlockForVM` segment down to 1 MiB (`0x80024B0B`); a
+      bare test app reproduced it with 220 MiB free. It is a **per-process
+      VM quota of 16 MiB**, full stop. The way around it is the kubridge
+      kernel plugin: `kuKernelMemReserve(USER_RX)` + `kuKernelMemCommit(RWX)`
+      hands back memory written in place and executed (tested on console,
+      `kutest`), so the pool's segments 2+ come from there
+      (`mman_vita.c`, weak stub in `third_party/kubridge-stub`, runtime
+      detection, 16 MiB fallback without the plugin). Console: `segment 2/2
+      de 16 Mo reserve (anticipe, via kubridge RWX hors quota VM) — piscine
+      32 Mo`, `libre user 19456 Ko` after. The same arena shrink took the
+      guest heap from 32,9 to 56,9 MiB (a 75-minute field session had died on
+      a full heap, Halt 904, report `SZDVJ7PNYRTOS54K`) and the `alive:` line
+      gained `heap=<used>/<ceiling>MB`.
+- [x] **Fault handler, guard pages, SMC barrier and SEH delivery (kubridge)**
+      — 2026-09-24. With the kubridge plugin the engine registers a user-mode
+      abort handler (`fault_vita.c`): a guest fault leaves a durable
+      `CRASH abort …` record (host pc, fault address, read/write, dynablock
+      and exact x86 instruction, the eight live x86 registers) before anything
+      else; the null slack under the guest heap is `PROT_NONE` (a wild null
+      dereference faults at the source); box86's `protectDB` reaches a real
+      `mprotect` (arena-bounded, MISC/stacks/trap window excluded) and a guest
+      store into a translated page is served in the handler — on by default
+      with the plugin, soaked in-game (547 pages protected over 6 minutes
+      with zone changes, 0 faults, fps and per-block sync unchanged;
+      `D2_PROTECTDB=0` cuts it); and a guest access violation is dispatched
+      like Windows does — `fs:[0]` frame handlers (`_except_handler4` answers
+      ContinueSearch), then the top-level filter: Fog writes its real
+      `Crash.txt` (`ACCESS_VIOLATION`, call chain from the faulting
+      instruction) and calls `TerminateProcess`, the runtime exits cleanly.
+      Proven on console with `D2_SEHTEST=600:32ddd4`. Not done: `RtlUnwind`
+      is still a no-op (inner `__finally` blocks are skipped when an outer
+      `__except` claims an exception) and `ExceptionContinueExecution` cannot
+      resume an abandoned dynablock activation.
 - [x] **`D2_JITFLOOR_KB` retired**: the floor reserved ~3 MiB of user RAM for
       box86's metadata, which now has its own phycont pool — it protected
       nobody. It also protected nobody *before*: guarded by `free_kb >= 0`
