@@ -31,6 +31,7 @@
 // stdio buffer, by contrast, fills completely on every read that falls outside
 // its window — request 4 KiB, read 256 KiB.
 #include "io_stat.h"
+size_t d2_open_files();   // kernel32_files.cpp: live Win32 file handles
 #include "runtime/bridge.h"
 #include "runtime/cpu.h"
 #include "runtime/rt_host.h"
@@ -212,14 +213,14 @@ void io_account(IoH* f, long at, uint32_t n, uint32_t got, uint64_t us, bool hit
 static void io_fmt(char* m, size_t sz, const char* quand, const IoCnt& w){
     std::snprintf(m,sz,
         "io(%s): lectures=%llu octets=%lluK hote=%llums (%lluus/lect) tailles: <=4K=%llu <=64K=%llu <=512K=%llu >512K=%llu seq=%llu saut=%llu"
-        " | ram=%llu/%lluK carte=%llu lect %llu/%lluK %llums direct=%llu | tampons=%uK pic=%uK poignees=%u vols=%u refus=%u",
+        " | ram=%llu/%lluK carte=%llu lect %llu/%lluK %llums direct=%llu | tampons=%uK pic=%uK poignees=%u vols=%u refus=%u fichiers-ouverts=%u",
         quand,(unsigned long long)w.n,(unsigned long long)(w.bytes>>10),(unsigned long long)(w.us/1000),
         (unsigned long long)(w.n?w.us/w.n:0),
         (unsigned long long)w.h[0],(unsigned long long)w.h[1],(unsigned long long)w.h[2],(unsigned long long)w.h[3],
         (unsigned long long)w.seq,(unsigned long long)w.jump,
         (unsigned long long)w.hit,(unsigned long long)(w.hitB>>10),
         (unsigned long long)w.card,(unsigned long long)w.cardN,(unsigned long long)(w.cardB>>10),(unsigned long long)(w.cardUs/1000),
-        (unsigned long long)w.direct, g_raUse>>10,g_raPeak>>10,g_raHandles,g_raSteal,g_raRefus,
+        (unsigned long long)w.direct, g_raUse>>10,g_raPeak>>10,g_raHandles,g_raSteal,g_raRefus,(unsigned)d2_open_files(),
         (unsigned long long)g_raWinHit,(unsigned long long)g_raWinMiss);
 }
 void io_line(const char* quand){

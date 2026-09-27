@@ -25,7 +25,23 @@ the source of truth for the public repository.
 - [x] Memory budget calibrated on hardware (compact arena, newlib heap
       raised to 38 MiB)
 - [x] GPU rendering (sceGxm) via a guest-side reconstructed Glide3x ring,
-      asynchronous submission
+      asynchronous submission; the ring walk runs on its own core
+      (`D2_FLUSHFIL`, default) and gives ring space back as it walks, so a
+      heavy Perspective frame (~1.3 MB) and the next one never overflow the
+      2 MiB ring — overflowing records used to be dropped by the DLL, which
+      made the floor flicker (fixed 2026-09-27, console: 0 dropped, 24 fps
+      at Harrogath's gate)
+- [x] Act V texture-cache thrash fixed (2026-09-26): the ring DLL now
+      announces 2 TMUs (`D2_GLNUMTMU`, default 2), so D2 sizes its sprite
+      cache at 3/4 of TMU0 instead of a 3 MiB cap. On the scripted Harrogath
+      patrol (`tools/bancs/patrouille_acte5.sh`, real console, valid passes,
+      not interleaved) the re-sent textures drop from ~50/frame to 1,
+      ~20.0 → ~24.0 fps (game cap 25). This needs a larger GXM atlas: at
+      32 MiB it filled up in the wilderness and drew wrong sprites (blinking
+      Death Maulers); the atlas is now 48 MiB and a failed upload draws
+      untextured instead of a stale sprite — console confirmation pending.
+      The boot_progress log is asynchronous (periodic reports no longer stall
+      the game thread; `journal=0` on console).
 - [x] Native 960×544 resolution (`D2_RES`, on by default; `D2_RES=0` or
       `D2_RES=WxH`, 640×480 to 1280×1024, to override): the game itself
       draws 960×544 (one texel = one pixel, no filter, no pillarbox),
@@ -34,13 +50,38 @@ the source of truth for the public repository.
       changes. Menus stay 800×600 pillarboxed: their art is fixed-size.
       4:3 aspect preserved by default for 800×600 (no stretch;
       `D2_ASPECT=etire` for the old stretched behavior)
+- [x] The in-game Resolution option stays a zoom: 800×600 draws 960×544,
+      640×480 draws 848×480 (640×480's height at the screen's aspect)
+      scaled ×1.13 to full screen, so characters are as big as native
+      640×480. Switching mid-game works: the sizes are written before
+      `SetResolution` calls D2Gfx (Game+0xf90a0), otherwise the world view
+      stayed 640 wide. `D2_RES640=WxH` / `D2_RES640=0` (original, bordered).
+      **Confirmed on console** (2026-09-27: game start at 640, 640→800→640
+      mid-game, both panels open). At 640×480 the HUD bar's two
+      `(W-640)/2` gaps and the column between two open panels are filled
+      with stone from the game's own inventory panel. The game loads that
+      panel's DC6 (`Panel\InvChar6`, frame 4) when its UI initialises, so
+      at the first UI draw in 640 mode — game start or mid-game switch —
+      a 40×128 stone patch is decoded from it on the host and pinned in an
+      atlas cell of ours, then laid as randomly-picked bricks (hash of
+      position, stable across frames); the bar's gold rims are re-sampled
+      from the bar itself. No panel needs to have been opened. **Confirmed
+      on console** (2026-09-27: 800→640 switch without opening anything;
+      decoded patch = the GPU texture, 5120/5120 bytes); qemu gate
+      `MODE640=1 tools/hudfill_arm_check.sh`.
 - [x] HUD bar at 960×544: D2's 800-wide bar opens two `(W-800)/2` px gaps
       (80 px each at 960), which the bar fills with its own stone
       re-sampled from the texture the game already loaded — no Blizzard
       art is added or shipped. `D2_HUDFILL=0` shows the gaps again.
       **Confirmed on console** (2026-09-22); the qemu gate
       `tools/hudfill_arm_check.sh` only proves the hook and its numbers,
-      since GPU submission there is a sink.
+      since GPU submission there is a sink. With the game's Perspective
+      option OFF, D2 draws the art alone (86×55) rather than its padded
+      texture (128×64): both shapes are recognised (fixed 2026-09-27 —
+      until then turning Perspective off brought the gaps back). The gate
+      runs both (`PERSP=0` / `PERSP=1`) and also checks the column between
+      two open panels, whose expected position had not followed the
+      vertical centring of the panels.
 - [x] Side panels at 960×544 (inventory, skill tree, stash, trade, belt):
       D2's UI-draw routine rewrites its screen shift to the 800×600 values
       (+80/−60) at the start of every frame, so the whole 800 layout

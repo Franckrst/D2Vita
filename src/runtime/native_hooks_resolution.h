@@ -13,6 +13,11 @@
 //
 // ACTIF PAR DEFAUT. D2_RES=0 revient au 800x600 du jeu (et donc aux bandes,
 // cf. D2_ASPECT dans vita_gxm.cpp) ; D2_RES=LxH force une autre taille.
+// L'option video « Resolution » du jeu reste un ZOOM : en 800x600 le jeu
+// dessine a la taille de l'ecran ; en 640x480 il dessine en 848x480 (la
+// hauteur du 640x480 d'origine, le format de l'ecran), agrandi a l'ecran — les
+// personnages y sont aussi gros qu'en 640x480 natif. D2_RES640=LxH force cette
+// taille, D2_RES640=0 rend le 640x480 d'origine (borde).
 // D2_RES_PANNEAUX=0 garde la bascule mais laisse les tables d'inventaire, la
 // ceinture et le cadre 800BorderFrame la ou le jeu les met (jambe temoin).
 //
@@ -29,6 +34,8 @@ void native_hooks_resolution_install(d2rt::Cpu* cpu, d2rt::Bridge& br);
 extern "C" int d2res_active(void);
 extern "C" int d2res_w(void);
 extern "C" int d2res_h(void);
+// Mode du jeu en cours : 1 = disposition 800x600, 0 = disposition 640x480.
+extern "C" int d2res_mode(void);
 // 1 = disposition 800 centree d'un bloc (D2_RES_PANNEAUX=centre), 0 = panneaux
 // aux bords (defaut) : l'anneau Glide comble la zone que le jeu laisse noire
 // selon le cas (bandes laterales, ou colonne entre les deux panneaux).

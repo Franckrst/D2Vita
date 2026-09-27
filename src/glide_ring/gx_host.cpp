@@ -4,6 +4,9 @@
 // gx_line / gr_line / gr_final_cumul. What rt_boot.cpp provides is declared in
 // runtime/rt_host.h. See glide_ring/gx_host.h.
 #include "glide_ring/gx_host.h"
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#include <arm_neon.h>
+#endif
 #include "glide_ring/glide_atlas.h"
 #include "glide_ring/replay60.h"
 #include "platform/vita_gxm.h"
@@ -35,7 +38,8 @@ extern "C" void r60_gxm_arm();
 extern "C" { __attribute__((weak)) int d2res_active(void);
              __attribute__((weak)) int d2res_w(void);
              __attribute__((weak)) int d2res_h(void);
-             __attribute__((weak)) int d2res_centre(void); }
+             __attribute__((weak)) int d2res_centre(void);
+             __attribute__((weak)) int d2res_mode(void); }
 #ifdef __vita__
 extern "C" int d2vita_pin_self(int mask, unsigned* relu);
 #endif
@@ -78,6 +82,10 @@ static uint32_t g_grTail=0;
 // never touches the game thread's Cpu object.
 static const uint8_t* g_grRingHost=nullptr;
 static uint8_t*       g_grHdrHost=nullptr;
+static uint32_t       g_grTailPub=0;          // last tail published to the guest mid-walk (flush thread)
+static bool g_ffArmed=false;                  // flush thread running: the async path is active (D2_FLUSHFIL)
+static uint64_t g_ndCalls=0, g_ndBytes=0;   // d2vGlideDraw: records written natively, vertex bytes
+static uint64_t g_ndIntrin=0;               // ... of which served as an intrinsic (the rest crossed the Bridge)
 // Reads a ring word by ABSOLUTE byte counter (wraparound handled here).
 // Strictly the same byte as c.read_u32(g_grDataVA+(x&mask)).
 static inline uint32_t gr_rd(uint32_t absoff){
@@ -406,10 +414,12 @@ void gr_inventory_dump(){
     // different values WITHOUT having diverged. The only honest comparison is
     // at the end of the run, with an equal record count — this line.
     std::printf("[ring-final] enr=%llu dessins=%llu sommets=%llu lots=%llu etats=%llu"
-                " texup=%llu octets=%llu images=%u | h=0x%016llx\n",
+                " texup=%llu octets=%llu images=%u natdraw=%llu intrinseque=%llu verif=%u/%u | h=0x%016llx\n",
         (unsigned long long)g_grRecs,(unsigned long long)g_grDraws,(unsigned long long)g_grVerts,
         (unsigned long long)g_grBatches,(unsigned long long)g_grState,(unsigned long long)g_grTexUp,
-        (unsigned long long)g_grBytes,g_grFrames,(unsigned long long)g_grHash);
+        (unsigned long long)g_grBytes,g_grFrames,(unsigned long long)g_ndCalls,(unsigned long long)g_ndIntrin,
+        g_grHdrHost? ((volatile uint32_t*)g_grHdrHost)[10] : 0u, g_grHdrHost? ((volatile uint32_t*)g_grHdrHost)[11] : 0u,
+        (unsigned long long)g_grHash);
     cp_line("-final");
     gr_final_cumul();
     std::fflush(stdout);
@@ -475,6 +485,25 @@ static uint32_t g_gxClear=0;
 // Current Glide state, as reported by the ring.
 static uint32_t g_gxTexAddr=0;
 static uint32_t g_gxLod=0; static int32_t g_gxAspect=0; static uint32_t g_gxFmt=5;
+// PER-TMU texture state. With GR_NUM_TMU=2 (the default since 26/09/2026) the
+// game binds tiles on TMU1 and sprites on TMU0, and flips TMU0's
+// grTexCombine between LOCAL (draw TMU0's texture) and SCALE_OTHER/ONE (pass
+// TMU1's texture through) — ~16k times each per 3200-frame run. As on real
+// hardware, each TMU keeps its OWN source; TMU0's combine picks which one is
+// sampled. Keeping only "the last grTexSource, whatever the TMU" drew a
+// sprite with a tile's texture whenever the order of calls didn't happen to
+// match (Death Maulers blinking in Act V, console 26/09/2026).
+struct GxTmuSrc { uint32_t addr, lod; int32_t aspect; uint32_t fmt; };
+static GxTmuSrc g_gxTmu[2] = {{0,0,0,5},{0,0,0,5}};
+static bool     g_gxTmu0Other = false;        // TMU0 combine takes "other" (= TMU1's output)
+static uint64_t g_gxPickTmu1 = 0;             // state resolutions that picked TMU1 (diagnostic)
+static uint32_t g_gxLastAnySrc = 0;           // the OLD rule: last grTexSource, any TMU
+static uint64_t g_gxOldRuleWrong = 0;         // state syncs where the old rule would have drawn another texture
+static void gx_pick_tex(){
+    const GxTmuSrc& t = g_gxTmu[g_gxTmu0Other ? 1 : 0];
+    g_gxTexAddr=t.addr; g_gxLod=t.lod; g_gxAspect=t.aspect; g_gxFmt=t.fmt;
+    if(g_gxTmu0Other) ++g_gxPickTmu1;
+}
 static uint32_t g_gxBlendSf=4, g_gxBlendDf=0;
 static uint32_t g_gxCcFunc=3, g_gxCcOther=1;
 static uint32_t g_gxAcFunc=0;
@@ -528,6 +557,11 @@ static int  lotshash_mode(){ static int v=-1; if(v<0){ const char* e=getenv("D2_
 static bool lotshash_on(){ return lotshash_mode()!=0; }   // 2 = additionally, one `gxlh:` line PER FRAME (that frame's hash alone): locates the first frame that diverges
 static uint64_t g_grpStateUs=0, g_grpDrawUs=0, g_grpSyncUs=0, g_grpVtxUs=0, g_grpEndUs=0, g_grpClockNs=0;
 static uint64_t g_grpTexHashUs=0, g_gxTexHashN=0, g_gxTexHashB=0;   // hashed P8 uploads: count, bytes, hashing time (GRPROF)
+// Per-TMU census (index = tmu bits of the (tmu, address) key): uploads,
+// uploads the atlas already held, grTexSource bindings. This is what says
+// WHICH of the game's caches re-sends when GR_NUM_TMU >= 2 (sprites on
+// TMU0, tiles on TMU1).
+static uint64_t g_gxUpTmu[4]={0,0,0,0}, g_gxHitTmu[4]={0,0,0,0}, g_gxBindTmu[4]={0,0,0,0};
 // TEXTURE HASHING (D2_TEXHASH). Hashing every uploaded texture (~9KB on
 // average) with a WORD-BY-WORD 64-bit FNV-1a costs real per-frame CPU time,
 // because FNV-64 is a SERIAL CHAIN of 64-bit multiplications (umull+2 mla per
@@ -555,12 +589,35 @@ static uint64_t g_grpTexHashUs=0, g_gxTexHashN=0, g_gxTexHashB=0;   // hashed P8
 // textures and produce fewer.
 static int texhash_mode(){ static int v=-1; if(v<0){ const char* e=getenv("D2_TEXHASH"); v=(e&&*e)?atoi(e):1; if(v<0||v>2) v=1; } return v; }
 static inline uint32_t rotl32(uint32_t x,int r){ return (x<<r)|(x>>(32-r)); }
-static uint64_t tex_hash(const uint8_t* p, uint32_t nb, uint32_t w, uint32_t h){
-    const int mode=texhash_mode();
-    if(mode==1){
+// Mode 1 on NEON: the four lanes ARE one q register. Every step is 32-bit
+// modular arithmetic (mla, rotate, mul), so the result is bit-identical to
+// the scalar loop below -- the flush thread's startup bench checks that
+// equality on the device, every boot. Why it matters: measured on console,
+// the scalar loop ran at 7-11 ns/byte (the in-order A9 serialises the four
+// chains through one scratch register), i.e. ~330 us per 28 KiB texture,
+// which was the whole cost of a re-sent texture. D2_TEXHASH_NEON=0 forces
+// the scalar path (A/B, and the bench's reference).
+static bool texhash_neon(){ static int v=-1; if(v<0){ const char* e=getenv("D2_TEXHASH_NEON"); v=(e&&*e&&!strcmp(e,"0"))?0:1; } return v!=0; }
+static uint64_t tex_hash_mode1(const uint8_t* p, uint32_t nb, uint32_t w, uint32_t h, bool neon){
         const uint32_t P1=2654435761u,P2=2246822519u,P3=3266489917u,P4=668265263u,P5=374761393u;
         uint32_t v1=P1+P2, v2=P2, v3=0, v4=0u-P1;
         uint32_t i=0;
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+        if(neon && nb>=16){
+            const uint32x4_t vP1=vdupq_n_u32(P1), vP2=vdupq_n_u32(P2);
+            uint32x4_t v=vdupq_n_u32(0);
+            v=vsetq_lane_u32(v1,v,0); v=vsetq_lane_u32(v2,v,1); v=vsetq_lane_u32(v3,v,2); v=vsetq_lane_u32(v4,v,3);
+            for(; i+16<=nb; i+=16){
+                const uint32x4_t wv=vreinterpretq_u32_u8(vld1q_u8(p+i));   // byte load: no alignment assumption
+                v=vmlaq_u32(v,wv,vP2);
+                v=vorrq_u32(vshlq_n_u32(v,13),vshrq_n_u32(v,19));
+                v=vmulq_u32(v,vP1);
+            }
+            v1=vgetq_lane_u32(v,0); v2=vgetq_lane_u32(v,1); v3=vgetq_lane_u32(v,2); v4=vgetq_lane_u32(v,3);
+        }
+#else
+        (void)neon;
+#endif
         for(; i+16<=nb; i+=16){
             uint32_t a,b,c,d; std::memcpy(&a,p+i,4); std::memcpy(&b,p+i+4,4); std::memcpy(&c,p+i+8,4); std::memcpy(&d,p+i+12,4);
             v1=rotl32(v1+a*P2,13)*P1; v2=rotl32(v2+b*P2,13)*P1; v3=rotl32(v3+c*P2,13)*P1; v4=rotl32(v4+d*P2,13)*P1; }
@@ -572,7 +629,10 @@ static uint64_t tex_hash(const uint8_t* p, uint32_t nb, uint32_t w, uint32_t h){
         lo^=lo>>15; lo*=P2; lo^=lo>>13; lo*=P3; lo^=lo>>16;
         hi^=hi>>15; hi*=P3; hi^=hi>>13; hi*=P2; hi^=hi>>16;
         return ((uint64_t)hi<<32)|lo;
-    }
+}
+static uint64_t tex_hash(const uint8_t* p, uint32_t nb, uint32_t w, uint32_t h){
+    const int mode=texhash_mode();
+    if(mode==1) return tex_hash_mode1(p,nb,w,h,texhash_neon());
     uint64_t hsh=1469598103934665603ull;
     if(mode==2){
         uint32_t i=0;
@@ -736,7 +796,13 @@ static void gx_lazy_init(){
     // Defaults picked for a memory/batch-count tradeoff: 512-pixel pages =>
     // ~21MiB actually used, ZERO eviction, ~115 batches/frame; 1024-pixel
     // pages => ~90 batches/frame but ~34MiB. Memory is favored.
-    uint32_t mio=32, dim=512;
+    // 48 MiB by default (was 32): with 2 TMUs x 16 MiB announced, the game
+    // keeps up to 32 MiB resident, and the atlas stores its textures in
+    // per-size page classes, so it needs headroom above that. At 32 it filled
+    // up in Act V wilderness (128/128 pages, failed uploads, evictions of
+    // still-bound cells — console 26/09/2026). CDRAM has room: ~83 MiB free
+    // after GXM init. Pages are created on demand, so this is a ceiling.
+    uint32_t mio=48, dim=512;
     if(const char* e=getenv("D2_GXMATLAS")){ unsigned v=atoi(e); if(v>=1&&v<=96) mio=v; }
     if(const char* e=getenv("D2_GXMPAGE")){ unsigned v=atoi(e); if(v==256||v==512||v==1024||v==2048) dim=v; }
 #ifdef __vita__
@@ -769,8 +835,19 @@ static bool bindorder_on(){ static int v=-1; if(v<0){ const char* e=getenv("D2_G
 struct GxBind { int32_t cell; uint32_t gen; };
 static std::unordered_map<uint32_t,GxBind> g_gxBindAt;
 static uint64_t g_gxBindOrdered=0, g_gxBindFallback=0, g_gxBindStale=0;
+// D2_GXTEXCHECK=1: ORACLE of the texture actually sampled. For every TMU
+// address, the hash of the LAST content the game uploaded there (failed
+// uploads included); at each state sync, the atlas cell about to be sampled
+// must carry that hash. A mismatch is a sprite drawn with ANOTHER texture —
+// what an atlas that kept an old binding after a failed upload produced
+// (Death Maulers blinking in Act V, console 26/09/2026). Untextured draws
+// (cell -1) are not counted: they are the honest failure mode.
+static bool texcheck_on(){ static int v=-1; if(v<0){ const char* e=getenv("D2_GXTEXCHECK"); v=(e&&*e&&strcmp(e,"0"))?1:0; } return v!=0; }
+static std::unordered_map<uint32_t,uint64_t> g_gxLastUpHash;
+static uint64_t g_gxTexChecked=0, g_gxTexWrong=0;
 static void gx_sync_state(){
     ++g_gxSyncDone;
+    if(g_gxLastAnySrc && g_gxLastAnySrc!=g_gxTexAddr) ++g_gxOldRuleWrong;
     int32_t cell = -1;
     if(g_gxAtlas.ready()){
         if(bindorder_on()){
@@ -783,6 +860,9 @@ static void gx_sync_state(){
         } else cell=g_gxAtlas.resolve(g_gxTexAddr);
     }
     if(cell<0) ++g_gxTexNoAtlas;
+    if(cell>=0 && texcheck_on()){
+        auto lh=g_gxLastUpHash.find(g_gxTexAddr);
+        if(lh!=g_gxLastUpHash.end()){ ++g_gxTexChecked; if(g_gxAtlas.cell(cell).hash!=lh->second) ++g_gxTexWrong; } }
     g_gxSt.cell = cell;
     // Coordinate convention: s in [0,S], t in [0,T]
     // with S = 256>>max(0,-aspect) and T = 256>>max(0,aspect). NOT texels.
@@ -847,7 +927,9 @@ static inline void gx_sync_for_draw(){
 //  (g) BACKPRESSURE: the ring is bounded (2MiB). The game thread waits, at
 //      grBufferSwap, for the previous batch to be consumed (`waits=`): at most
 //      ONE frame in flight, so at most TWO frames' worth of ring occupancy —
-//      double the synchronous case, on a ring that holds about 10.
+//      double the synchronous case, on a ring that holds about 10 ordinary
+//      frames but not two Perspective ones (~1.3 MB each): a frame over 30%
+//      of the ring is flushed synchronously, see gr_flush.
 // ON by default since 2026-09-22, D2_FLUSHFIL=0 to disable. It had been in the
 // validated game env since 06/09, but the VPK ships no env.txt, so no player
 // ever ran it. Console, patrol bench on the real save (4 controls dispersed by
@@ -859,13 +941,14 @@ static inline void gx_sync_for_draw(){
 // frame. Deporting MEMORY-bound work to another core recovers about a third of
 // it, not all. Do not size future work on the un-deported figure.
 static bool ff_on(){ static int v=-1; if(v<0){ const char* e=getenv("D2_FLUSHFIL"); v=(e&&*e&&!strcmp(e,"0"))?0:1; } return v!=0; }
-static bool g_ffArmed=false;                 // the thread is running: the async path is active
 static volatile int      g_ffPending=0;      // 1 = a batch is waiting to be consumed
 static volatile uint32_t g_ffHead=0;         // handed-off head (absolute byte counter)
 static volatile int      g_ffStop=0, g_ffRunning=0;
 static uint64_t g_ffWaits=0, g_ffWaitUs=0, g_ffWaitMax=0, g_ffLots=0, g_ffBusyUs=0;
 static uint64_t g_ffStgWaits=0, g_ffStgFallback=0, g_ffCopyUs=0, g_ffCopyB=0;
 static uint32_t g_ffOccMax=0;                // max ring occupancy (bytes)
+static uint64_t g_ffLourdes=0;               // heavy frames flushed synchronously (see gr_flush)
+static uint32_t g_ffPerdusVus=0, g_ffSecoursJusqua=0; static uint64_t g_ffSecours=0;   // drop-triggered safety net
 // Texture staging buffer, in HOST memory (not in the guest arena).
 // D2_FLUSHFIL_STG = size in MiB (default 4, forced to a power of two).
 // 4 MiB costs ~3.3 MB of the newlib heap, taking its room to grow from 11.1 to
@@ -967,10 +1050,19 @@ static void gx_tex_apply(uint32_t tmuAddr, uint32_t w, uint32_t h, uint32_t nb,
     const uint64_t th0 = prof? rt_now_us() : 0;
     const uint64_t hsh=tex_hash(p,nb,w,h);
     if(prof) g_grpTexHashUs += rt_now_us()-th0;
+    if(texcheck_on()) g_gxLastUpHash[tmuAddr]=hsh;
+    const unsigned tmuIx=(tmuAddr>>28)&3u; ++g_gxUpTmu[tmuIx];
+    const uint64_t hitsBefore=g_gxAtlas.hits();
     const int32_t ci=g_gxAtlas.upload(hsh,tmuAddr,w,h,p,g_gxFrame);
-    if(ci>=0 && bindorder_on()){
-        if(emit){ const uint32_t rec[3]={tmuAddr,(uint32_t)ci,g_gxAtlas.cell(ci).gen}; gr_emit(*emit,D2GR_OP_TEXBIND,rec,3); }
-        else      g_gxBindAt[tmuAddr]=GxBind{ ci, g_gxAtlas.cell(ci).gen };
+    if(g_gxAtlas.hits()!=hitsBefore) ++g_gxHitTmu[tmuIx];
+    if(bindorder_on()){
+        // A FAILED upload (ci < 0: no room in the atlas) is bound too — to
+        // NOTHING. Leaving the address's previous entry in place drew the
+        // texture it held BEFORE this upload: a wrong sprite, the blink of
+        // Act V's Death Maulers once the atlas was full.
+        const uint32_t gen = ci>=0 ? g_gxAtlas.cell(ci).gen : 0u;
+        if(emit){ const uint32_t rec[3]={tmuAddr,(uint32_t)ci,gen}; gr_emit(*emit,D2GR_OP_TEXBIND,rec,3); }
+        else      g_gxBindAt[tmuAddr]=GxBind{ ci, gen };
     }
     if(!emit) g_gxTexUs += rt_now_us()-ta;
 }
@@ -1025,7 +1117,17 @@ static void gx_state(uint32_t op, uint32_t len, const uint32_t* rp){
     g_gxStDirty=true;
     switch(op){
       case 0x10:                                  // grTexSource
-        if(a[1]==0){ g_gxTexAddr=a[3]; g_gxLod=a[5]; g_gxAspect=(int32_t)a[6]; g_gxFmt=a[7]; }
+        { const unsigned tm=(a[1]&3u)?1u:0u;
+          g_gxTmu[tm]=GxTmuSrc{ gx_tmu_key(a[1],a[3]), a[5], (int32_t)a[6], a[7] };
+          g_gxLastAnySrc=gx_tmu_key(a[1],a[3]);
+          ++g_gxBindTmu[a[1]&3u];
+          gx_pick_tex(); }
+        break;
+      case 0x11:                                  // grTexCombine: tmu, rgb_func, rgb_fact, alpha_func, ...
+        // Only TMU0's function decides what reaches the pixel pipeline:
+        // LOCAL (1) / LOCAL_ALPHA (2) = its own texture, ZERO (0) = none
+        // (kept on TMU0), anything built on "other" (>=3) = TMU1's output.
+        if(a[1]==0){ g_gxTmu0Other = a[2]>=3u; gx_pick_tex(); }
         break;
       case D2GR_OP_TEXBIND:                       // ordered binding (emitted by the host)
         g_gxBindAt[a[1]] = GxBind{ (int32_t)a[2], a[3] };
@@ -1180,8 +1282,286 @@ static bool     g_hudFillSaid = false;
 // utiles gardent donc leur abscisse (l'art commence a la colonne 0 du quad) ;
 // c'est la LARGEUR de reference qui vaut 128, pas 86. La conversion en s se
 // fait par la mesure du quad, jamais par une hypothese sur la texture.
-static const float HUD_Q_W = 128.0f, HUD_Q_H = 64.0f;
+//
+// PERSPECTIVE OFF (option video du jeu) : D2 ne dessine plus la texture
+// entiere mais l'ART SEUL — f4 arrive en (W/2+149, H-55) 86x55 (inventaire
+// D2_HUDFILL=3 sous qemu avec D2_PERSPECTIVE=0, 27/09/2026). Les deux formes
+// partagent le coin bas-gauche et un texel par pixel : on accepte l'une ou
+// l'autre, et la colonne c de l'art vaut s0 + (s1-s0)*c/largeur_du_quad.
+// Faute de quoi un joueur qui coupe la perspective voit les trous revenir.
+static const float HUD_Q_W = 128.0f, HUD_Q_H = 64.0f;    // texture completee (perspective ON)
+static const float HUD_A_W = 86.0f,  HUD_A_H = 55.0f;    // art seul (perspective OFF)
 static const float HUD_SRC0 = 46.0f, HUD_SRC1 = 61.0f;   // pierre lisse de f4
+
+// ---- DISPOSITION 640 : LA PIERRE DES PANNEAUX --------------------------------
+//
+// En mode 640x480 (option video du jeu), native_hooks_resolution.cpp fait
+// dessiner le jeu en 848x480 : le bandeau 640 (globes, boutons de sort, trois
+// vignettes centrales en W/2-155..W/2+155) laisse deux trous de (W-640)/2 px,
+// et avec deux panneaux ouverts la colonne 320..W-320 reste noire. Le bandeau
+// 640 n'a pas de pierre lisse a rechantillonner (sa seule bande de pierre fait
+// 7 px et porte un filet dore) : on prend celle du PANNEAU D'INVENTAIRE, entre
+// la case d'arme et celle d'armure (x 84..123, y 34..161 du panneau, releve au
+// pixel sur capture console 1:1 le 27/09/2026 — pierre marbree, sans cadre ;
+// la colonne 127 est deja dans l'ombre portee de la case d'armure).
+//
+// Le bandeau est dessine a chaque image, le panneau seulement quand il est
+// ouvert ; mais le jeu CHARGE le dessin du panneau des l'initialisation de
+// l'interface. native_hooks_resolution.cpp le lit donc dans la memoire du jeu
+// (cel DC6 de Panel\InvChar6, decode sur l'hote) au premier DrawUI en mode
+// 640 et l'OFFRE ici (gx_p640_offre) : la pierre est prete avant meme la
+// premiere image de jeu. Elle est recopiee dans une cellule a nous, liee a
+// une adresse TMU factice (bits 30-31 : aucune adresse du jeu n'y tombe) — sa
+// reference la protege de l'eviction ordinaire. Ce sont les octets du jeu,
+// charges par le jeu depuis les MPQ du joueur : rien n'est ajoute au paquet.
+// Secours (cel illisible, mod) : a la premiere apparition de l'inventaire, le
+// meme rectangle est relu dans la page d'atlas ou le jeu l'a charge (console
+// seulement : sous qemu la page GPU n'existe pas).
+//
+// La tuile haut-gauche d'un panneau de droite peut etre l'inventaire OU
+// l'arbre de competences : l'inventaire est reconnu au hash de son contenu
+// (celui que calcule deja l'atlas). D2_HUDFILL=2 journalise la capture et les
+// comblages, =3 aussi les hash vus.
+static const int      P640_SX = 84, P640_SY = 34, P640_W = 40, P640_H = 128;
+static const int      P640_TH = 64;          // hauteur des tuiles posees
+static const uint32_t P640_TMU  = 0xC0000000u;
+static const uint64_t P640_HASH = 0xD2F1640A57E0E001ull;
+// Hash de la tuile haut-gauche du panneau d'inventaire (256x256, P8), releve
+// D2_HUDFILL=3. Tout autre contenu (arbre de competences, mods) est ignore :
+// on ne comble pas plutot que de tuiler une pierre qui n'en est pas.
+static const uint64_t P640_INV[] = { 0x40ef2bc7a2470519ull };   // 1.14d, qemu + console, perspective ON et OFF
+static int32_t  g_p640Cell = -1;
+static uint32_t g_p640Gen  = 0;
+// L'offre du fil de jeu (native_hooks_resolution.cpp) : 1 = octets poses, a
+// prendre par le fil qui construit les lots. g_p640Pret dit au fil de jeu s'il
+// doit encore offrir (0 = pas de pierre, ou pierre evincee).
+static uint8_t  g_p640OffrePx[P640_W*P640_H];
+static int      g_p640OffreN = 0, g_p640Pret = 0;
+extern "C" void gx_p640_offre(const uint8_t* px, int w, int h){
+    if(w!=P640_W || h!=P640_H || __atomic_load_n(&g_p640OffreN,__ATOMIC_ACQUIRE)) return;
+    std::memcpy(g_p640OffrePx, px, sizeof g_p640OffrePx);
+    __atomic_store_n(&g_p640OffreN, 1, __ATOMIC_RELEASE);
+}
+extern "C" int gx_p640_besoin(void){
+    return !__atomic_load_n(&g_p640Pret,__ATOMIC_ACQUIRE) && !__atomic_load_n(&g_p640OffreN,__ATOMIC_ACQUIRE); }
+static uint64_t g_p640GFrame = ~0ull, g_p640DFrame = ~0ull;   // tuiles gauche / droite vues
+static uint64_t g_p640Quads = 0;
+static bool p640_pret(){
+    const bool ok = g_p640Cell>=0 && g_gxAtlas.cell(g_p640Cell).gen==g_p640Gen;
+    if(!ok && g_p640Cell>=0){ g_p640Cell=-1; __atomic_store_n(&g_p640Pret,0,__ATOMIC_RELEASE); }   // evincee : redemander
+    return ok; }
+static void p640_fige(const uint8_t* buf, const char* source){
+    const int32_t ci = g_gxAtlas.upload(P640_HASH, P640_TMU, P640_W, P640_H, buf, g_gxFrame);
+    if(ci<0) return;
+    g_p640Cell = ci; g_p640Gen = g_gxAtlas.cell(ci).gen;
+    __atomic_store_n(&g_p640Pret, 1, __ATOMIC_RELEASE);
+    if(g_hudFill>=2) jpline("pierre640: figee dans la cellule %d (%s)", (int)ci, source);
+}
+// Prend l'offre du fil de jeu, s'il y en a une.
+static void p640_prendre(){
+    if(!__atomic_load_n(&g_p640OffreN,__ATOMIC_ACQUIRE)) return;
+    if(!p640_pret()) p640_fige(g_p640OffrePx, "cel DC6 du jeu");
+    __atomic_store_n(&g_p640OffreN, 0, __ATOMIC_RELEASE);
+}
+static bool p640_inventaire(uint64_t h){
+    for(uint64_t k : P640_INV) if(k && k==h) return true;
+    return false;
+}
+// Relit le rectangle de pierre dans la cellule courante (tuile d'inventaire :
+// quad de w x h px, s0..s1 / t0..t1 a ses bords) et le fige dans la notre.
+static void p640_capture(float w, float h, float s0, float s1, float t0, float t1, uint32_t col){
+    const int32_t src = g_gxSt.cell;
+    if(src<0 || p640_pret()) return;
+    const d2gr::Cell& c = g_gxAtlas.cell(src);
+    const float ku = ((s1-s0)/(float)g_gxSt.sNorm)*(float)c.w / w;   // texels par pixel
+    const float kv = ((t1-t0)/(float)g_gxSt.tNorm)*(float)c.h / h;
+    const int tx = (int)std::lround((s0/(float)g_gxSt.sNorm)*(float)c.w + P640_SX*ku);
+    const int ty = (int)std::lround((t0/(float)g_gxSt.tNorm)*(float)c.h + P640_SY*kv);
+    if(tx<0 || ty<0 || tx+P640_W>(int)c.w || ty+P640_H>(int)c.h) return;
+    uint8_t buf[P640_W*P640_H];
+    std::memset(buf, 0, sizeof buf);
+    r60_gxm_lock();
+    const int lu = d2gxm_page_read(c.page, c.x+tx, c.y+ty, P640_W, P640_H, buf, P640_W);
+    r60_gxm_unlock();
+    if(g_hudFill>=2)
+        jpline("pierre640: relue dans la page d'atlas (cellule %d, texel %d,%d, %dx%d), relue=%d",
+               (int)src, tx, ty, P640_W, P640_H, lu);
+    if(lu) p640_fige(buf, "page d'atlas");   // sous qemu : pas de page, rien a figer
+    (void)col;
+}
+// Tuile la pierre sur [x0,x1) x [y0,y1) en tuiles de 40x64 coupees aux bords
+// (jamais etirees), en appareil de briques, chaque tuile tirant au hasard (hash
+// de sa position) sa fenetre et son sens. Essais console du 27/09/2026 :
+// retourner une tuile sur deux — le comblage 800 — faisait ici des « yeux »
+// symetriques autour de la fissure de la plage, bien visibles sur une colonne
+// de 208x432 ; tiree ainsi, la pierre se lit comme un dallage. Ouvre son
+// propre lot puis rouvre celui du dessin en cours.
+static void p640_tuiler(float x0, float y0, float x1, float y1, uint32_t col){
+    if(!p640_pret() || x1-x0<1.0f || y1-y0<1.0f) return;
+    g_gxAtlas.touchCell(g_p640Cell, g_gxFrame);
+    // L'etat du dessin en cours (bandeau ou tuile de panneau : meme palette
+    // d'interface, meme melange), avec notre cellule et s,t en ses texels.
+    d2gr::BuildState st = g_gxSt;
+    st.cell = g_p640Cell; st.sNorm = P640_W; st.tNorm = P640_H;
+    g_gxBuild.begin(st, g_gxAtlas);
+    const float invDim = g_gxAtlas.dim()? 1.0f/(float)g_gxAtlas.dim() : 0.0f;
+    d2gr::VtxPre pre; g_gxBuild.prep(pre, st, g_gxAtlas, invDim);
+    const float tw=(float)P640_W, th=(float)P640_TH;
+    // Grille ABSOLUE (multiples de la tuile) : deux zones voisines se
+    // raccordent. Une colonne de tuiles sur deux est decalee d'une demi-tuile
+    // (appareil en briques), et chaque tuile tire de sa position — hash, donc
+    // STABLE d'une image a l'autre — sa fenetre dans les 128 lignes capturees
+    // et son sens dans chaque axe.
+    const int kx0=(int)std::floor(x0/tw);
+    for(int kx=kx0; (float)kx*tw<x1-0.01f; ++kx){
+        const float tx=(float)kx*tw;
+        const float xa=(tx<x0)?x0:tx, xb=(tx+tw>x1)?x1:tx+tw;
+        if(xb-xa<0.01f) continue;
+        const float dec=(kx&1)?th*0.5f:0.0f;
+        const int ky0=(int)std::floor((y0+dec)/th);
+        for(int ky=ky0; (float)ky*th-dec<y1-0.01f; ++ky){
+            const float ty=(float)ky*th-dec;
+            const float ya=(ty<y0)?y0:ty, yb=(ty+th>y1)?y1:ty+th;
+            if(yb-ya<0.01f) continue;
+            uint32_t hsh=(uint32_t)kx*0x9E3779B1u ^ (uint32_t)ky*0x85EBCA77u;
+            hsh^=hsh>>15; hsh*=0x2C1B3C6Du; hsh^=hsh>>12;
+            const float oy=(float)(hsh % (uint32_t)(P640_H-P640_TH+1));
+            const bool mx=(hsh>>20)&1, my=(hsh>>21)&1;
+            auto sAt=[&](float x){ const float f=(x-tx)/tw; return mx ? tw*(1.0f-f) : tw*f; };
+            auto tAt=[&](float y){ const float f=(y-ty)/th; return oy + (my ? th*(1.0f-f) : th*f); };
+            const uint16_t i0=g_gxBuild.vertexPre(pre,xa,ya,col,sAt(xa),tAt(ya));
+            const uint16_t i1=g_gxBuild.vertexPre(pre,xb,ya,col,sAt(xb),tAt(ya));
+            const uint16_t i2=g_gxBuild.vertexPre(pre,xb,yb,col,sAt(xb),tAt(yb));
+            const uint16_t i3=g_gxBuild.vertexPre(pre,xa,yb,col,sAt(xa),tAt(yb));
+            g_gxBuild.tri(i0,i1,i2); g_gxBuild.tri(i0,i2,i3);
+            ++g_p640Quads;
+        }
+    }
+    g_gxBuild.begin(g_gxSt, g_gxAtlas);              // le dessin en cours reprend son lot
+}
+// Bandeau 640 : la vignette A (x=W/2-155, bas=H ; 128x55 art seul, 128x64
+// texture completee) declenche. Structure de l'art (colonne 5, releve 1:1) :
+// ligne 7 filet dore, 8 or, 9..52 pierre, 53 filet dore, 54 or sombre ; les
+// lignes 0..6 sont transparentes. Les filets sont reechantillonnes dans la
+// vignette elle-meme (colonnes 6..70, avant la barre du mini-panneau), le
+// corps dans la pierre de l'inventaire.
+static void gx_hud640_fill(uint32_t n, const float* xs, const float* ys,
+                           const float* ss, const float* ts, uint32_t col,
+                           const d2gr::VtxPre& pre, float W, float H){
+    if(n!=4 || W<=640.0f) return;
+    float x0=xs[0],x1=xs[0],y0=ys[0],y1=ys[0];
+    for(uint32_t i=1;i<4;i++){ if(xs[i]<x0)x0=xs[i]; if(xs[i]>x1)x1=xs[i];
+                               if(ys[i]<y0)y0=ys[i]; if(ys[i]>y1)y1=ys[i]; }
+    if(std::fabs(x0-(W*0.5f-155.0f))>1.0f || std::fabs(y1-H)>1.0f) return;
+    const float qw=x1-x0, qh=y1-y0;
+    const bool complete = std::fabs(qw-128.0f)<=1.0f && std::fabs(qh-64.0f)<=1.0f;
+    const bool art      = std::fabs(qw-128.0f)<=1.0f && std::fabs(qh-55.0f)<=1.0f;
+    if(!complete && !art) return;
+    if(!p640_pret()) return;                    // inventaire jamais ouvert : trous ouverts
+    float s0=0,s1=0,t0=0,t1=0; bool gs0=false,gs1=false,gt0=false,gt1=false;
+    for(uint32_t i=0;i<4;i++){
+        if(!gs0 && std::fabs(xs[i]-x0)<0.5f){ s0=ss[i]; gs0=true; }
+        if(!gs1 && std::fabs(xs[i]-x1)<0.5f){ s1=ss[i]; gs1=true; }
+        if(!gt0 && std::fabs(ys[i]-y0)<0.5f){ t0=ts[i]; gt0=true; }
+        if(!gt1 && std::fabs(ys[i]-y1)<0.5f){ t1=ts[i]; gt1=true; }
+    }
+    if(!(gs0&&gs1&&gt0&&gt1)) return;
+    auto sCol=[&](float c){ return s0+(s1-s0)*(c/qw); };
+    auto tRow=[&](float r){ return t0+(t1-t0)*((qh-55.0f+r)/qh); };   // ligne r de l'ART
+    const float holes[2][2] = { { 165.0f,         W*0.5f-155.0f },
+                                { W*0.5f+155.0f,  W-165.0f      } };
+    // 1. Les filets, dans le lot de la vignette (celui qui est ouvert).
+    const float fa=6.0f, fb=70.0f, fw=fb-fa;
+    const float bandes[2][2] = { { 7.0f, 9.0f }, { 53.0f, 55.0f } };   // lignes de l'art
+    for(const auto& hole : holes){
+        for(const auto& bd : bandes){
+            const float ya=H-55.0f+bd[0], yb=H-55.0f+bd[1];
+            float x=hole[0]; int k=0;
+            while(x<hole[1]-0.01f){
+                const float w=(hole[1]-x<fw)?(hole[1]-x):fw;
+                const bool mir=(k&1);
+                const float a=mir?sCol(fb):sCol(fa), b=mir?sCol(fa):sCol(fb);
+                const float bc=a+(b-a)*(w/fw);
+                const uint16_t i0=g_gxBuild.vertexPre(pre,x,  ya,col,a, tRow(bd[0]));
+                const uint16_t i1=g_gxBuild.vertexPre(pre,x+w,ya,col,bc,tRow(bd[0]));
+                const uint16_t i2=g_gxBuild.vertexPre(pre,x+w,yb,col,bc,tRow(bd[1]));
+                const uint16_t i3=g_gxBuild.vertexPre(pre,x,  yb,col,a, tRow(bd[1]));
+                g_gxBuild.tri(i0,i1,i2); g_gxBuild.tri(i0,i2,i3);
+                x+=w; ++k;
+            }
+        }
+    }
+    // 2. Le corps, lignes 9..52, dans la pierre de l'inventaire.
+    for(const auto& hole : holes) p640_tuiler(hole[0], H-55.0f+9.0f, hole[1], H-55.0f+53.0f, col);
+    static bool dit=false;
+    if(g_hudFill>=2 && !dit){ dit=true;
+        jpline("hud640: vignette A en (%.0f,%.0f) %.0fx%.0f — trous %.0f..%.0f et %.0f..%.0f combles",
+               x0,y0,qw,qh,holes[0][0],holes[0][1],holes[1][0],holes[1][1]); }
+}
+// Panneaux 640 : tuile haut-gauche de chaque panneau, 256x256. Ancrage aux
+// bords : gauche en (0,dy), droite en (W-320,dy) ; au centre, la disposition
+// 640 d'un bloc : gauche en (W-640)/2, droite en W/2. dy = (H-480)/2 (releve
+// console 1:1 : (0,32) et (640,32) a 960x544). La tuile de droite est aussi
+// celle ou l'on capture la pierre.
+static void gx_panneau640(float x0, float y0, float w, float h,
+                          const float* xs, const float* ys, const float* ss, const float* ts,
+                          uint32_t col, float W, float H){
+    if(std::fabs(w-256.0f)>1.0f || std::fabs(h-256.0f)>1.0f) return;
+    const bool centre = d2res_centre && d2res_centre();
+    const float dy = (H-480.0f)*0.5f;
+    if(std::fabs(y0-dy)>1.0f) return;
+    const float xg = centre ? (W-640.0f)*0.5f : 0.0f;
+    const float xd = centre ? W*0.5f : W-320.0f;
+    const bool gauche = std::fabs(x0-xg)<1.0f, droite = std::fabs(x0-xd)<1.0f;
+    if(!gauche && !droite) return;
+    if(droite){
+        const uint64_t hsh = g_gxSt.cell>=0 ? g_gxAtlas.cell(g_gxSt.cell).hash : 0;
+        static int dits=0;
+        if(g_hudFill>=3 && dits<8){ ++dits;
+            jpline("panneau640: tuile droite cellule=%d hash=%016llx%s", (int)g_gxSt.cell,
+                   (unsigned long long)hsh, p640_inventaire(hsh)?" (inventaire)":""); }
+        // D2_HUDFILL=3 : preuve que le decodage DC6 (native_hooks_resolution)
+        // donne les MEMES index que la texture que le jeu a envoyee au GPU.
+        static bool compare=false;
+        if(g_hudFill>=3 && !compare && p640_inventaire(hsh) && p640_pret() && g_gxSt.cell>=0){
+            compare=true;
+            const d2gr::Cell& c = g_gxAtlas.cell(g_gxSt.cell);
+            uint8_t ref[P640_W*P640_H];
+            r60_gxm_lock();
+            const int lu = d2gxm_page_read(c.page, c.x+P640_SX, c.y+P640_SY, P640_W, P640_H, ref, P640_W);
+            r60_gxm_unlock();
+            int egaux=0; for(int i=0;i<P640_W*P640_H;i++) egaux += (ref[i]==g_p640OffrePx[i]);
+            jpline("pierre640: controle DC6 contre texture du jeu : %d/%d octets egaux (page relue=%d)",
+                   egaux, P640_W*P640_H, lu);
+        }
+        if(p640_inventaire(hsh) && !p640_pret()){
+            float s0=0,s1=0,t0=0,t1=0; bool a=false,b=false,c=false,d=false;
+            for(int i=0;i<4;i++){
+                if(!a && std::fabs(xs[i]-x0)<0.5f){ s0=ss[i]; a=true; }
+                if(!b && std::fabs(xs[i]-(x0+w))<0.5f){ s1=ss[i]; b=true; }
+                if(!c && std::fabs(ys[i]-y0)<0.5f){ t0=ts[i]; c=true; }
+                if(!d && std::fabs(ys[i]-(y0+h))<0.5f){ t1=ts[i]; d=true; }
+            }
+            if(a&&b&&c&&d) p640_capture(w,h,s0,s1,t0,t1,col);
+        }
+        g_p640DFrame = g_gxFrame;
+    } else g_p640GFrame = g_gxFrame;
+    if(!p640_pret()) return;
+    // Hauteur : jusqu'au filet haut du bandeau (ligne 7 de son art).
+    const float cy1 = H-48.0f;
+    if(centre){
+        // Au centre, chaque tuile comble sa bande laterale.
+        if(gauche) p640_tuiler(0.0f, 0.0f, xg, cy1, col);
+        else       p640_tuiler(xd+320.0f, 0.0f, W, cy1, col);
+    } else if(g_p640GFrame==g_gxFrame && g_p640DFrame==g_gxFrame){
+        // Aux bords : la colonne, quand les DEUX panneaux sont ouverts (avec un
+        // seul, le jeu y dessine le monde). Au second des deux passages.
+        p640_tuiler(320.0f, 0.0f, W-320.0f, cy1, col);
+        static bool dit=false;
+        if(g_hudFill>=2 && !dit){ dit=true;
+            jpline("colonne640: colonne 320..%.0f x 0..%.0f comblee", W-320.0f, cy1); }
+    }
+}
 
 static void gx_panel_gapfill(uint32_t n, uint32_t stride, const uint8_t* vh,
                              int oxy, int ost0, int oargb,
@@ -1195,8 +1575,8 @@ static void gx_panel_gapfill(uint32_t n, uint32_t stride, const uint8_t* vh,
     // les 126 sites de centrage de l'interface, donc la seule verite ici.
     if(!(d2res_active && d2res_active())) return;
     const float W=(float)d2res_w(), H=(float)d2res_h();
-    if(W<=800.0f) return;                       // 800x600 : le bandeau est jointif
     if(n<3 || n>4) return;
+    // (le W<=800 de la disposition 800 est teste plus bas, apres la branche 640)
 
     auto ld=[&](uint32_t i,int off)->uint32_t{
         uint32_t w; std::memcpy(&w, vh+(size_t)i*stride+(uint32_t)off, 4); return w; };
@@ -1213,19 +1593,37 @@ static void gx_panel_gapfill(uint32_t n, uint32_t stride, const uint8_t* vh,
     // Sans lui, une signature qui ne colle pas ne dit RIEN de ce que le jeu a
     // reellement emis, et il faut une deuxieme partie complete pour l'ap-
     // prendre. Plafonne : un journal de 40 lignes reste lisible.
-    static int said3 = 0;
-    if(g_hudFill>=3 && said3<40 && y1>H-56.0f && y0>H-120.0f){
-        ++said3;
-        std::printf("hudfill?: n=%u (%.1f,%.1f)-(%.1f,%.1f) %.0fx%.0f cellule=%d\n",
-                    n,x0,y0,x1,y1,x1-x0,y1-y0,(int)g_gxSt.cell);
-        std::fflush(stdout);
+    // Chaque geometrie UNE fois : sinon les tuiles du sol, qui changent a
+    // chaque pas, epuisent le plafond avant que le bandeau ne passe.
+    if(g_hudFill>=3 && y1>H-56.0f && y0>H-120.0f && y1<=H+1.0f){
+        static int vus[48][4]; static int nvus = 0;
+        const int g[4] = { (int)x0, (int)y0, (int)(x1-x0), (int)(y1-y0) };
+        bool deja = false;
+        for(int i=0;i<nvus && !deja;i++) deja = !std::memcmp(vus[i], g, sizeof g);
+        if(!deja && nvus<48){ std::memcpy(vus[nvus++], g, sizeof g);
+            jpline("hudfill?: n=%u (%.1f,%.1f)-(%.1f,%.1f) %.0fx%.0f cellule=%d",
+                   n,x0,y0,x1,y1,x1-x0,y1-y0,(int)g_gxSt.cell); }
     }
-    // Signature de f4 : origine ET taille du QUAD. Un quad de 128x64 pose
-    // ailleurs, ou pose la avec une autre taille, n'est pas le bandeau.
-    const float ex=W*0.5f+149.0f, ey=H-HUD_Q_H;
-    if(n!=4 ||
-       std::fabs(x0-ex)>1.0f || std::fabs(y0-ey)>1.0f ||
-       std::fabs((x1-x0)-HUD_Q_W)>1.0f || std::fabs((y1-y0)-HUD_Q_H)>1.0f) return;
+    // Disposition 640 : son propre bandeau et ses propres panneaux (ci-dessus).
+    if(d2res_mode && d2res_mode()==0){
+        p640_prendre();
+        const uint32_t col = (oargb>=0) ? ld(0,oargb) : 0xFFFFFFFFu;
+        if(n==4){
+            gx_panneau640(x0,y0,x1-x0,y1-y0,xs,ys,ss,ts,col,W,H);
+            gx_hud640_fill(n,xs,ys,ss,ts,col,pre,W,H);
+        }
+        return;
+    }
+    if(W<=800.0f) return;                       // 800x600 : le bandeau est jointif
+    // Signature de f4 : coin bas-gauche ET taille du QUAD, l'une des deux
+    // formes ci-dessus. Un quad de cette taille pose ailleurs, ou pose la avec
+    // une autre taille, n'est pas le bandeau.
+    const float ex=W*0.5f+149.0f;
+    if(n!=4 || std::fabs(x0-ex)>1.0f || std::fabs(y1-H)>1.0f) return;
+    const float qw=x1-x0, qh=y1-y0;
+    const bool complete = std::fabs(qw-HUD_Q_W)<=1.0f && std::fabs(qh-HUD_Q_H)<=1.0f;
+    const bool art      = std::fabs(qw-HUD_A_W)<=1.0f && std::fabs(qh-HUD_A_H)<=1.0f;
+    if(!complete && !art) return;
 
     // s,t aux bords, releves sur les sommets eux-memes : valable quel que soit
     // le remplissage de la texture d'origine et la convention sNorm/tNorm.
@@ -1237,8 +1635,8 @@ static void gx_panel_gapfill(uint32_t n, uint32_t stride, const uint8_t* vh,
         if(!gt1 && std::fabs(ys[i]-y1)<0.5f){ t1=ts[i]; gt1=true; }
     }
     if(!(gs0&&gs1&&gt0&&gt1)) return;
-    const float sA = s0 + (s1-s0)*(HUD_SRC0/HUD_Q_W);    // debut de la pierre lisse
-    const float sB = s0 + (s1-s0)*(HUD_SRC1/HUD_Q_W);    // fin
+    const float sA = s0 + (s1-s0)*(HUD_SRC0/qw);         // debut de la pierre lisse
+    const float sB = s0 + (s1-s0)*(HUD_SRC1/qw);         // fin
     const float tile = HUD_SRC1-HUD_SRC0;                // 15 px de fenetre
     const uint32_t col = (oargb>=0) ? ld(0,oargb) : 0xFFFFFFFFu;
 
@@ -1292,8 +1690,12 @@ static void gx_panel_gapfill(uint32_t n, uint32_t stride, const uint8_t* vh,
 // barre, donc sous tout ce que le jeu dessine ensuite (bandeau, curseur,
 // infobulles).
 // D2_HUDFILL=0 desarme aussi ces bandes ; =3 journalise les quads hauts.
+// Perspective OFF : comme pour le bandeau, D2 dessine l'art seul (87x231)
+// au lieu de la texture completee ; meme coin bas-gauche, un texel par pixel.
+// Les deux formes sont acceptees et converties par la mesure du quad.
 static const float COL_TEX_W = 128.0f, COL_TEX_H = 256.0f;   // texture de la barre
 static const float COL_ART_W = 87.0f,  COL_ART_H = 231.0f;   // art de la piece 7
+static const float COL_ART_WG = 85.0f;                        // art de la piece 2 (barre gauche)
 static const float COL_SRC_X0 = 18.0f, COL_SRC_X1 = 46.0f;   // pierre lisse (colonnes de l'art)
 static const float COL_SRC_Y0 = 88.0f, COL_SRC_Y1 = 216.0f;  //   ... et lignes
 static uint64_t g_colGaucheFrame = ~0ull;                     // image ou la barre gauche est passee (bords)
@@ -1321,24 +1723,60 @@ static void gx_colonne_fill(uint32_t n, uint32_t stride, const uint8_t* vh,
     for(uint32_t i=1;i<n;i++){ if(xs[i]<x0)x0=xs[i]; if(xs[i]>x1)x1=xs[i];
                                if(ys[i]<y0)y0=ys[i]; if(ys[i]>y1)y1=ys[i]; }
     const float w=x1-x0, h=y1-y0;
-    if(h < 200.0f) return;                                  // les barres font 256 de haut
-    static int said3 = 0;
-    if(g_hudFill>=3 && said3<24){ ++said3;
-        jpline("colonne?: image %llu quad (%.0f,%.0f) %.0fx%.0f cellule=%d",
-               (unsigned long long)g_gxFrame, x0,y0,w,h,(int)g_gxSt.cell); }
+    if(h < 64.0f) return;                                   // les barres font 231 a 256 de haut
+    // Disposition 640 : pas de cadre 800BorderFrame. D2_HUDFILL=3 publie les
+    // quads hauts (fonds de panneaux), chaque geometrie une fois.
+    if(d2res_mode && d2res_mode()==0){
+        if(g_hudFill>=3 && h>=100.0f){
+            static int vus[48][4]; static int nvus = 0;
+            const int g[4] = { (int)x0, (int)y0, (int)w, (int)h };
+            bool deja = false;
+            for(int i=0;i<nvus && !deja;i++) deja = !std::memcmp(vus[i], g, sizeof g);
+            if(!deja && nvus<48){ std::memcpy(vus[nvus++], g, sizeof g);
+                jpline("panneau640?: image %llu quad (%.0f,%.0f) %.0fx%.0f cellule=%d",
+                       (unsigned long long)g_gxFrame, x0,y0,w,h,(int)g_gxSt.cell); }
+        }
+        return;
+    }
     // Ou le cadre pose ses barres verticales (bas 484 dans la disposition
     // 800x600), selon l'ancrage choisi (native_hooks_resolution.cpp) :
     //   centre : le tout translate de ((W-800)/2, (H-600)/2) ;
-    //   bords  : barre gauche en x=0, barre droite en x=W-87, bas en H-600+484.
+    //   bords  : barre gauche en x=0, barre droite en x=W-87.
+    // En Y, les DEUX ancrages centrent : bas en (H-600)/2+484 (dy_cadre() =
+    // dy_centre(), native_hooks_resolution.cpp, depuis que les panneaux sont
+    // centres verticalement). Ce code attendait encore H-600+484 aux bords :
+    // 28 px trop haut a 544, la barre n'etait plus reconnue et la colonne
+    // restait noire (inventaire console D2_HUDFILL=3, 27/09/2026 : barre
+    // droite en (873,225) 87x231, bas 456).
     const bool centre = d2res_centre && d2res_centre();
     const float mx0 = centre ? (W - 800.0f) * 0.5f : 0.0f;
-    const float my0 = centre ? (H - 600.0f) * 0.5f : (H - 600.0f);
+    const float my0 = (H - 600.0f) * 0.5f;
     const float xg = mx0, xd = centre ? mx0 + 800.0f - COL_ART_W : W - COL_ART_W;
-    const float yb = my0 + 484.0f, yq = yb - COL_TEX_H;
-    if(std::fabs(y0-yq)>1.0f || std::fabs(w-COL_TEX_W)>1.0f || std::fabs(h-COL_TEX_H)>1.0f) return;
+    const float yb = my0 + 484.0f;
+    // D2_HUDFILL=3 : inventaire des quads hauts dont le BAS tombe pres de
+    // celui des barres, chaque geometrie UNE fois — sinon l'ecran de
+    // chargement et le premier panneau ouvert epuisent le plafond, image
+    // apres image, avant que la seconde barre ne passe.
+    if(g_hudFill>=3 && std::fabs(y1-yb)<40.0f && h>=100.0f){
+        static int vus[24][4]; static int nvus = 0;
+        const int g[4] = { (int)x0, (int)y0, (int)w, (int)h };
+        bool deja = false;
+        for(int i=0;i<nvus && !deja;i++) deja = !std::memcmp(vus[i], g, sizeof g);
+        if(!deja && nvus<24){ std::memcpy(vus[nvus++], g, sizeof g);
+            jpline("colonne?: image %llu quad (%.0f,%.0f) %.0fx%.0f cellule=%d (bas attendu %.0f)",
+                   (unsigned long long)g_gxFrame, x0,y0,w,h,(int)g_gxSt.cell, yb); }
+    }
+    if(std::fabs(y1-yb)>1.0f) return;
+    // Art seul (perspective OFF) : la barre gauche (piece 2) fait 85 de large,
+    // la droite (piece 7) 87 — releve D2_HUDFILL=3 sous qemu, D2_PERSPECTIVE=0.
+    // Seule la droite est rechantillonnee ; la gauche ne fait que signaler.
     const bool gauche = std::fabs(x0-xg)<1.0f;
     const bool droite = std::fabs(x0-xd)<1.0f;
     if(!gauche && !droite) return;
+    const bool complete = std::fabs(w-COL_TEX_W)<=1.0f && std::fabs(h-COL_TEX_H)<=1.0f;
+    const float artW = droite ? COL_ART_W : COL_ART_WG;
+    const bool art      = std::fabs(w-artW)<=1.0f && std::fabs(h-COL_ART_H)<=1.0f;
+    if(!complete && !art) return;
     // Aux bords : la zone noire est la COLONNE entre les deux panneaux
     // (400..W-400), et seulement quand les deux sont ouverts — avec un seul,
     // le monde y est visible. On la comble apres la barre droite, si la barre
@@ -1355,11 +1793,11 @@ static void gx_colonne_fill(uint32_t n, uint32_t stride, const uint8_t* vh,
         if(!gt1 && std::fabs(ys[i]-y1)<0.5f){ t1=ts[i]; gt1=true; }
     }
     if(!(gs0&&gs1&&gt0&&gt1)) return;
-    // L'art est cale en bas a gauche de la texture : ligne r de l'art = ligne
-    // (256-231)+r de la texture.
-    const float sA = s0 + (s1-s0)*(COL_SRC_X0/COL_TEX_W), sB = s0 + (s1-s0)*(COL_SRC_X1/COL_TEX_W);
-    const float tA = t0 + (t1-t0)*((COL_TEX_H-COL_ART_H+COL_SRC_Y0)/COL_TEX_H);
-    const float tB = t0 + (t1-t0)*((COL_TEX_H-COL_ART_H+COL_SRC_Y1)/COL_TEX_H);
+    // L'art est cale en bas a gauche du quad : ligne r de l'art = ligne
+    // (h-231)+r du quad (h = 256 texture completee, 231 art seul).
+    const float sA = s0 + (s1-s0)*(COL_SRC_X0/w), sB = s0 + (s1-s0)*(COL_SRC_X1/w);
+    const float tA = t0 + (t1-t0)*((h-COL_ART_H+COL_SRC_Y0)/h);
+    const float tB = t0 + (t1-t0)*((h-COL_ART_H+COL_SRC_Y1)/h);
     const float tw = COL_SRC_X1-COL_SRC_X0, th = COL_SRC_Y1-COL_SRC_Y0;
     const uint32_t col = (oargb>=0) ? ld(0,oargb) : 0xFFFFFFFFu;
     // Au centre : la bande de cette barre, de 0 au cadre (gauche) ou du cadre
@@ -1396,7 +1834,41 @@ static void gx_colonne_fill(uint32_t n, uint32_t stride, const uint8_t* vh,
     }
     if(g_hudFill>=2 && !g_colSaid){ g_colSaid = true;
         jpline("colonne: barre %s vue en (%.0f, %.0f) — %s %.0f..%.0f x %.0f..%.0f comblee",
-               gauche?"gauche":"droite", x0, yq, centre?"bande":"colonne", bandes[0][0], bandes[0][1], cy0, cy1); }
+               gauche?"gauche":"droite", x0, y0, centre?"bande":"colonne", bandes[0][0], bandes[0][1], cy0, cy1); }
+}
+// ---- D2_VTXDIAG : QUI REMPLIT LE BUDGET DE SOMMETS -------------------------
+// vita_gxm.cpp coupe l'image a 65535 sommets (« budget de sommets SATURE ») :
+// les derniers lots sont perdus et une zone de l'ecran clignote. La ligne
+// periodique `gxm:` ne donne qu'une MOYENNE. D2_VTXDIAG=<seuil> (1 = 40000)
+// ventile chaque image qui depasse le seuil : sommets par (mode de dessin,
+// taille de la cellule de texture), nombre de dessins, et part des
+// comblages de ce fichier (bandeau, colonnes). Six images au plus.
+static int g_vdSeuil = -1;
+struct VdCase { uint32_t cle; uint32_t v, d; };
+static VdCase g_vd[64]; static uint32_t g_vdFill = 0, g_vdDraws = 0;
+static bool vd_on(){
+    if(g_vdSeuil<0){ const char* e=getenv("D2_VTXDIAG"); const int v=(e&&*e)?atoi(e):0;
+                     g_vdSeuil = v==1 ? 40000 : (v>1 ? v : 0); }
+    return g_vdSeuil>0; }
+static void vd_note(uint32_t cle, uint32_t v){
+    ++g_vdDraws;
+    for(auto& c : g_vd){ if(c.v==0 && c.d==0){ c.cle=cle; c.v=v; c.d=1; return; }
+                         if(c.cle==cle){ c.v+=v; ++c.d; return; } }
+}
+static void vd_fin_image(uint32_t nv){
+    static int dits=0;
+    if(nv>=(uint32_t)g_vdSeuil && dits<6){
+        ++dits;
+        VdCase t[64]; std::memcpy(t,g_vd,sizeof t);
+        std::sort(t,t+64,[](const VdCase& a,const VdCase& b){ return a.v>b.v; });
+        char m[900]; int o=std::snprintf(m,sizeof m,"vtxdiag: image %llu sommets=%u dessins=%u comblages=%u | ",
+                                         (unsigned long long)g_gxFrame,nv,g_vdDraws,g_vdFill);
+        for(int i=0;i<10 && t[i].v && o<(int)sizeof m-64;i++)
+            o+=std::snprintf(m+o,sizeof m-(size_t)o,"m%u %ux%u:%u/%u ",
+                             t[i].cle>>28,(t[i].cle>>14)&0x3fff,t[i].cle&0x3fff,t[i].v,t[i].d);
+        jpline("%s",m);
+    }
+    std::memset(g_vd,0,sizeof g_vd); g_vdFill=0; g_vdDraws=0;
 }
 static void gx_draw(uint32_t mode, uint32_t cnt, uint32_t stride, const uint8_t* vh){
     if(!g_gxAtlas.ready() || !cnt || cnt>4096) return;
@@ -1426,6 +1898,7 @@ static void gx_draw(uint32_t mode, uint32_t cnt, uint32_t stride, const uint8_t*
     // by the vertex shader's matrix (uScale), not here — otherwise it would be
     // recomputed thousands of times per frame.
     d2gr::VtxPre pre; g_gxBuild.prep(pre,g_gxSt,g_gxAtlas,invDim);
+    const uint32_t vdV0 = g_gxBuild.verts();
     // Reads one word of vertex i: host view (one ldr).
     auto ld=[&](uint32_t i,int off)->uint32_t{
         uint32_t w; std::memcpy(&w, vh+(size_t)i*stride+(uint32_t)off, 4); return w; };
@@ -1533,8 +2006,15 @@ static void gx_draw(uint32_t mode, uint32_t cnt, uint32_t stride, const uint8_t*
     // Le bandeau d'interface vient d'etre pose ? Alors ses deux trous aussi,
     // dans le MEME lot : peints juste apres lui, donc sous tout ce que le jeu
     // dessine ensuite (objets de la ceinture, curseur, infobulles).
+    const uint32_t vdV1 = g_gxBuild.verts();
     gx_panel_gapfill(n, stride, vh, oxy, ost0, oargb, pre);
     gx_colonne_fill(n, stride, vh, oxy, ost0, oargb, pre);
+    if(vd_on()){
+        uint32_t cw=0,ch=0;
+        if(g_gxSt.cell>=0){ const d2gr::Cell& ce=g_gxAtlas.cell(g_gxSt.cell); cw=ce.w; ch=ce.h; }
+        vd_note(((mode&0xFu)<<28)|((cw&0x3fffu)<<14)|(ch&0x3fffu), vdV1-vdV0);
+        g_vdFill += g_gxBuild.verts()-vdV1;
+    }
 }
 // HASH OF THE BUILT BATCHES (D2_GXMLOTSHASH=1). The ring's `h=` proves the
 // host READ the same sequence of records; it says nothing about what it DID
@@ -1844,6 +2324,7 @@ static uint32_t gr_replay(uint32_t head){
                 gx_lazy_init();
                 if(!g_gxDead && g_gxAtlas.ready()){
                     g_gxVertsAcc+=g_gxBuild.verts(); g_gxLotsAcc+=g_gxBuild.batches(); ++g_gxFramesAcc;
+                    if(vd_on()) vd_fin_image(g_gxBuild.verts());
                     if(gxod_on()) gx_overdraw();
                     if(lotshash_on()) gx_lots_hash();
                     if(cacheprobe_on()) gx_cache_probe();
@@ -1921,6 +2402,17 @@ static uint32_t gr_replay(uint32_t head){
             break; }
         }
         g_grTail+=bytes;
+        // PROGRESSIVE RELEASE (D2_FLUSHFIL). The flush thread used to give the
+        // space back only at the end of its batch: while frame N (1.3 MB in a
+        // Perspective scene) was walked, frame N+1 had only ring - N to write
+        // into, and the DLL DROPS what doesn't fit — the floor flickered
+        // (console 27/09/2026). Each record is fully consumed once the walk
+        // has passed it (vertices copied into the builder, state read on the
+        // spot, uploads served from the staging buffer): publishing the tail
+        // every 64 KB lets the game write behind the walk.
+        if(g_ffArmed && g_grHdrHost && g_grTail-g_grTailPub >= (64u<<10)){
+            __sync_synchronize(); std::memcpy(g_grHdrHost+20,&g_grTail,4); __sync_synchronize();
+            g_grTailPub=g_grTail; }
     }
     return n;
 }
@@ -1985,15 +2477,37 @@ static void gx_line(uint32_t frames){
       static uint64_t pN=0,pB=0,pH=0;
       const uint64_t dN=g_gxTexHashN-pN, dB=g_gxTexHashB-pB, dHh=g_grpTexHashUs-pH;
       pN=g_gxTexHashN; pB=g_gxTexHashB; pH=g_grpTexHashUs;
-      char f[320];
+      // Atlas outcome of those uploads, PER WINDOW: hits = the game re-sent
+      // content the atlas already held (its own texture cache missed),
+      // misses = genuinely new content (copied into a page). Without this
+      // split a burst of uploads cannot be attributed to either side; the
+      // [ring-final] totals only come out on a clean exit.
+      static uint64_t pAh=0,pAm=0,pAe=0,pAc=0;
+      const uint64_t dAh=g_gxAtlas.hits()-pAh, dAm=g_gxAtlas.miss()-pAm, dAe=g_gxAtlas.evictions()-pAe, dAc=g_gxAtlas.copies()-pAc;
+      pAh=g_gxAtlas.hits(); pAm=g_gxAtlas.miss(); pAe=g_gxAtlas.evictions(); pAc=g_gxAtlas.copies();
+      static uint64_t pUp[2]={0,0},pHit[2]={0,0},pBnd[2]={0,0},pPick=0,pOld=0; uint64_t dUp[2],dHit[2],dBnd[2];
+      for(int k=0;k<2;k++){ dUp[k]=g_gxUpTmu[k]-pUp[k]; dHit[k]=g_gxHitTmu[k]-pHit[k]; dBnd[k]=g_gxBindTmu[k]-pBnd[k];
+                            pUp[k]=g_gxUpTmu[k]; pHit[k]=g_gxHitTmu[k]; pBnd[k]=g_gxBindTmu[k]; }
+      char f[640];
       std::snprintf(f,sizeof f,
         "gxm-flush: total-us=%llu (parcours-ring-us=%llu televersements-us=%llu soumission-us=%llu"
-        " hors-replay-us=%llu) | televersement: n/img=%llu octets-moy=%llu us/tele=%llu hachage-us/tele=%llu (%s)",
+        " hors-replay-us=%llu) | televersement: n/img=%llu octets-moy=%llu us/tele=%llu hachage-us/tele=%llu (%s)"
+        " | atlas(fen): deja-la=%llu neufs=%llu copies=%llu evictions=%llu pages=%u/%u"
+        " | tmu0: up=%llu deja-la=%llu liaisons=%llu | tmu1: up=%llu deja-la=%llu liaisons=%llu choix-tmu1=%llu ancienne-regle-fausse=%llu | texcheck: verifiees=%llu fausses=%llu | atlas: recouvrements=%llu echecs-delies=%llu pages-recuperees=%llu",
         (unsigned long long)(dF/n),(unsigned long long)(reste/n),
         (unsigned long long)(dT/n),(unsigned long long)(dS/n),
         (unsigned long long)((dF>dR? dF-dR : 0ull)/n),
         (unsigned long long)(dN/n),(unsigned long long)(dN? dB/dN : 0ull),(unsigned long long)(dN? dT/dN : 0ull),
-        (unsigned long long)(dN? dHh/dN : 0ull), grprof_on()? (texhash_mode()==1?"4voies":texhash_mode()==2?"echantillon":"fnv64") : "GRPROF=0");
+        (unsigned long long)(dN? dHh/dN : 0ull), grprof_on()? (texhash_mode()==1?"4voies":texhash_mode()==2?"echantillon":"fnv64") : "GRPROF=0",
+        (unsigned long long)dAh,(unsigned long long)dAm,(unsigned long long)dAc,(unsigned long long)dAe,
+        g_gxAtlas.pages(),g_gxAtlas.maxPages(),
+        (unsigned long long)dUp[0],(unsigned long long)dHit[0],(unsigned long long)dBnd[0],
+        (unsigned long long)dUp[1],(unsigned long long)dHit[1],(unsigned long long)dBnd[1],
+        (unsigned long long)(g_gxPickTmu1-pPick),(unsigned long long)(g_gxOldRuleWrong-pOld),
+        (unsigned long long)g_gxTexChecked,(unsigned long long)g_gxTexWrong,
+        (unsigned long long)g_gxAtlas.overlapDrops(),(unsigned long long)g_gxAtlas.failUnbinds(),
+        (unsigned long long)g_gxAtlas.reclaimedPages());
+      pPick=g_gxPickTmu1; pOld=g_gxOldRuleWrong;
       d2vita_progress(f); std::printf("[%s]\n",f); }
     // FINE-GRAINED timers for the walk (D2_GRPROF=1): where the walk's
     // microseconds go, by record type. `clock-ns` is the cost of ONE clock
@@ -2049,17 +2563,20 @@ void gr_line(uint32_t frames){
     // for it to finish its batch before reading them: once per 10s window,
     // this is free, and it avoids publishing half-written numbers.
     if(g_ffArmed) ff_wait_idle();
-    static uint64_t pR=0,pD=0,pV=0,pB=0,pL=0,pS=0,pT=0,pTB=0,pDup=0,pDD=0;
-    char m[340];
+    static uint64_t pR=0,pD=0,pV=0,pB=0,pL=0,pS=0,pT=0,pTB=0,pDup=0,pDD=0,pN=0,pNI=0;
+    char m[400];
     std::snprintf(m,sizeof m,
       "ring: %llu enr/img (etat=%llu redondants=%llu evites-dll=%llu dessins=%llu lots=%llu) | %llu sommets/img | %llu Ko/img"
-      " | texup=%llu (%llu Ko/img) | attentes=%u perdus=%u | h=0x%016llx",
+      " | texup=%llu (%llu Ko/img) | attentes=%u perdus=%u | natdraw=%llu/img (intrinseque %llu/img) verif=%u/%u | h=0x%016llx",
       (unsigned long long)((g_grRecs-pR)/frames),(unsigned long long)((g_grState-pS)/frames),
       (unsigned long long)((g_grStateDup-pDup)/frames),(unsigned long long)((g_grDedupDll-pDD)/frames),
       (unsigned long long)((g_grDraws-pD)/frames),(unsigned long long)((g_grBatches-pL)/frames),
       (unsigned long long)((g_grVerts-pV)/frames),(unsigned long long)(((g_grBytes-pB)/frames)>>10),
       (unsigned long long)((g_grTexUp-pT)/frames),(unsigned long long)(((g_grTexUpB-pTB)/frames)>>10),
-      g_grStalls,g_grDropped,(unsigned long long)g_grHash);
+      g_grStalls,g_grDropped,(unsigned long long)((g_ndCalls-pN)/frames),(unsigned long long)((g_ndIntrin-pNI)/frames),
+      g_grHdrHost? ((volatile uint32_t*)g_grHdrHost)[10] : 0u, g_grHdrHost? ((volatile uint32_t*)g_grHdrHost)[11] : 0u,
+      (unsigned long long)g_grHash);
+    pN=g_ndCalls; pNI=g_ndIntrin;
     pR=g_grRecs;pD=g_grDraws;pV=g_grVerts;pB=g_grBytes;pL=g_grBatches;pS=g_grState;pT=g_grTexUp;pTB=g_grTexUpB;pDup=g_grStateDup;pDD=g_grDedupDll;
     d2vita_progress(m); std::printf("[%s]\n",m); std::fflush(stdout);
     gx_line(frames);
@@ -2091,7 +2608,7 @@ void gr_ring_arm(d2rt::Cpu& c, uint32_t hdr, uint32_t* dataVA, uint32_t* size){
           g_grSize=c.read_u32(hdr+8);
           g_grDataVA=hdr+c.read_u32(hdr+12);
           g_grMask=g_grSize-1u;
-          g_grTail=0;
+          g_grTail=0; g_grTailPub=0;
           // Host views captured HERE, on the game thread: the walk (and the
           // flush thread) will never call hostptr() again.
           g_grRingHost=(const uint8_t*)c.hostptr(g_grDataVA,g_grSize);
@@ -2099,6 +2616,80 @@ void gr_ring_arm(d2rt::Cpu& c, uint32_t hdr, uint32_t* dataVA, uint32_t* size){
           if(!g_grRingHost||!g_grHdrHost)
               d2_crashlog("FATAL: ring Glide hors arene (en-tete 0x%08x donnees 0x%08x taille %u)",hdr,g_grDataVA,g_grSize);
           *dataVA=g_grDataVA; *size=g_grSize;
+}
+bool gr_ring_view(const uint8_t** ring, uint32_t* size, volatile uint32_t** hdr){
+    if(!g_grHdrHost || !g_grRingHost) return false;
+    *ring=g_grRingHost; *size=g_grSize; *hdr=(volatile uint32_t*)g_grHdrHost; return true;
+}
+// ---- NATIVE DRAW SERIALIZATION (d2vGlideDraw, D2_GLNATDRAW) ---------------
+// The DLL used to copy every draw's vertices into the ring with translated
+// x86, a word at a time (~570 KB per frame in Act V, on the game thread).
+// d2vGlideDraw writes the SAME record from here, and is served as a dynarec
+// intrinsic, so the call costs no Bridge crossing. Byte-for-byte contract
+// with glide3x_ring.c (ring_alloc + the draw functions):
+//   - reservation: full ring -> `dropped`++ and nothing written; a record
+//     never straddles the end: NOP padding and wrap to 0, then re-check;
+//     `head` is advanced before the payload is written, as in the DLL (the
+//     flush thread only reads up to the head handed over by d2vGlideFlush);
+//   - record: HDR(op,words), then mode/count/stride (arrays) or stride
+//     (triangle/line/point), then count*stride vertex bytes; a NULL vertex
+//     pointer leaves its bytes untouched, as does the tail of a last partial
+//     word — exactly as the translated path.
+// Single writer: the game thread, under the GIL (intrinsic) — the same
+// thread that runs the DLL's own ring_alloc for state records.
+static uint32_t* gr_nd_alloc(uint32_t words, uint32_t* outOff){
+    volatile uint32_t* H=(volatile uint32_t*)g_grHdrHost;     // [4]=head [5]=tail [8]=dropped
+    uint8_t* R=(uint8_t*)g_grRingHost;
+    const uint32_t bytes=words<<2;
+    uint32_t head=H[4];
+    if((head-H[5])+bytes>g_grSize){ H[8]=H[8]+1u; return nullptr; }
+    uint32_t off=head&g_grMask;
+    if(off+bytes>g_grSize){
+        const uint32_t pad=g_grSize-off;
+        const uint32_t w=D2GR_HDR(D2GR_OP_NOP,pad>>2);
+        std::memcpy(R+off,&w,4);
+        head+=pad; H[4]=head;
+        if((head-H[5])+bytes>g_grSize){ H[8]=H[8]+1u; return nullptr; }
+        off=head&g_grMask;
+    }
+    H[4]=head+bytes;
+    *outOff=off;
+    return (uint32_t*)(R+off);
+}
+// Returns the guest VA of the record written, 0 if nothing was written.
+uint32_t gr_draw_native(d2rt::Cpu& c, uint32_t op, uint32_t mode, uint32_t count, uint32_t src, uint32_t stride){
+    if(!g_grHdrHost || !g_grRingHost || !src || stride>D2GR_MAX_STRIDE) return 0;
+    const bool cont = op==D2GR_OP_DRAWVERTEXARRAYCONT;
+    const bool arr  = cont || op==D2GR_OP_DRAWVERTEXARRAY;
+    if(!arr && op!=D2GR_OP_DRAWTRIANGLE && op!=D2GR_OP_DRAWLINE && op!=D2GR_OP_DRAWPOINT) return 0;
+    const uint32_t first = arr ? 4u : 2u;
+    const uint32_t bytes = count*stride, words = first+((bytes+3u)>>2);
+    uint32_t off=0; uint32_t* p=gr_nd_alloc(words,&off);
+    if(!p) return 0;
+    p[0]=D2GR_HDR(op,words);
+    if(arr){ p[1]=mode; p[2]=count; p[3]=stride; } else p[1]=stride;
+    uint8_t* d=(uint8_t*)(p+first);
+    if(cont){
+        if(const void* hs=c.hostptr(src,bytes)) std::memcpy(d,hs,bytes); else c.read(src,d,bytes);
+    } else {
+        const uint32_t* pv=(const uint32_t*)c.hostptr(src,count*4u);
+        for(uint32_t i=0;i<count;i++){
+            const uint32_t v = pv ? pv[i] : c.read_u32(src+4u*i);
+            if(!v) continue;
+            if(const void* hs=c.hostptr(v,stride)) std::memcpy(d+i*stride,hs,stride); else c.read(v,d+i*stride,stride);
+        }
+    }
+    ++g_ndCalls; g_ndBytes+=bytes;
+    return g_grDataVA+off;
+}
+bool gr_draw_intrinsic(d2rt::Cpu& c, uint32_t /*slot*/){
+    const uint32_t esp=c.reg(d2rt::R_ESP);
+    const uint32_t* a=(const uint32_t*)c.hostptr(esp,24);
+    if(!a) return false;                                   // Bridge shim, same body
+    const uint32_t r=gr_draw_native(c,a[1],a[2],a[3],a[4],a[5]);
+    c.trap_epilogue(r,24u,a[0]);                           // stdcall, 5 args
+    ++g_ndIntrin;
+    return true;
 }
 // --- flush thread body -------------------------------------------------------
 // A batch = [g_grTail, g_ffHead). The walk, batch building, offloaded
@@ -2111,6 +2702,31 @@ static void ff_consume_one(uint32_t head){
     gr_replay(head);
     g_gxReplayUs += rt_now_us()-trep;
     if(g_grHdrHost){ __sync_synchronize(); std::memcpy(g_grHdrHost+20,&g_grTail,4); __sync_synchronize(); }
+}
+// Intrinsic speed of tex_hash, measured once in ff_start on the real staging
+// buffer BEFORE the flush thread exists (the game thread is the only writer
+// then, so no texture can be corrupted): 1 MiB, cold then warm (L2).
+// Published so a per-upload figure seen in play can be compared against
+// the function's own ceiling instead of guessed at.
+static void ff_hash_bench(){
+    if(!g_ffStg || g_ffStgSize < (2u<<20)) return;   // 1 MiB hashed + 1 MiB copy target
+    const uint32_t nb=1u<<20;
+    for(uint32_t i=0;i<nb;i++) g_ffStg[i]=(uint8_t)(i*2654435761u>>13);   // pseudo-random bytes: a constant buffer would hide lane mix-ups
+    // Scalar reference vs NEON, same buffer: cold then warm for each.
+    uint64_t hs=0,hn=0,ts[2],tn[2];
+    for(int pass=0;pass<2;pass++){ uint64_t t0=rt_now_us(); hs=tex_hash_mode1(g_ffStg,nb,1024,1024,false); ts[pass]=rt_now_us()-t0; }
+    for(int pass=0;pass<2;pass++){ uint64_t t0=rt_now_us(); hn=tex_hash_mode1(g_ffStg,nb,1024,1024,true);  tn[pass]=rt_now_us()-t0; }
+    // Identity on awkward sizes too: tails of 0..15 bytes and tiny inputs.
+    unsigned bad=0; const uint32_t sizes[8]={nb,nb-7u,nb-15u,33u,16u,15u,1u,0u};
+    for(int k=0;k<8;k++) if(tex_hash_mode1(g_ffStg,sizes[k],64,64,false)!=tex_hash_mode1(g_ffStg,sizes[k],64,64,true)) ++bad;
+    uint64_t tc=rt_now_us(); std::memcpy(g_ffStg+nb, g_ffStg, nb); tc=rt_now_us()-tc;
+    jpline("flushfil: banc hachage 1 Mio: scalaire froid=%llu us (%llu.%llu ns/o) chaud=%llu us (%llu.%llu ns/o) | NEON froid=%llu us (%llu.%llu ns/o) chaud=%llu us (%llu.%llu ns/o) | identique=%s (8 tailles, %u ecarts) h=%016llx | memcpy 1 Mio=%llu us | en jeu: %s",
+           (unsigned long long)ts[0],(unsigned long long)(ts[0]*1000/nb),(unsigned long long)(ts[0]*10000/nb%10),
+           (unsigned long long)ts[1],(unsigned long long)(ts[1]*1000/nb),(unsigned long long)(ts[1]*10000/nb%10),
+           (unsigned long long)tn[0],(unsigned long long)(tn[0]*1000/nb),(unsigned long long)(tn[0]*10000/nb%10),
+           (unsigned long long)tn[1],(unsigned long long)(tn[1]*1000/nb),(unsigned long long)(tn[1]*10000/nb%10),
+           (hs==hn && !bad)?"oui":"NON", bad, (unsigned long long)hn, (unsigned long long)tc,
+           texhash_neon()? "NEON" : "scalaire (D2_TEXHASH_NEON=0)");
 }
 static bool ff_thread_main(){
     ff_pin_self();
@@ -2137,6 +2753,7 @@ static bool ff_start(){
         g_ffStg=(uint8_t*)std::malloc(sz);
         if(!g_ffStg){ jpline("flushfil: REFUS — %u Mio d'attente textures introuvables", mio); return false; }
         g_ffStgSize=sz; g_ffStgMask=sz-1u; g_ffStgHead=g_ffStgTail=0; }
+    ff_hash_bench();
     r60_gxm_arm();                     // the sceGxm context lock must exist even without 60Hz replay
     g_ffStop=0; g_ffRunning=1;
     if(!ff_spawn()){ g_ffRunning=0; std::free(g_ffStg); g_ffStg=nullptr; jpline("flushfil: CreateThread KO — flush synchrone"); return false; }
@@ -2156,16 +2773,16 @@ void gr_flush_line(uint32_t frames){
     const uint64_t dW=g_ffWaits-pW, dU=g_ffWaitUs-pU, dL=g_ffLots-pL, dB=g_ffBusyUs-pB;
     const uint64_t dSW=g_ffStgWaits-pSW, dC=g_ffCopyUs-pC, dCB=g_ffCopyB-pCB;
     pW=g_ffWaits;pU=g_ffWaitUs;pL=g_ffLots;pB=g_ffBusyUs;pSW=g_ffStgWaits;pC=g_ffCopyUs;pCB=g_ffCopyB;
-    char m[400];
+    char m[480];
     std::snprintf(m,sizeof m,
       "flushfil: lots=%llu/img fil-occupe=%llu us/img | attentes du jeu=%llu (%llu us/img, max %llu us)"
       " | recopie textures=%llu us/img (%llu Ko/img) attentes-tampon=%llu replis=%llu"
-      " | ring: occupation-max=%u Ko/%u Ko attentes-dll=%u perdus=%u",
+      " | ring: occupation-max=%u Ko/%u Ko attentes-dll=%u perdus=%u | secours=%llu images-lourdes-synchrones=%llu",
       (unsigned long long)(dL/frames),(unsigned long long)(dB/frames),
       (unsigned long long)dW,(unsigned long long)(dU/frames),(unsigned long long)g_ffWaitMax,
       (unsigned long long)(dC/frames),(unsigned long long)((dCB/frames)>>10),
       (unsigned long long)dSW,(unsigned long long)g_ffStgFallback,
-      (unsigned)(g_ffOccMax>>10),(unsigned)(g_grSize>>10),g_grStalls,g_grDropped);
+      (unsigned)(g_ffOccMax>>10),(unsigned)(g_grSize>>10),g_grStalls,g_grDropped,(unsigned long long)g_ffSecours,(unsigned long long)g_ffLourdes);
     d2vita_progress(m); std::printf("[%s]\n",m); std::fflush(stdout);
 }
 void gr_flush(d2rt::Cpu& c, uint32_t head, void (*between)()){
@@ -2187,7 +2804,23 @@ void gr_flush(d2rt::Cpu& c, uint32_t head, void (*between)()){
               // previous one to finish before handing off this one, so the
               // ring never carries more than two frames' worth.
               ff_wait_idle();
+              const uint32_t occ = head-g_grTail;   // this frame's bytes (the previous batch is consumed)
               ff_handoff(head);
+              // ...but "two frames' worth" must FIT. The DLL never waits: a
+              // record that finds the ring full is DROPPED (glide3x_ring.c,
+              // ring_alloc). A Perspective floor scene writes ~1.3 MB per
+              // frame into the 2 MB ring (Harrogath gate, console 27/09/2026:
+              // 6 600 records, 43 000 vertices per frame); with the space
+              // given back only at the end of the walk, the end of each frame
+              // — part of the floor — was lost: it flickered. gr_replay now
+              // releases the space as it walks. SAFETY NET: if the DLL still
+              // dropped records since the previous frame, heavy frames (over
+              // 30% of the ring) are flushed SYNCHRONOUSLY for the next 120
+              // frames — correct image first. Flushing them all synchronously
+              // unconditionally fixed the flicker but fell to 9 fps there.
+              const uint32_t perdus = g_grHdrHost ? ((volatile uint32_t*)g_grHdrHost)[8] : 0u;
+              if(perdus != g_ffPerdusVus){ g_ffPerdusVus = perdus; g_ffSecoursJusqua = g_grFrames + 120u; ++g_ffSecours; }
+              if(g_grFrames < g_ffSecoursJusqua && occ > (g_grSize ? g_grSize : (2u<<20)) / 100u * 30u){ ff_wait_idle(); ++g_ffLourdes; }
           } else {
               const uint64_t trep=rt_now_us();
               gr_replay(head);

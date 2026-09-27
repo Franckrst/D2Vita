@@ -26,7 +26,8 @@
 #include "runtime/guest_sync.h"      // d2rt::Waitable/WxEvent, wx86_handle_find, wx86_sync_notify
 #include "runtime/guest_files.h"     // wx86_files()/wx86_file_maps() (engine-owned handle tables)
 #include "runtime/lazy_seek.h"       // D2_LAZYSEEK: FPos/g_fpos, lazy_sync[_ov], ls_tick, g_ls*
-#include "runtime/io_stat.h"         // D2_IOSTAT/D2_READAHEAD: IoH, g_ioStat, ra_on/io_get/ra_read/...
+#include "runtime/io_stat.h"
+#include <cstring>         // D2_IOSTAT/D2_READAHEAD: IoH, g_ioStat, ra_on/io_get/ra_read/...
 #include "runtime/path_cache.h"      // host_path()
 #include "platform/vita_present.h"   // d2vita_progress
 #include <cstdio>
@@ -49,6 +50,10 @@ using KEvent = WxEvent; // engine (guest_sync.h); same alias as tools/rt_boot.cp
 // (still needed there too, e.g. CreateFileMappingA/MapViewOfFile, a report
 // dump) -- wx86_files()/wx86_file_maps() always return the one true table.
 static std::map<uint32_t,FILE*>& g_files = wx86_files();
+// Live Win32 file handles (stdio FILE* behind them). Published on the io(10s)
+// line: a count that only grows names a handle leak long before newlib's
+// 256-entry descriptor table can run out.
+size_t d2_open_files(){ return g_files.size(); }
 static std::map<uint32_t,FMap>&  g_fmaps = wx86_file_maps();
 
 // Host path per open handle + writer flush: D2 re-reads a file (VITA.d2s at
@@ -431,6 +436,11 @@ void kernel32_files_install(Bridge& br){
                 char m[288]; std::snprintf(m,sizeof m,"io: CLOSE avec erreur d'ecriture h=%08x file=%s",
                     c.arg(0),pit!=g_filePathByH.end()?pit->second.c_str():"?");
                 std::printf("[%s]\n",m); d2vita_progress(m); } }
+            { auto pit=g_filePathByH.find(c.arg(0));
+              if(pit!=g_filePathByH.end() && pit->second.compare(0,g_writeRoot.size(),g_writeRoot)==0){
+                  const char* b=std::strrchr(pit->second.c_str(),'/'); char m[160];
+                  std::snprintf(m,sizeof m,"file C %s h=%08x (ouverts=%u)",b?b+1:pit->second.c_str(),c.arg(0),(unsigned)(g_files.size()-1));
+                  d2vita_progress(m); } }
             std::fclose(it->second); g_files.erase(it); g_filePathByH.erase(c.arg(0)); g_fpos.erase(c.arg(0)); io_close(c.arg(0)); return 1u; }
         { auto fm=g_fmaps.find(c.arg(0)); if(fm!=g_fmaps.end()){ g_fmaps.erase(fm); return 1u; } }   // file mapping
         Waitable* how=wx86_handle_find(c.arg(0)); if(how){ /* keep the object; a thread handle may still be waited on */ } return 1u; });

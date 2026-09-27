@@ -18,6 +18,8 @@ in this repository); what follows is their synthesis.
 
 | Port | Measured gain | Level | Detail |
 |---|---|---|---|
+| Texture cache: 2 TMUs announced to the game (`D2_GLNUMTMU=2`, default) | **~+20%** (1 TMU: 20.06 and 19.95 fps; 2 TMUs: 23.98, 23.95, 23.95; cap 25); re-sent textures ~50 → 1 per frame | Console (Act V patrol bench, valid passes only, **not interleaved**, ~1 h apart) | With 1 TMU its 3 MiB sprite cache overflowed in steady state: ~50 already-known textures re-sent per frame. Needs a large enough atlas: at 32 MiB it filled up in the wilderness (wrong sprites, blinking Death Maulers); fixed by the 48 MiB atlas and failed-upload handling — **console confirmation pending**. |
+| Native F3: Perspective floor tiles, `Game+0x10cf70` (`D2_F3NATIF=1`) | **~−2 ms of guest work per frame** (translated 28.0 → ~20.6 ms, native shims ~5.3 ms; c0 −2 points; fps unchanged, already at the 25 cap in town) | Console (Act V patrol bench, 2 valid passes per flavour); qemu oracle `D2_F3NATIF=2`: 0 divergence over 82,000+ drawn cells | Ports the **caller** (~30 small calls per cell absorbed). The remaining cost is memory (projection and LUT tables, ring shared with the flush thread). Off by default pending a decision. |
 | Native cell loop (`NATIVECELLLOOP`) | **+16.1%** | Console (A/B/A/B, identical binary) | Traversals ÷2, blit ÷7. |
 | `D2_CELLOPT` (optimization mask inside the native loop) | **+9.3%** | Console | Half the work per cell. |
 | `D2_CELLPAR=1` (fork-join parallelism, 1 worker thread) | **+12%** | Console | `D2_CELLPAR=2` = **0%** (`USER_2` shared, no second core available). |
@@ -47,6 +49,8 @@ in this repository); what follows is their synthesis.
 | Offloading RLE to a dedicated thread | **FAIL** on three modes; the mode that passed three days earlier **no longer passes** | qemu (oracle) | "Prove the oracle before concluding" — the founding PASS had never been replayed since. |
 | Four image-cache hypotheses | **All refuted** (0 identical frame out of 4,000) | qemu (`D2_CACHEPROBE`) | Found something else instead: the Perspective video option missing from the registry cost +14.2% guest blocks. |
 | Hardware PMU (Cortex-A9 cycle counters) | **Abandoned** | Console | The Vita kernel resets the access register on every context switch; would require patching the system scheduler. |
+| 5 Act V intrinsics (`D2_INTRIN`: projection, color LUT ×2, light grid, rect fill) | **Negative**: ~+4.3 ms of guest run per frame, ~−3.2% fps (5 patrol passes, oracles at 0 divergence) | Console | Tiny integer functions (20,000–30,000+ calls per frame) that the dynarec already translates almost 1:1: the native body is no faster, and every call pays the plumbing. Off by default. |
+| Native draw serialization (`D2_GLNATDRAW=1`, trap-window intrinsic) | **Negative**: ~+5.5 ms per frame, −3.8% fps (4 interleaved passes, v1 bench without route check, window 2600-5600) | Console | ~1,700 exits from translated code per frame cost more than the copy they avoid. Same lesson: an intrinsic only pays when the body it saves is large per call. |
 | Fifteen dynarec levers, campaign summary | **A single gain in the entire history of the dynarec** (`D2_CALLRET`, +6.8%) | Console | "The dynarec isn't the lever" — the gain is in native porting of guest code, not in translation itself. |
 
 ## Method for picking a port that pays off

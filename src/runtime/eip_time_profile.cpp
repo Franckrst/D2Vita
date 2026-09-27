@@ -132,7 +132,12 @@ void timeprof_report(const char* tag){
       L.flush(); }
     { uint32_t k[8192]; uint64_t v[8192]; int n=0;
       for(int i=0;i<8192;i++) if(d2rt_tp_hit[i]){ k[n]=(uint32_t)d2rt_tp_key[i]; v[n]=d2rt_tp_hit[i]; ++n; }
-      jpline("[TIMEPROF/EXACT] %d adresses distinctes, top 40 (part du TEMPS) :",n);
+      // Intervals are uniform in TIME, but each sample names the block that was
+    // ABOUT TO RUN when the block budget expired (cpu_box86.cpp): a short,
+    // frequently-entered function is over-represented. Entry-frequency
+    // ranking with equal-time weighting of intervals -- a target list, not a
+    // cost breakdown (measured 2026-09-25: memcpy at 10.8 % here, <0.5 % of wall).
+    jpline("[TIMEPROF/EXACT] %d adresses distinctes, top 40 (part des ENTREES de bloc, intervalles a temps egal — pas une part de temps) :",n);
       EpLine L; L.reset("[TIMEPROF/EXACT]");
       for(int r=0;r<40;r++){ int bi=-1; uint64_t bv=0;
           for(int i=0;i<n;i++) if(v[i]>bv){ bv=v[i]; bi=i; }

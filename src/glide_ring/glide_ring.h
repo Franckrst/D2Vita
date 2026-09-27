@@ -53,7 +53,14 @@ typedef struct {
     volatile uint32_t dedup_evites; /* written by the GUEST on every grBufferSwap: states
                                      * NOT written because identical to the last one
                                      * recorded (D2_GRDEDUP); diagnostic only */
-    uint32_t reserved[6];
+    volatile uint32_t natdraw_checked; /* written by the GUEST (natdraw=2): native draw records
+                                        * re-read and compared by the translated DLL */
+    volatile uint32_t natdraw_bad;     /* ... of which differed from the guest's source bytes */
+    volatile uint32_t vtx_stride;      /* written by the GUEST: the DLL's current vertex size
+                                        * (g_vtxSize), the stride grDrawVertexArray records use */
+    uint32_t fn_drawva;                /* written by the GUEST once: VA of its grDrawVertexArray,
+                                        * so the host can check the game's Glide table points at it */
+    uint32_t reserved[2];
 } D2GRHeader;
 
 /* ---- Opcodes ------------------------------------------------------------- *

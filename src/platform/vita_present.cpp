@@ -891,6 +891,7 @@ extern "C" {
     extern int dyn86_intrin_on;
     int dyn86_intrin_report(char* out, unsigned cap);
     extern unsigned long long d2_proj_ver_n, d2_proj_ver_bad, d2_proj_ver_skip;
+    int d2_intrin_verify_line(char* out, unsigned cap);   // d2_intrin_114.cpp: lut/lgrid/lfill oracle
 }
 extern "C" size_t d2rt_box86_custommalloc_kb(void);   // custommem.c: box86 allocation categories
 extern "C" size_t d2rt_box86_jmptbl_kb(void);
@@ -1094,19 +1095,66 @@ int watchdog_thread(SceSize, void*) {
         // Native ports: served count per target + total fallbacks. This is
         // what tells you, on console, whether a port even ran at all — and
         // a rising fallback count means the fast-path condition isn't holding.
-        { char h[224];
+        { char h[320];
           // blit=: the CELL blit (g_blitN). The single biggest item in the
           // rendering budget, and it used to be published only at shutdown —
           // invisible on any bench run. Without it, "cells per frame" can't
           // be computed, the missing denominator for every rendering lever.
           // lent= is the virtual-path fallback: rising means the fast-path
           // condition isn't holding and the expected gain isn't there.
+          // dcc=<servis>/<replis> ko=<octets decodes>: the native DCC decoder,
+          // cumulative. A delta that never settles while the scene is static
+          // is a sprite cache too small for the zone -- invisible before,
+          // the [dcc] line only came out at shutdown.
           std::snprintf(h, sizeof h,
-                        "hot: grille=%llu coll=%llu rle=%llu lum=%llu blend=%llu expl=%llu blit=%llu lent=%llu",
+                        "hot: grille=%llu coll=%llu rle=%llu lum=%llu blend=%llu expl=%llu blit=%llu lent=%llu dcc=%llu/%llu ko=%llu",
                         d2rt_hot_stat(0), d2rt_hot_stat(1), d2rt_hot_stat(2),
                         d2rt_hot_stat(3), d2rt_hot_stat(4), d2rt_hot_stat(5),
-                        d2rt_hot_stat(11), d2rt_hot_stat(13));
+                        d2rt_hot_stat(11), d2rt_hot_stat(13),
+                        d2rt_hot_stat(100), d2rt_hot_stat(101), d2rt_hot_stat(102) >> 10);
           d2vita_progress(h);
+          // Per-core occupancy over the window, from the kernel's own idle
+          // clocks. Every other line here is per-subsystem; none of them sums
+          // to the wall, so "CPU-bound or waiting" was never answerable. A
+          // core with neither idle nor switch movement is printed "-" (not
+          // active for us), never as 100 %. The raw c0 idle delta is kept on
+          // the line so the unit can be checked against the window: an
+          // occupancy figure whose unit was never verified is not a figure.
+          { static SceKernelSystemInfo prev; static uint64_t prevT = 0; static bool armed = false;
+            SceKernelSystemInfo si; std::memset(&si, 0, sizeof si); si.size = sizeof si;
+            const int rs = sceKernelGetSystemInfo(&si);
+            const uint64_t now = sceKernelGetProcessTimeWide();
+            if (rs < 0) {
+                char c[112]; std::snprintf(c, sizeof c, "cpu: sceKernelGetSystemInfo rc=0x%08x -- census indisponible", (unsigned)rs);
+                d2vita_progress(c);
+            } else if (!armed) {
+                armed = true; prev = si; prevT = now;
+                char c[112]; std::snprintf(c, sizeof c, "cpu: census arme (activeCpuMask=0x%08x)", (unsigned)si.activeCpuMask);
+                d2vita_progress(c);
+            } else {
+                const uint64_t win = now - prevT;
+                char c[288]; int w = std::snprintf(c, sizeof c, "cpu(10s): occupes");
+                for (int k = 0; k < 4 && w < (int)sizeof c - 40; ++k) {
+                    const uint64_t idle = si.cpuInfo[k].idleClock - prev.cpuInfo[k].idleClock;
+                    const uint32_t sw = si.cpuInfo[k].threadSwitchCount - prev.cpuInfo[k].threadSwitchCount;
+                    if (!idle && !sw) { w += std::snprintf(c + w, sizeof c - w, " c%d=-", k); continue; }
+                    if (!win || idle > win) { w += std::snprintf(c + w, sizeof c - w, " c%d=?(idle>fenetre)", k); continue; }
+                    w += std::snprintf(c + w, sizeof c - w, " c%d=%u%%", k, (unsigned)((win - idle) * 100ull / win));
+                }
+                if (w < (int)sizeof c - 40)
+                    w += std::snprintf(c + w, sizeof c - w, " | commutations/s");
+                for (int k = 0; k < 4 && w < (int)sizeof c - 24; ++k) {
+                    const uint32_t sw = si.cpuInfo[k].threadSwitchCount - prev.cpuInfo[k].threadSwitchCount;
+                    w += std::snprintf(c + w, sizeof c - w, " c%d=%llu", k, win ? (unsigned long long)sw * 1000000ull / win : 0ull);
+                }
+                if (w < (int)sizeof c - 24)
+                    std::snprintf(c + w, sizeof c - w, " | brut: fenetre=%lluus c0-idle=%lluus",
+                                  (unsigned long long)win,
+                                  (unsigned long long)(si.cpuInfo[0].idleClock - prev.cpuInfo[0].idleClock));
+                d2vita_progress(c);
+                prev = si; prevT = now;
+            }
+          }
           // Sized 480, not 288: the engine's line carries several numeric
           // fields (peak, rms, gain0, output-error, flow) and was close to
           // truncation. The engine only appends the embedder's codec
@@ -1340,7 +1388,7 @@ int watchdog_thread(SceSize, void*) {
           // line prints AS SOON AS the mechanism is armed, so "served=0" is
           // itself a readable result instead of an unexplained silence.
           if (dyn86_intrin_on) {
-              char it[320];
+              char it[1024];
               if (dyn86_intrin_report(it, sizeof it) > 0) d2vita_progress(it);
               if (d2_proj_ver_n) {
                   char v[128];
@@ -1351,6 +1399,7 @@ int watchdog_thread(SceSize, void*) {
                                 (unsigned long long)d2_proj_ver_skip);
                   d2vita_progress(v);
               }
+              { char v[240]; if (d2_intrin_verify_line(v, sizeof v) > 0) d2vita_progress(v); }
           }
           // memintrin (D2_MEMINTRIN): same window, same reason as "mmu:". The
           // only place this used to be published was main()'s end-of-run

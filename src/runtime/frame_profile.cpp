@@ -254,7 +254,9 @@ static void lw_top2(const LwSite* tab, char* out, size_t n){
                           rel(tab[b].eip),(unsigned long long)tab[b].n);
 }
 // Empty pump from the render thread: bounds the frame's wait interval.
+void pp_trace(char k);
 void lw_peek_empty(Cpu& c){
+    pp_trace('w');
     if(!lw_on() || lw_tid()!=g_lwTid) return;
     const uint64_t now=rt_now_us();
     if(!g_lwFirstUs) g_lwFirstUs=now;
@@ -465,9 +467,23 @@ extern "C" { uint64_t dyn86_jp_now_us(void);
 static const uint64_t dyn86_sync_us = 0;
 #endif
 extern "C" uint64_t dyn86_fill_ns;   // also declared in tools/rt_boot.cpp
+// Exact guest run time of the CALLING thread (engine, cpu_box86.cpp), armed
+// by D2_LAGWATCH. fp_tick runs inside the d2vGlideFlush trap on the game
+// thread, i.e. at a trap boundary where the counter is exact. Unarmed, the
+// profile falls back to dyn86_jp_run_us, which the native scheduler only
+// credits when cpu->run() returns — almost never for the game thread, hence
+// the run=0 read on 200 ms frames that were busy computing (audit 26/09/2026).
+extern "C" { int wx86_runacc_on(void); uint64_t wx86_runacc_self_us(void); }
+// Time the calling (game) thread spent writing the log, lock wait included
+// (engine, platform/vita_host.cpp). Off console there is no durable log.
+#ifdef __vita__
+extern "C" uint64_t wx86_vita_progress_self_us(void);
+#else
+static inline uint64_t wx86_vita_progress_self_us(void) { return 0; }
+#endif
 extern "C" uint64_t d2rt_eipprof[8]; // guest-code family breakdown (D2_EIPPROF); defined in tools/rt_boot.cpp
-struct FpCnt { uint64_t t,blocks,jit_us,sync_us,run_us,reads,scomp,sw,look;  uint64_t io_us, gx_us, att_us; };
-struct FpRec { uint32_t frame; uint32_t dt_us,blocks,jit_us,sync_us,run_us,reads,scomp,sw,look,io_us,gx_us,att_us;
+struct FpCnt { uint64_t t,blocks,jit_us,sync_us,run_us,reads,scomp,sw,look;  uint64_t io_us, gx_us, att_us, log_us; };
+struct FpRec { uint32_t frame; uint32_t dt_us,blocks,jit_us,sync_us,run_us,reads,scomp,sw,look,io_us,gx_us,att_us,log_us;
     // D2_LAGWATCH: GUEST-side attribution of the slow frame. `ech` = EIP
     // samples that fell inside this frame; ip1/n1..ip3/n3 = the three dominant
     // addresses. ech==0 reads as "no samples" — either the frame was too
@@ -499,7 +515,7 @@ static FpCnt fp_now(){
     c.blocks  = dyn86_jp_created;
     c.jit_us  = dyn86_fill_ns/1000ull;
     c.sync_us = dyn86_sync_us;
-    c.run_us  = dyn86_jp_run_us;
+    c.run_us  = wx86_runacc_on() ? wx86_runacc_self_us() : dyn86_jp_run_us;
     c.reads   = g_readN;
     c.scomp   = g_scompN + g_scomp2N;
     c.sw      = g_schedCoop ? g_schedCoop->switches() : 0ull;
@@ -511,6 +527,7 @@ static FpCnt fp_now(){
     c.io_us   = g_ioUs;
     c.gx_us   = d2rt_gx_flush_us;
     c.att_us  = g_lwWaitTot;
+    c.log_us  = wx86_vita_progress_self_us();
     return c;
 }
 static FpRec fp_delta(uint32_t frame, const FpCnt& a, const FpCnt& b){
@@ -529,6 +546,7 @@ static FpRec fp_delta(uint32_t frame, const FpCnt& a, const FpCnt& b){
     r.io_us  = (uint32_t)(b.io_us  - a.io_us);
     r.gx_us  = (uint32_t)(b.gx_us  - a.gx_us);
     r.att_us = (uint32_t)(b.att_us - a.att_us);
+    r.log_us = (uint32_t)(b.log_us - a.log_us);
     return r;
 }
 // ---- D2_LAGWATCH: attribute a slow frame to GUEST code ---------------------
@@ -590,7 +608,7 @@ static void fp_top_insert(const FpRec& r){
 // the final dump: a play session often ends with the app being killed
 // outright, so the final table would never arrive.
 static void fp_top_lines_of(const FpRec* top, int have, int n, const char* tag){
-    char m[224];
+    char m[288];   // lente# with journal= and the invite ech= tail: 224 truncated the attribution
     if(n > have) n = have;
     if(!n) return;
     std::snprintf(m,sizeof m,"--- images les plus lentes (%s, %llu images vues) ---",
@@ -599,12 +617,20 @@ static void fp_top_lines_of(const FpRec* top, int have, int n, const char* tag){
     for(int i=0;i<n;i++){
         const FpRec& r = top[i];
         std::snprintf(m,sizeof m,
-            "lente#%02d f%u %ums | io=%ums gx=%ums attente-invitee=%ums INEXPLIQUE=%dms | blocs=%u jit=%ums sync=%ums run=%ums reads=%u scomp=%u sw=%u look=%u"
+            "lente#%02d f%u %ums | io=%ums gx=%ums attente-invitee=%ums run=%ums journal=%ums INEXPLIQUE=%dms | blocs=%u jit=%ums sync=%ums reads=%u scomp=%u sw=%u look=%u"
             " | invite ech=%u %06x=%u %06x=%u %06x=%u",
-            i+1, r.frame, r.dt_us/1000u, r.io_us/1000u, r.gx_us/1000u, r.att_us/1000u,
-            (int)((long long)r.dt_us - r.io_us - r.gx_us - r.att_us - r.jit_us - r.sync_us)/1000,
+            i+1, r.frame, r.dt_us/1000u, r.io_us/1000u, r.gx_us/1000u, r.att_us/1000u, r.run_us/1000u, r.log_us/1000u,
+            // run= is subtracted too. Exact mode (wx86_runacc, D2_LAGWATCH):
+            // run= is the time the render thread spent OUTSIDE traps, JIT and
+            // icache sync included -- so jit/sync are not subtracted a second
+            // time, and what is left is time inside shims other than I/O,
+            // GPU flush and the render thread's own waits. Fallback mode:
+            // run= is approximate to one slice and jit/sync are separate;
+            // the remainder can then go negative by one slice.
+            (int)(((long long)r.dt_us - r.io_us - r.gx_us - r.att_us - r.run_us - r.log_us
+                   - (wx86_runacc_on() ? 0 : (long long)r.jit_us + r.sync_us))/1000),
             r.blocks, r.jit_us/1000u, r.sync_us/1000u,
-            r.run_us/1000u, r.reads, r.scomp, r.sw, r.look,
+            r.reads, r.scomp, r.sw, r.look,
             r.ech, r.ip1, r.n1, r.ip2, r.n2, r.ip3, r.n3);
         d2vita_progress(m); std::printf("%s\n",m);
     }
@@ -687,6 +713,10 @@ void fp_tick(int frame){
                     g_fpPrevT = g_fpPrev.t; } }
     if(!g_fpOn) return;
     FpCnt cur = fp_now();
+    // PPTRACE events are stamped with rt_now_us (another clock origin than
+    // cur.t): the frame window for the timeline dump is kept in that domain.
+    static uint64_t g_fpPrevRt = 0; const uint64_t nowRt = rt_now_us();
+    struct RtUpd { uint64_t& p; uint64_t v; ~RtUpd(){ p=v; } } rtUpd{g_fpPrevRt, nowRt};
     FpRec r = fp_delta((uint32_t)frame, g_fpPrev, cur);
     const uint64_t tPrev = g_fpPrev.t;
     g_fpPrev = cur;
@@ -695,7 +725,8 @@ void fp_tick(int frame){
     uint32_t ms = r.dt_us/1000u;
     g_fpHist[ ms<50?0 : ms<100?1 : ms<250?2 : ms<500?3 : ms<1000?4 : 5 ]++;
     { const unsigned b = ms>=120 ? 12u : (unsigned)(ms/10); ++g_fpWinHist[b]; }
-    if(g_lagMs && ms >= g_lagMs){ lag_attrib(r, g_fpPrevT, cur.t); slow_collect(g_fpPrevT, cur.t); }
+    if(g_lagMs && ms >= g_lagMs){ lag_attrib(r, g_fpPrevT, cur.t); slow_collect(g_fpPrevT, cur.t);
+        { void pp_trace_dump(uint64_t,uint64_t,uint32_t); pp_trace_dump(g_fpPrevRt, nowRt, (uint32_t)frame); } }
     g_fpPrevT = cur.t;
     fp_top_insert(r);
     ++g_fpWinFrames;
@@ -705,9 +736,9 @@ void fp_tick(int frame){
         // 288 et non 224 : la ligne portait deja ~200 caracteres dans le pire cas,
         // et le couple va= en ajoute une vingtaine. snprintf tronquerait sans
         // rien dire, et le champ ajoute serait le premier a disparaitre.
-        char m[288];
+        char m[320];
         std::snprintf(m,sizeof m,
-            "frames: n=%u fps=%u.%u pire=%ums@f%u (blocs=%u jit=%ums sync=%ums reads=%u scomp=%u sw=%u) | fen: blocs=%u jit=%ums reads=%u | va=%u/%u Mo",
+            "frames: n=%u fps=%u.%u pire=%ums@f%u (blocs=%u jit=%ums sync=%ums reads=%u scomp=%u sw=%u) | fen: blocs=%u jit=%ums reads=%u run=%u.%ums/img | va=%u/%u Mo",
             g_fpWinFrames,
             (unsigned)((uint64_t)g_fpWinFrames*10000000ull/(cur.t-g_fpWinT0))/10u,
             (unsigned)((uint64_t)g_fpWinFrames*10000000ull/(cur.t-g_fpWinT0))%10u,
@@ -715,6 +746,8 @@ void fp_tick(int frame){
             g_fpWinWorst.jit_us/1000u, g_fpWinWorst.sync_us/1000u, g_fpWinWorst.reads,
             g_fpWinWorst.scomp, g_fpWinWorst.sw,
             w.blocks, w.jit_us/1000u, w.reads,
+            (unsigned)(w.run_us/(g_fpWinFrames?g_fpWinFrames:1u)/1000u),
+            (unsigned)(w.run_us/(g_fpWinFrames?g_fpWinFrames:1u)/100u%10u),
             d2rt_va_used_mb(), d2rt_va_peak_mb());
         d2vita_progress(m); std::printf("[%s]\n",m); std::fflush(stdout);
         // MESURE (branche fix/box86-rw-pool) — metadonnees RW de box86. Ce
@@ -734,6 +767,7 @@ void fp_tick(int frame){
         pc_line(g_fpWinFrames, cur.t - g_fpWinT0);   // where the time goes (PROF_COUNTERS)
         ep_line();                                   // guest code breakdown
         gr_line(g_fpWinFrames);                      // ring buffer (silent without D2_GLIDERING)
+        { void native_f3_line(); native_f3_line(); }   // D2_F3NATIF counters (silent when off)
         g_fpWinT0 = cur.t; g_fpWinFrames = 0; g_fpWinWorst = FpRec{}; g_fpWinBase = cur;
     }
     if(!g_fpTopT0) g_fpTopT0 = cur.t;
@@ -752,7 +786,9 @@ void fp_dump(){
     // run= is APPROXIMATE: guest time is only added at the end of a
     // scheduling slice, and the frame tick happens INSIDE a slice — so
     // attribution can drift by one slice (run>dt is possible).
-    std::snprintf(m,sizeof m,"note: blocs/jit/sync/reads/scomp exacts, run= approche (+/- une tranche)");
+    std::snprintf(m,sizeof m, wx86_runacc_on()
+        ? "note: blocs/jit/sync/reads/scomp exacts, run= exact (fil de rendu hors traps, jit/sync inclus)"
+        : "note: blocs/jit/sync/reads/scomp exacts, run= approche (+/- une tranche)");
     d2vita_progress(m); std::printf("%s\n",m);
     std::snprintf(m,sizeof m,"repartition: <50ms=%llu 50-100=%llu 100-250=%llu 250-500=%llu 500-1000=%llu >=1s=%llu",
         (unsigned long long)g_fpHist[0],(unsigned long long)g_fpHist[1],(unsigned long long)g_fpHist[2],

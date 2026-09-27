@@ -16,6 +16,7 @@ RT_BOOT_SRCS_HEAD=(
   "$ROOT/src/glide_ring/replay60.cpp"
   "$ROOT/src/glide_ring/gx_host.cpp"
   "$ROOT/src/runtime/phase_hooks.cpp"
+  "$ROOT/src/runtime/native_f3_114.cpp"
   "$ROOT/src/runtime/cdkeys_file.cpp"
   "$ROOT/src/runtime/lazy_seek.cpp"
   "$ROOT/src/runtime/io_stat.cpp"

@@ -60,6 +60,22 @@ banc), pour qu'une jambe « sans » reste possible.
 Pendant une campagne, garder la console éveillée : `nohup bash tools/bancs/nosleep_console.sh &`
 (un sommeil au milieu d'une fenêtre détruit la passe).
 
+## 1bis. La patrouille de l'acte V — `patrouille_acte5.sh`
+
+Le scénario de mesure de l'acte V, à partir de **la sauvegarde du joueur** : personnage `jujd`, barbare niveau 86, difficulté Normal, acte V. Le script `gen_patrouille_acte5.py` démarre la partie par clics (Single Player, OK, **Normal**). Nightmare et Hell sont débloqués mais restent à l'acte I. La patrouille descend ensuite une fois de l'apparition au waypoint (bas de l'escalier), puis fait 10 tours waypoint → huttes → waypoint, un clic toutes les 150 images. Elle ne revient jamais vers l'apparition, où se trouve le coffre : un clic de retour qui dérive l'ouvrait, avec l'inventaire.
+
+```bash
+tools/bancs/patrouille_acte5.sh nd1_a                    # une passe
+tools/bancs/patrouille_acte5.sh nd0_a D2_GLNATDRAW=0     # même passe, un knob changé
+```
+
+- **Toujours la même sauvegarde.** Avant chaque passe, `ux0:data/d2vita/save_banc/` est restauré depuis `build-vita/bancs/acte5/save_banc_ref/`, une copie de la sauvegarde du joueur **hors git**. La vraie sauvegarde (`save/`) n'est jamais touchée.
+- **Contrôle « acte V ».** La capture de l'image 2499 est comparée à `ref_apparition_2499.png` (apparition à Harrogath). Si la passe n'est pas arrivée là, par exemple sur un clic de menu raté, elle est relancée une fois à l'identique, puis déclarée en ÉCHEC. Elle n'est jamais mesurée.
+- **Reproductibilité.** Les tours ne se referment pas exactement : un clic peut s'arrêter sur l'escalier ou derrière le mercenaire. Mais deux passes du même script donnent les mêmes vues aux mêmes images (écart moyen ~1 sur 12 points de contrôle, console, 26/09/2026). Seuls le mercenaire et la neige diffèrent.
+- **Aucune capture dans la fenêtre** : une capture GXM gèle le jeu ~2,8 s. Il n'y en a que deux, à l'image 2499 (acte V) et à l'image 5760, après la fenêtre. La seconde est comparée à `ref_fin_5760.png` (créée par la première passe valide) ; une passe dont le parcours a divergé n'est pas mesurée.
+- **Mesure :** fps sur la fenêtre des images 2800–5700 (battements `alive:`), c0 médian, `run=` médian par image. Deux passes par variante, entrelacées A B A B ; donner la dispersion.
+- **Clics :** `move`, `ldown` +5, `lup` +15. Un appui et un relâchement dans la même image ne sont pas pris. Les menus sont en coordonnées 800×600 ; la partie est en 960×544 natif, à 1:1 avec les captures GXM.
+
 ## 2. Une suite — `suite_console.sh`
 
 ```

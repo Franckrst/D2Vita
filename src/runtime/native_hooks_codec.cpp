@@ -23,6 +23,8 @@ using namespace d2rt;
 // same convention here) ----------------
 extern "C" unsigned long long d2rt_audio_codec_n[4];   // 0=huff 1=adpcm-mono 2=adpcm-stereo 3=fallback
 extern "C" int d2_intrin_114_register(uint32_t d2base);
+extern "C" int d2_intrin_verify; extern "C" uint32_t d2_intrin_verify_trap;
+extern "C" uint32_t d2_intrin_verify_ret(uint32_t eax, uint32_t ecx, uint32_t edx);
 extern "C" int d2_proj_verify;
 extern "C" unsigned long long d2_proj_ver_n, d2_proj_ver_bad, d2_proj_ver_skip;
 extern "C" uint32_t d2_proj_verify_trap;
@@ -740,12 +742,31 @@ void native_hooks_codec_install_post(Cpu* cpu, Bridge& br, int* framePtr){
                     br.register_shim("native.hook","proj_verify_exit",pv);
                     d2_proj_verify_trap = br.shim_trap("native.hook","proj_verify_exit");
                 }
+                if(getenv("D2_INTRINVERIFY")){
+                    // Same return-trap oracle for targets 2..4 (lut, lgrid,
+                    // lfill): the helper computes, arms the trap, FALLS BACK;
+                    // the guest computes; at the trap we compare memory and
+                    // registers, then resume at the real return address.
+                    d2_intrin_verify = 1;
+                    Shim iv; iv.argc=0; iv.stdcall_cleanup=false;
+                    iv.tag="native!intrin_verify_exit";
+                    iv.fn=[&br](Cpu& c)->uint32_t{
+                        uint32_t geax=c.reg(R_EAX);
+                        uint32_t ra=d2_intrin_verify_ret(geax,c.reg(R_ECX),c.reg(R_EDX));
+                        if(ra) br.redirect_next(ra);
+                        else   d2_crashlog("intrinverify: retour d'oracle sans comparaison en attente");
+                        c.set_reg(R_ESP,c.reg(R_ESP)-4);
+                        return geax; };
+                    br.register_shim("native.hook","intrin_verify_exit",iv);
+                    d2_intrin_verify_trap = br.shim_trap("native.hook","intrin_verify_exit");
+                }
                 if(d2_intrin_114_register(g_d2base)){
                     int im = atoi(ik); if(im != 2) im = 1;
                     dyn86_intrin_on = im;
-                    char m[160]; std::snprintf(m,sizeof m,
-                        "intrin: ARME mode=%d n=%d (proj 0x50dd60)%s", dyn86_intrin_on, dyn86_intrin_n,
-                        d2_proj_verify ? " + ORACLE D2_PROJVERIFY (ne sert PAS)" : "");
+                    char m[200]; std::snprintf(m,sizeof m,
+                        "intrin: ARME mode=%d n=%d (proj 0x50dd60, lut 0x50dc30, lgrid 0x475aa0, lfill 0x4744b0, lut2 0x50dbe0)%s%s", dyn86_intrin_on, dyn86_intrin_n,
+                        d2_proj_verify ? " + ORACLE D2_PROJVERIFY (proj ne sert PAS)" : "",
+                        d2_intrin_verify ? " + ORACLE D2_INTRINVERIFY (lut/lgrid/lfill ne servent PAS)" : "");
                     std::printf("%s\n",m); d2vita_progress(m);
                 } else {
                     d2vita_progress("intrin: REFUSE — enregistrement impossible");

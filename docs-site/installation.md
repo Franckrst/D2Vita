@@ -137,6 +137,15 @@ stone strip on each side); `D2_RES_PANNEAUX=0` leaves the game its own
 inventory tables and border frame (items, clicks and frame then sit off
 the panels).
 
+The game's own **Resolution** video option keeps its meaning as a zoom:
+*800×600* draws at the screen's 960×544, *640×480* draws at 848×480 — the
+original 640×480's height, stretched to the console's shape — scaled up to
+fill the screen, so characters look as big as they do at 640×480 on a PC.
+You can switch in the middle of a game. `D2_RES640=WxH` forces another size
+for that mode, `D2_RES640=0` gives back the original bordered 640×480. At
+640×480 the gaps in the HUD bar and the column between two open panels are
+filled with stone taken from the game's own inventory panel.
+
 The wider field of view a native resolution gives is an advantage in play:
 keep it to solo and private servers.
 

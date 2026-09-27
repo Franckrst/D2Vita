@@ -72,6 +72,10 @@ d2vita_secret/
 # publie ; STATUS.md gardait 1800+ lignes de journal chronologique.
 STATUS.md
 
+# Notes perso de pistes perf (comparaisons avec d'autres moteurs, idees non
+# validees) — brouillon de travail, pas une doc engagee pour le depot.
+PERF.md
+
 # Harnais de reference CheckRevision : objet de ressource genere par windres
 tools/crref/*.res
 

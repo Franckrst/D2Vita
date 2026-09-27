@@ -143,6 +143,15 @@ touchent alors, avec une bande de pierre de 80 px de chaque côté) ;
 `D2_RES_PANNEAUX=0` laisse au jeu ses tables d'inventaire et son cadre
 (objets, clics et cadre alors décalés par rapport aux panneaux).
 
+L'option vidéo **Résolution** du jeu garde son sens de zoom : *800×600*
+dessine au 960×544 de l'écran, *640×480* dessine en 848×480 — la hauteur du
+640×480 d'origine, au format de la console — agrandi à l'écran : les
+personnages y sont aussi gros qu'en 640×480 sur PC. La bascule marche en
+pleine partie. `D2_RES640=LxH` force une autre taille pour ce mode,
+`D2_RES640=0` rend le 640×480 d'origine, bordé. En 640×480, les trous du
+bandeau et la colonne entre deux panneaux ouverts sont comblés avec la pierre
+du panneau d'inventaire du jeu.
+
 Le champ de vision élargi qu'offre une résolution native est un avantage en
 jeu : à réserver au solo et aux serveurs privés.
 

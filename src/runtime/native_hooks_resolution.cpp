@@ -12,12 +12,17 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdint>
+#include <vector>
 using namespace d2rt;
 
 // La fenetre GXM suit la bascule : c'est elle qui rend la projection 1:1.
 // Declare FAIBLE et hors du namespace anonyme, sinon le nom decore ne
 // correspondrait pas a celui de vita_gxm.cpp (et le symbole resterait nul).
 __attribute__((weak)) void d2gxm_set_window(int w, int h);
+// La pierre du panneau d'inventaire, pour le comblage 640 de l'anneau Glide
+// (gx_host.cpp). Faible : absent du binaire sans anneau.
+extern "C" __attribute__((weak)) void gx_p640_offre(const uint8_t* px, int w, int h);
+extern "C" __attribute__((weak)) int  gx_p640_besoin(void);
 
 namespace {
 
@@ -32,6 +37,11 @@ constexpr uint32_t RVA_SETRES  = 0x0004ba20;  // D2Client SetResolution(ecx=mode
 // (Save & Exit) rien n'est appele — ni SetResolution ni GetResolutionSize :
 // le jeu reutilise sa fenetre Glide telle quelle. C'est pour cela que le
 // retour au menu se detecte ailleurs (d2res_menu_tick, boucle de Fog).
+// Premier appel de SetResolution APRES ses ecritures de taille (Game+0x4ba9b) :
+// D2Gfx, qui change le mode, puis les fonctions qui en derivent l'etendue de
+// la vue du monde. Voir le crochet 2b.
+constexpr uint32_t RVA_GFXSETRES = 0x000f90a0;
+const uint8_t SIG_GFXSETRES[5] = { 0x55,0x8b,0xec,0x83,0x3d };
 constexpr uint32_t RVA_SHIFT   = 0x00056ee0;  // D2Client DrawUI(ecx) : ecrit le decalage ecran PUIS dessine
 constexpr uint32_t RVA_SHIFT_SUITE = 0x00056f24; // ... la suite, une fois le decalage ecrit
 constexpr uint32_t RVA_SHIFT_SORTIE = 0x000572d8; // ... et sa sortie precoce (epilogue)
@@ -118,6 +128,15 @@ const BorderPiece BORDER_L[5] = { {0,0,253}, {1,256,63}, {2,0,484}, {3,0,553}, {
 const BorderPiece BORDER_R[5] = { {5,400,63}, {6,544,253}, {7,713,484}, {8,544,553}, {9,400,553} };
 
 int g_on = 0, g_applied = 0, g_w = 960, g_h = 544;
+// Taille de jeu du MODE 640x480 (option video « Resolution » du jeu). Nativement
+// ce mode montre moins de monde, donc des personnages plus gros : c'est le
+// « zoom » que le joueur choisit. On garde sa HAUTEUR (480 : meme champ
+// vertical, meme echelle que le 640x480 d'origine) et on donne a sa largeur le
+// format de l'ecran — 480*960/544 = 848 —, puis la projection isotrope de
+// vita_gxm.cpp l'agrandit a l'ecran (x1,133). Calcule a l'installation depuis
+// g_w/g_h ; D2_RES640=LxH le force, D2_RES640=0 rend le 640x480 d'origine
+// (borde de bandes, cf. D2_ASPECT).
+int g_w0 = 848, g_h0 = 480;
 // Ancrage de la disposition 800x600 sur notre ecran (D2_RES_PANNEAUX) — cette
 // bascule ne pilote plus que l'axe X ; l'axe Y est toujours centre (voir
 // dy_centre plus bas, et pourquoi juste avant apply()) :
@@ -173,10 +192,13 @@ bool sig_ok(Cpu* c, uint32_t rva, const uint8_t* want, size_t n, const char* who
 // rejeu du cadre 800BorderFrame) en derivent tous les deux, pour ne plus
 // jamais pouvoir diverger comme dessin et clic ont pu diverger en X avant ce
 // commit.
-int dx_centre(uint32_t mode) { return mode ? (g_w - 800) / 2 : (g_w - 640) / 2; }
-int dy_centre(uint32_t mode) { return mode ? (g_h - 600) / 2 : (g_h - 480) / 2; }
-int dx_droite(uint32_t mode) { return mode ? (g_w - 800)     : (g_w - 640); }
-int dy_bas(uint32_t mode)    { return mode ? (g_h - 600)     : (g_h - 480); }
+// Taille de jeu d'un mode : 0 = le « 640x480 » du jeu, tout autre = le 800x600.
+int W(uint32_t mode) { return mode ? g_w : g_w0; }
+int H(uint32_t mode) { return mode ? g_h : g_h0; }
+int dx_centre(uint32_t mode) { return mode ? (W(1) - 800) / 2 : (W(0) - 640) / 2; }
+int dy_centre(uint32_t mode) { return mode ? (H(1) - 600) / 2 : (H(0) - 480) / 2; }
+int dx_droite(uint32_t mode) { return mode ? (W(1) - 800)     : (W(0) - 640); }
+int dy_bas(uint32_t mode)    { return mode ? (H(1) - 600)     : (H(0) - 480); }
 // SHY qui correspond a un decalage de table dy donne : inverse de "haut du
 // panneau = H + SHY - 480", verifie contre les deux ancrages X existants
 // (bords : SHY=-60, dy=H-600 ; centre : SHY=-(H/2-240), dy=(H-600)/2 — les
@@ -194,26 +216,125 @@ void set_window(int w, int h) {
     jpline("res: fenetre GXM %dx%d", w, h);
 }
 
+// ---- LA PIERRE DU PANNEAU D'INVENTAIRE, DES L'ENTREE EN PARTIE ------------
+//
+// Le comblage 640 (gx_host.cpp) tuile une plage de pierre du panneau
+// d'inventaire. Sa texture n'arrive au GPU qu'a la premiere ouverture du
+// panneau ; mais le jeu CHARGE le dessin bien avant, a l'initialisation de
+// l'interface : Game+0x9687a appelle LoadCel("Panel\InvChar6", ou
+// "Panel\InvChar" en classique) et range le cel dans ce global. On y lit donc
+// la pierre directement — un fichier DC6 du jeu, charge par le jeu depuis les
+// MPQ du joueur — et on la decode (RLE DC6) sans rien demander au jeu.
+constexpr uint32_t G_INVCEL = 0x003bef64;
+// InvChar6 = INVentaire + CHARacter : 8 cadres, 0..3 la fiche personnage,
+// 4..7 l'inventaire (haut-gauche 256x256, haut-droit 64x256, bas-gauche
+// 256x176, bas-droit 64x176). Controle console du 27/09/2026 : le cadre 0
+// donnait les cases de caracteristiques (78/5120 octets egaux a la texture de
+// l'inventaire).
+constexpr uint32_t INV_CADRE = 4;
+// Plage (repere du panneau, cadre 4 = tuile haut-gauche 256x256) : entre la
+// case d'arme et celle d'armure, releve au pixel sur capture console.
+constexpr int PIERRE_X = 84, PIERRE_Y = 34, PIERRE_W = 40, PIERRE_H = 128;
+bool g_pierreFaite = false;
+
+// Adresse du cadre `i` d'un cel DC6 en memoire. En-tete DC6 : version 6,
+// drapeaux, encodage, terminaison, directions, cadres par direction, puis la
+// table des cadres — des DECALAGES dans le fichier, que le chargeur peut avoir
+// convertis en pointeurs : on accepte les deux et on valide l'en-tete du cadre.
+uint32_t dc6_cadre(Cpu& c, uint32_t cel, uint32_t i) {
+    if (c.read_u32(cel) != 6) return 0;
+    const uint32_t dirs = c.read_u32(cel + 0x10), n = c.read_u32(cel + 0x14);
+    if (dirs != 1 || i >= n || n > 64) return 0;
+    // Les adresses invitees sont petites (le cel d'InvChar6 vit vers 0x77db64,
+    // son cadre 0 a cel+0x38) : un seuil fixe ne distingue pas pointeur et
+    // decalage. Un pointeur tombe APRES le cel, un decalage est plus petit.
+    const uint32_t v = c.read_u32(cel + 0x18 + 4 * i);
+    return v > cel ? v : cel + v;
+}
+// Decode le cadre (RLE DC6, lignes du bas vers le haut) et en extrait le
+// rectangle [x0,x0+w) x [y0,y0+h) (repere haut-gauche). 0 si le cadre ne
+// ressemble pas a ce qu'on attend : rien n'est alors offert.
+bool dc6_rect(Cpu& c, uint32_t fr, int x0, int y0, int w, int h, uint8_t* out, int& fw, int& fh) {
+    const uint32_t flip = c.read_u32(fr), W = c.read_u32(fr + 4), Hh = c.read_u32(fr + 8);
+    const uint32_t len = c.read_u32(fr + 0x1c);
+    fw = (int)W; fh = (int)Hh;
+    if (W == 0 || Hh == 0 || W > 256 || Hh > 256 || len == 0 || len > 256u * 256u * 2u) return false;
+    if (x0 + w > (int)W || y0 + h > (int)Hh) return false;
+    std::vector<uint8_t> rle(len), img(W * Hh, 0);
+    c.read(fr + 0x20, rle.data(), len);
+    int x = 0, y = flip ? 0 : (int)Hh - 1;
+    const int dy = flip ? 1 : -1;
+    for (uint32_t k = 0; k < len; ) {
+        const uint8_t b = rle[k++];
+        if (b == 0x80) { x = 0; y += dy; if (y < 0 || y >= (int)Hh) break; continue; }
+        if (b & 0x80) { x += b & 0x7f; continue; }
+        for (uint32_t j = 0; j < b && k < len; ++j, ++k) {
+            if (x < (int)W && y >= 0 && y < (int)Hh) img[(size_t)y * W + x] = rle[k];
+            ++x;
+        }
+    }
+    for (int r = 0; r < h; ++r) std::memcpy(out + (size_t)r * w, &img[(size_t)(y0 + r) * W + x0], (size_t)w);
+    return true;
+}
+// Appele en mode 640 a chaque DrawUI ; ne fait rien tant que l'anneau n'en a
+// pas besoin (deja servi). Si sa cellule est un jour evincee, il redemande.
+void offre_pierre(Cpu& c) {
+    if (g_pierreFaite || !gx_p640_offre || !gx_p640_besoin || !gx_p640_besoin()) return;
+    const uint32_t cel = c.read_u32(g_base + G_INVCEL);
+    if (!cel) return;                         // interface pas encore chargee
+    const uint32_t fr = dc6_cadre(c, cel, INV_CADRE);
+    uint8_t px[PIERRE_W * PIERRE_H];
+    int fw = 0, fh = 0;
+    if (!fr || !dc6_rect(c, fr, PIERRE_X, PIERRE_Y, PIERRE_W, PIERRE_H, px, fw, fh)) {
+        g_pierreFaite = true;                 // echec : une seule tentative (et une ligne) par session
+        // De quoi reconnaitre la structure reelle, si elle change : 12 mots du
+        // cel et 10 du cadre.
+        char m[256]; int k = 0;
+        for (int i = 0; i < 12; ++i) k += std::snprintf(m + k, sizeof m - k, " %08x", c.read_u32(cel + 4 * i));
+        jpline("res: cel InvChar6 :%s", m);
+        if (fr) { k = 0;
+            for (int i = 0; i < 10; ++i) k += std::snprintf(m + k, sizeof m - k, " %08x", c.read_u32(fr + 4 * i));
+            jpline("res: cadre %u     :%s", INV_CADRE, m); }
+        jpline("res: pierre de l'inventaire ILLISIBLE (cel 0x%x, cadre 0x%x %dx%d) — comblage 640 a la premiere ouverture de l'inventaire",
+               cel, fr, fw, fh);
+        return;
+    }
+    gx_p640_offre(px, PIERRE_W, PIERRE_H);
+    static int dits = 0;
+    if (dits++ < 4) jpline("res: pierre de l'inventaire lue dans le cel du jeu (cadre %u %dx%d, plage %d,%d %dx%d)", INV_CADRE,
+           fw, fh, PIERRE_X, PIERRE_Y, PIERRE_W, PIERRE_H);
+}
+
 // Ce que SetResolution aurait ecrit s'il connaissait notre taille. Ce sont des
 // ecritures de DONNEES : le jeu fait exactement les memes.
+//
+// Le mode est celui du dernier SetResolution (s_setMode) : c'est lui que les
+// options video changent en cours de partie. Avant, seule la taille 800 etait
+// ecrite quel que soit le mode : choisir 640x480 changeait l'interface (art et
+// tables « 640 ») mais pas l'echelle du monde. En mode 640 les ecritures sont
+// celles du jeu a 640x480 — decalage 0/0 (prologue de DrawUI), lignes 640
+// d'Inventory.txt — a la taille g_w0 x g_h0.
+uint32_t g_appliedMode = ~0u;
 void apply(Cpu& c) {
-    const int shx = g_centre ? g_w / 2 - 320 : 80;
-    const int shy = shy_de_dy(dy_centre(1));
-    c.write_u32(g_base + G_W,    (uint32_t)g_w);
-    c.write_u32(g_base + G_H,    (uint32_t)g_h);
-    c.write_u32(g_base + G_WCPY, (uint32_t)g_w);
-    c.write_u32(g_base + G_WCP2, (uint32_t)g_w);
-    c.write_u32(g_base + G_HM40, (uint32_t)(g_h - 40));
+    const uint32_t m = s_setMode ? 1u : 0u;
+    const int w = W(m), h = H(m);
+    const int shx = m ? (g_centre ? w / 2 - 320 : 80) : (g_centre ? (w - 640) / 2 : 0);
+    const int shy = m ? shy_de_dy(dy_centre(1)) : dy_centre(0) - h + 480;
+    c.write_u32(g_base + G_W,    (uint32_t)w);
+    c.write_u32(g_base + G_H,    (uint32_t)h);
+    c.write_u32(g_base + G_WCPY, (uint32_t)w);
+    c.write_u32(g_base + G_WCP2, (uint32_t)w);
+    c.write_u32(g_base + G_HM40, (uint32_t)(h - 40));
     c.write_u32(g_base + G_SHX,  (uint32_t)(int32_t)shx);
     c.write_u32(g_base + G_SHY,  (uint32_t)(int32_t)shy);
-    c.write_u32(g_base + G_INV,  1u);
-    c.write_u32(g_base + G_GLW,  (uint32_t)g_w);
-    c.write_u32(g_base + G_GLH,  (uint32_t)g_h);
-    const bool premier = !g_applied;
-    g_applied = 1;
-    set_window(g_w, g_h);
-    if (premier) {
-        jpline("res: %dx%d applique (relecture %ux%u, decalage %d,%d)", g_w, g_h,
+    c.write_u32(g_base + G_INV,  m);
+    c.write_u32(g_base + G_GLW,  (uint32_t)w);
+    c.write_u32(g_base + G_GLH,  (uint32_t)h);
+    const bool nouveau = !g_applied || g_appliedMode != m;
+    g_applied = 1; g_appliedMode = m;
+    set_window(w, h);
+    if (nouveau) {
+        jpline("res: %dx%d applique, mode %u (relecture %ux%u, decalage %d,%d)", w, h, m,
                c.read_u32(g_base + G_W), c.read_u32(g_base + G_H), shx, shy); }
 }
 
@@ -233,7 +354,7 @@ void unapply(Cpu& c, uint32_t mode) {
     c.write_u32(g_base + G_SHY,  mode == 0 ? 0u : (uint32_t)(int32_t)-60);
     c.write_u32(g_base + G_GLW,  w);
     c.write_u32(g_base + G_GLH,  h);
-    g_applied = 0;
+    g_applied = 0; g_appliedMode = ~0u;
     set_window((int)w, (int)h);
     jpline("res: menu — %ux%u natif retabli, bascule desarmee jusqu'a la prochaine partie (mode %u)", w, h, mode);
 }
@@ -420,7 +541,8 @@ uint32_t border_entree(Cpu& c, Bridge& br, uint32_t entry, const BorderPiece* pi
       if(tr){ static uint64_t lastL=0,lastR=0; uint64_t now=rt_now_ms(); uint64_t& last=(pieces==BORDER_R)?lastR:lastL;
           if(now-last>1500){ last=now; jpline("  [cadre] %s dessine SHX=%d SHY=%d W=%u H=%u", pieces==BORDER_R?"DROIT":"GAUCHE",
               (int)c.read_u32(g_base+G_SHX),(int)c.read_u32(g_base+G_SHY),c.read_u32(g_base+G_W),c.read_u32(g_base+G_H)); } } }
-    if (!g_applied || s_bord.busy) return original(c, br, entry);
+    // Le cadre 800BorderFrame n'existe que dans la disposition 800.
+    if (!g_applied || s_bord.busy || !s_setMode) return original(c, br, entry);
     BorderRun& s = s_bord;
     s.busy = true; s.chargement = false; s.etape = 0; s.pieces = pieces;
     s.esp0 = c.reg(R_ESP); s.ret = c.read_u32(s.esp0);
@@ -441,8 +563,9 @@ extern "C" int d2res_active(void) { return g_on && g_applied; }
 extern "C" void d2res_menu_tick(void) {
     if (g_on && g_applied && g_cpuRes) unapply(*g_cpuRes, s_setMode);
 }
-extern "C" int d2res_w(void)      { return g_w; }
-extern "C" int d2res_h(void)      { return g_h; }
+extern "C" int d2res_w(void)      { return W(s_setMode); }
+extern "C" int d2res_h(void)      { return H(s_setMode); }
+extern "C" int d2res_mode(void)   { return s_setMode ? 1 : 0; }
 extern "C" int d2res_centre(void) { return g_centre; }
 
 void native_hooks_resolution_install(Cpu* cpu, Bridge& br) {
@@ -457,6 +580,15 @@ void native_hooks_resolution_install(Cpu* cpu, Bridge& br) {
     // haut il sortirait de l'ecran. 544 passe avec 64 px de marge.
     if (g_w < 640 || g_h < 480 || g_w > 1280 || g_h > 1024) {
         jpline("res: %dx%d hors bornes (640x480 a 1280x1024)", g_w, g_h); return; }
+    // Mode 640 : hauteur 480, largeur au format de g_w x g_h (paire).
+    g_h0 = 480; g_w0 = ((480 * g_w / g_h) + 1) & ~1;
+    if (g_w0 < 640) g_w0 = 640;
+    if (const char* e = getenv("D2_RES640")) {
+        int w = 0, h = 0;
+        if (!std::strcmp(e, "0")) { g_w0 = 640; g_h0 = 480; }
+        else if (std::sscanf(e, "%dx%d", &w, &h) == 2 && w >= 640 && h >= 480 && w <= 1280 && h <= 1024) { g_w0 = w; g_h0 = h; }
+        else jpline("res: D2_RES640=%s ignore (attendu LxH >= 640x480, ou 0)", e);
+    }
     if (!g_114 || !g_d2base) { jpline("res: REFUS — 1.14d non detecte"); return; }
     g_base = g_d2base;
     g_cpuRes = cpu;
@@ -484,7 +616,9 @@ void native_hooks_resolution_install(Cpu* cpu, Bridge& br) {
                        (unsigned)(c.read_u32(E) - g_base), g_applied); } }
             uint32_t w, h;
             switch (mode) {
-                case 0:  w = 640;  h = 480;  break;   // le « petit » mode reste intact
+                case 0:  if (g_applied) { w = (uint32_t)g_w0; h = (uint32_t)g_h0; }
+                         else           { w = 640; h = 480; }
+                         break;
                 case 1:
                 case 2:  if (g_applied) { w = (uint32_t)g_w; h = (uint32_t)g_h; }
                          else           { w = 800; h = 600; }
@@ -517,6 +651,34 @@ void native_hooks_resolution_install(Cpu* cpu, Bridge& br) {
             return c.reg(R_EAX); };
         br.register_shim("native.hook", "d2_setres_114", s);
         cpu->set_alternate(g_base + RVA_SETRES, br.shim_trap("native.hook", "d2_setres_114"));
+    }
+
+    // 2b. Les TAILLES, ecrites avant les calculs qui en dependent. Le corps de
+    //     SetResolution ecrit 640x480 ou 800x600 (Game+0x4ba3c..0x4ba96), PUIS
+    //     appelle D2Gfx (Game+0xf90a0) et les fonctions qui en derivent
+    //     l'etendue de la vue du monde. Le trap de sortie (crochet 2) arrive
+    //     trop tard pour elles : en passant de 800 a 640 en cours de partie, la
+    //     vue restait calculee sur 640 de large et le monde s'arretait vers
+    //     x=670 d'une fenetre de 848 (capture console 27/09/2026). A l'entree
+    //     d'une partie ce n'etait pas visible : la vue est creee plus tard.
+    //     Ce crochet ne fait rien hors de NOTRE SetResolution (s_set.busy) :
+    //     la fonction a sept autres appelants (lanceur, menus).
+    const bool gfx_ok = sig_ok(cpu, RVA_GFXSETRES, SIG_GFXSETRES, sizeof SIG_GFXSETRES, "D2Gfx SetResolution");
+    if (gfx_ok) {
+        Shim s; s.argc = 0; s.stdcall_cleanup = false; s.tag = "native!d2_gfxsetres_114";
+        s.fn = [&br](Cpu& c) -> uint32_t {
+            if (s_set.busy) {
+                const uint32_t m = s_setMode ? 1u : 0u;
+                const int w = W(m), h = H(m);
+                c.write_u32(g_base + G_W,    (uint32_t)w);
+                c.write_u32(g_base + G_H,    (uint32_t)h);
+                c.write_u32(g_base + G_WCPY, (uint32_t)w);
+                c.write_u32(g_base + G_WCP2, (uint32_t)w);
+                c.write_u32(g_base + G_HM40, (uint32_t)(h - 40));
+            }
+            return original(c, br, g_base + RVA_GFXSETRES); };
+        br.register_shim("native.hook", "d2_gfxsetres_114", s);
+        cpu->set_alternate(g_base + RVA_GFXSETRES, br.shim_trap("native.hook", "d2_gfxsetres_114"));
     }
 
     // 3. DrawUI (Game+0x56ee0) : son prologue ecrit +80/-60 pour le mode 2
@@ -556,6 +718,7 @@ void native_hooks_resolution_install(Cpu* cpu, Bridge& br) {
             if (c.read_u32(g_base + G_UIOFF) != 0) {    // cmp [G_UIOFF],ebx ; jne epilogue
                 br.redirect_next(g_base + RVA_SHIFT_SORTIE); return 0; }
             apply(c);                                   // notre decalage, pas +80/-60
+            if (!s_setMode) offre_pierre(c);            // mode 640 : la pierre du comblage
             br.redirect_next(g_base + RVA_SHIFT_SUITE);
             return 0; };
         br.register_shim("native.hook", "d2_drawui_114", s);
@@ -568,7 +731,7 @@ void native_hooks_resolution_install(Cpu* cpu, Bridge& br) {
     const char* pn = getenv("D2_RES_PANNEAUX");
     const bool panneaux = !(pn && *pn && (!std::strcmp(pn, "0") || !std::strcmp(pn, "non") || !std::strcmp(pn, "off")));
     g_centre = (pn && (!std::strcmp(pn, "centre") || !std::strcmp(pn, "center"))) ? 1 : 0;
-    int poses = 3;
+    int poses = gfx_ok ? 4 : 3;
     if (!panneaux) jpline("res: panneaux laisses au jeu (D2_RES_PANNEAUX=%s)", pn);
     else jpline("res: panneaux ancres %s", g_centre ? "au centre (D2_RES_PANNEAUX=centre)" : "aux bords");
 
@@ -635,5 +798,5 @@ void native_hooks_resolution_install(Cpu* cpu, Bridge& br) {
     }
 
     g_on = 1;
-    jpline("res: %dx%d arme — %d alternates, bascule a l'entree en partie", g_w, g_h, poses);
+    jpline("res: %dx%d arme (mode 640 : %dx%d) — %d alternates, bascule a l'entree en partie", g_w, g_h, g_w0, g_h0, poses);
 }

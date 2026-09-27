@@ -24,6 +24,14 @@ void gr_flush(d2rt::Cpu& c, uint32_t head, void (*between)());
 extern uint64_t g_gbT1;
 // d2vGlideTexUpload: ring texup/byte counters, then atlas upload.
 void gr_tex_upload_count(uint64_t nb);
+// d2vGlideDraw (D2_GLNATDRAW): writes one draw record into the ring exactly
+// as glide3x_ring.c would; returns its guest VA (0 = nothing written).
+// gr_draw_intrinsic serves the same call without a Bridge crossing.
+uint32_t gr_draw_native(d2rt::Cpu& c, uint32_t op, uint32_t mode, uint32_t count, uint32_t src, uint32_t stride);
+bool gr_draw_intrinsic(d2rt::Cpu& c, uint32_t slot);
+// Texture identity on the host is (tmu, startAddress): with GR_NUM_TMU >= 2
+// the game keeps caches on both TMUs and their address ranges start at 0.
+static inline uint32_t gx_tmu_key(uint32_t tmu, uint32_t addr){ return addr | ((tmu & 3u) << 28); }
 void gx_tex_upload(d2rt::Cpu& c, uint32_t tmuAddr, uint32_t info);
 // Profiling lines (10s window, from fp_tick), D2_GLIDEINV report,
 // [ring-final] (end of run), [ring] line of the exit report.
@@ -37,6 +45,10 @@ void gr_final_line();
 
 // ---- ring side of the D2_REPLAY60 / D2_RINGTAG hooks (installed by rt_boot.cpp) ----
 bool gr_emit(d2rt::Cpu& c, uint32_t op, const uint32_t* w, uint32_t n);
+// Host view of the Glide ring: data, size (power of two), header words
+// (D2GRHeader: [4]=head [5]=tail [12]=vtx_stride [13]=fn_drawva). False while
+// the ring is not armed.
+bool gr_ring_view(const uint8_t** ring, uint32_t* size, volatile uint32_t** hdr);
 struct RPhase { uint32_t rva; uint64_t draws, verts, enters, nested; bool open;
   // D2_CACHEPROBE: hash of the ring records emitted during this phase
   // (abs = raw bytes, rel = x,y in camera space), compared against the
