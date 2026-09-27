@@ -84,7 +84,20 @@ void inj_queue(const std::string& act,int a,int b){
     else if(act=="click"){ mouse(0x200,0,a,b); g_keyState[0x01]=0x80; mouse(0x201,1,a,b); g_keyState[0x01]=0; mouse(0x202,0,a,b); }
     else if(act=="keydown"){ g_keyState[a&0xff]=0x80; g_msgQ.push_back({0x100,(uint32_t)a,1u|(inj_scan(a)<<16)}); g_injN++; }
     else if(act=="keyup"){   g_keyState[a&0xff]=0;    g_msgQ.push_back({0x101,(uint32_t)a,0xC0000001u|(inj_scan(a)<<16)}); g_injN++; }
-    else if(act=="key"){     g_msgQ.push_back({0x100,(uint32_t)a,1u|(inj_scan(a)<<16)}); g_msgQ.push_back({0x101,(uint32_t)a,0xC0000001u|(inj_scan(a)<<16)}); g_injN+=2; }
+    // "key" mirrors real Windows: WM_KEYDOWN, then whatever TranslateMessage
+    // would have produced from it, then WM_KEYUP. On real hardware Enter's
+    // WM_KEYDOWN(VK_RETURN) always yields a WM_CHAR(0x0D) this way — every
+    // "submit text" caller (chat, the character-creation OK-button
+    // workaround, controls.txt's enter=) relies on that char actually
+    // reaching D2Win's own WM_CHAR handler, since letters/space already go
+    // through as real WM_CHAR via the "chr" action above. Nothing else here
+    // synthesizes it: TranslateMessage itself is a deliberate no-op in the
+    // engine shim (it has no access to this consumer's g_msgQ), so without
+    // this the chat line's own commit-on-CR check in its char handler can
+    // never fire.
+    else if(act=="key"){     g_msgQ.push_back({0x100,(uint32_t)a,1u|(inj_scan(a)<<16)}); g_injN++;
+        if(a==0x0D){ g_msgQ.push_back({0x102,(uint32_t)a,1u|(inj_scan(a)<<16)}); g_injN++; }
+        g_msgQ.push_back({0x101,(uint32_t)a,0xC0000001u|(inj_scan(a)<<16)}); g_injN++; }
     else if(act=="chr"){     g_msgQ.push_back({0x102,(uint32_t)a,1u|(inj_scan(a)<<16)}); g_injN++; }   // WM_CHAR (a = ASCII)
     else if(act=="eipdump"){  // dump the preempt-slice EIP histogram (needs -DPROF_COUNTERS)
 #ifdef PROF_COUNTERS
