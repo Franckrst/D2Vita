@@ -5,6 +5,53 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.12 — 2026-09-27
+
+- **Le sol en perspective ne clignote plus.** Dans les scènes lourdes en
+  perspective (la porte de Harrogath : ~1,3 Mo d'enregistrements Glide par
+  image), le tampon de rendu ne pouvait pas contenir à la fois l'image en
+  cours d'envoi au GPU sur le second cœur *et* la suivante, et la DLL Glide
+  jetait en silence la fin de chaque image — un morceau de sol, différent à
+  chaque image. Le fil d'envoi rend maintenant la place au fil de sa lecture
+  au lieu d'attendre la fin de l'image. Console, à la porte, perspective
+  ON : 0 enregistrement perdu, 24 img/s (un premier correctif qui envoyait
+  ces images en synchrone supprimait le clignotement mais tombait à 9 img/s).
+- **L'option Résolution du jeu zoome de nouveau.** *800×600* dessine au
+  960×544 natif de la Vita comme avant ; *640×480* dessine désormais en
+  848×480 — la hauteur du 640×480 d'origine, au format de l'écran — agrandi
+  ×1,13 en plein écran : les personnages sont aussi gros qu'en 640×480
+  natif. Avant, choisir 640×480 ne changeait que l'art du bandeau. Le
+  changement en cours de partie marche dans les deux sens (le monde
+  s'arrêtait aux deux tiers de l'écran après un passage en 640).
+  `D2_RES640=LxH` force une autre taille, `D2_RES640=0` rend le 640×480
+  d'origine, bordé. Confirmé sur console.
+- **Trous du bandeau comblés en 640×480 aussi.** Le bandeau 640 et la
+  colonne entre deux panneaux ouverts sont comblés avec la pierre du
+  panneau d'inventaire du jeu, lue dans le dessin que le jeu a déjà chargé,
+  dès le premier affichage de l'interface — pas besoin d'ouvrir un panneau
+  d'abord, et aucun art Blizzard n'est ajouté au paquet. Pas disponible
+  pour les personnages classiques (non Lord of Destruction).
+- **Les trous du bandeau ne reviennent plus avec la perspective OFF**, et la
+  colonne noire entre deux panneaux ouverts (personnage + inventaire) est de
+  nouveau comblée en 960×544 — sa position attendue n'avait pas suivi le
+  centrage vertical des panneaux. Confirmé sur console, perspective ON et
+  OFF.
+- **L'acte V tourne plus vite :** le pilote Glide annonce maintenant deux
+  unités de texture, ce qui lève le plafond de 3 Mio du cache de sprites de
+  D2 — il renvoyait ~50 textures déjà connues par image. Banc de patrouille
+  console : ~20 → ~24 img/s (le plafond du jeu est 25).
+- **Monstres qui clignotaient (Death Maulers) corrigés dans l'atlas de
+  textures :** avec deux unités de texture, l'atlas pouvait se remplir dans
+  les zones sauvages et un téléversement raté laissait l'ancien sprite lié.
+  L'atlas passe à 48 Mio, un téléversement raté laisse la texture non liée
+  plutôt que périmée, et une classe de taille pleine emprunte les pages
+  inutilisées des autres. Vérifié avec l'oracle de textures sous qemu (718
+  dessins à la mauvaise texture → 0) ; confirmation console encore en
+  attente.
+- Le journal de démarrage (`boot_progress.txt`) est maintenant écrit de
+  façon asynchrone : ses rapports périodiques ne bloquent plus le fil de jeu
+  (30 à 107 ms chacun auparavant).
+
 ## v0.1.11-beta7 — 2026-09-24
 
 - **La carte explorée est conservée d'un waypoint à l'autre (et d'une

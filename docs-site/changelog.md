@@ -4,6 +4,47 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.12 — 2026-09-27
+
+- **Perspective floor no longer flickers.** In heavy Perspective scenes
+  (Harrogath's gate: ~1.3 MB of Glide records per frame) the render ring
+  could not hold the frame being sent to the GPU on the second core *and*
+  the next one, and the Glide DLL silently dropped the end of each frame —
+  a patch of floor, different every frame. The flush thread now gives the
+  ring space back as it walks the frame instead of at its end. Console, at
+  the gate, Perspective ON: 0 dropped records, 24 fps (a first fix that sent
+  those frames synchronously cured the flicker but fell to 9 fps there).
+- **The in-game Resolution option zooms again.** *800×600* draws at the
+  Vita's native 960×544 as before; *640×480* now draws at 848×480 — the
+  original 640×480's height at the screen's shape — scaled ×1.13 to full
+  screen, so characters look as big as native 640×480. Before, choosing
+  640×480 only swapped the HUD art. Switching mid-game works in both
+  directions (the world used to stop two thirds across the screen after a
+  switch to 640). `D2_RES640=WxH` forces another size, `D2_RES640=0` gives
+  the original bordered 640×480. Confirmed on console.
+- **HUD gaps filled at 640×480 too.** The 640 bar and the column between
+  two open panels are filled with stone taken from the game's own inventory
+  panel, read from the game's already-loaded art at the first UI draw — no
+  panel needs to be opened first, and no Blizzard art is added to the
+  package. Not available for classic (non-Lord of Destruction) characters.
+- **HUD gaps no longer come back with Perspective OFF**, and the black
+  column between two open panels (character sheet + inventory) is filled
+  again at 960×544 — its expected position had not followed the vertical
+  centring of the panels. Confirmed on console, Perspective ON and OFF.
+- **Act V runs faster:** the Glide driver now announces two texture units,
+  which lifts D2's sprite cache from 3 MiB — it was re-sending ~50 known
+  textures per frame. Console patrol bench: ~20 → ~24 fps (the game's own
+  cap is 25).
+- **Blinking monsters (Death Maulers) fixed in the texture atlas**: with two
+  texture units the atlas could fill up in the wilds and a failed upload
+  left the previous sprite bound. The atlas grows to 48 MiB, a failed
+  upload now leaves the texture unbound instead of stale, and full size
+  classes borrow unused pages from the others. Verified with the qemu
+  texture oracle (718 wrong-texture draws → 0); console confirmation is
+  still pending.
+- The boot log (`boot_progress.txt`) is now written asynchronously: its
+  periodic reports no longer stall the game thread (30–107 ms each before).
+
 ## v0.1.11-beta7 — 2026-09-24
 
 - **Explored map kept across waypoint trips (and across games).** D2 keeps a
