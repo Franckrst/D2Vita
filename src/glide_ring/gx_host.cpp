@@ -414,11 +414,12 @@ void gr_inventory_dump(){
     // different values WITHOUT having diverged. The only honest comparison is
     // at the end of the run, with an equal record count — this line.
     std::printf("[ring-final] enr=%llu dessins=%llu sommets=%llu lots=%llu etats=%llu"
-                " texup=%llu octets=%llu images=%u natdraw=%llu intrinseque=%llu verif=%u/%u | h=0x%016llx\n",
+                " texup=%llu octets=%llu images=%u natdraw=%llu intrinseque=%llu verif=%u/%u taille-sommet=%u | h=0x%016llx\n",
         (unsigned long long)g_grRecs,(unsigned long long)g_grDraws,(unsigned long long)g_grVerts,
         (unsigned long long)g_grBatches,(unsigned long long)g_grState,(unsigned long long)g_grTexUp,
         (unsigned long long)g_grBytes,g_grFrames,(unsigned long long)g_ndCalls,(unsigned long long)g_ndIntrin,
         g_grHdrHost? ((volatile uint32_t*)g_grHdrHost)[10] : 0u, g_grHdrHost? ((volatile uint32_t*)g_grHdrHost)[11] : 0u,
+        g_grHdrHost? ((volatile uint32_t*)g_grHdrHost)[12] : 0u,
         (unsigned long long)g_grHash);
     cp_line("-final");
     gr_final_cumul();
@@ -2567,7 +2568,7 @@ void gr_line(uint32_t frames){
     char m[400];
     std::snprintf(m,sizeof m,
       "ring: %llu enr/img (etat=%llu redondants=%llu evites-dll=%llu dessins=%llu lots=%llu) | %llu sommets/img | %llu Ko/img"
-      " | texup=%llu (%llu Ko/img) | attentes=%u perdus=%u | natdraw=%llu/img (intrinseque %llu/img) verif=%u/%u | h=0x%016llx",
+      " | texup=%llu (%llu Ko/img) | attentes=%u perdus=%u | natdraw=%llu/img (intrinseque %llu/img) verif=%u/%u taille-sommet=%u | h=0x%016llx",
       (unsigned long long)((g_grRecs-pR)/frames),(unsigned long long)((g_grState-pS)/frames),
       (unsigned long long)((g_grStateDup-pDup)/frames),(unsigned long long)((g_grDedupDll-pDD)/frames),
       (unsigned long long)((g_grDraws-pD)/frames),(unsigned long long)((g_grBatches-pL)/frames),
@@ -2575,6 +2576,7 @@ void gr_line(uint32_t frames){
       (unsigned long long)((g_grTexUp-pT)/frames),(unsigned long long)(((g_grTexUpB-pTB)/frames)>>10),
       g_grStalls,g_grDropped,(unsigned long long)((g_ndCalls-pN)/frames),(unsigned long long)((g_ndIntrin-pNI)/frames),
       g_grHdrHost? ((volatile uint32_t*)g_grHdrHost)[10] : 0u, g_grHdrHost? ((volatile uint32_t*)g_grHdrHost)[11] : 0u,
+      g_grHdrHost? ((volatile uint32_t*)g_grHdrHost)[12] : 0u,
       (unsigned long long)g_grHash);
     pN=g_ndCalls; pNI=g_ndIntrin;
     pR=g_grRecs;pD=g_grDraws;pV=g_grVerts;pB=g_grBytes;pL=g_grBatches;pS=g_grState;pT=g_grTexUp;pTB=g_grTexUpB;pDup=g_grStateDup;pDD=g_grDedupDll;
@@ -2678,6 +2680,27 @@ uint32_t gr_draw_native(d2rt::Cpu& c, uint32_t op, uint32_t mode, uint32_t count
             if(!v) continue;
             if(const void* hs=c.hostptr(v,stride)) std::memcpy(d+i*stride,hs,stride); else c.read(v,d+i*stride,stride);
         }
+    }
+    ++g_ndCalls; g_ndBytes+=bytes;
+    return g_grDataVA+off;
+}
+// Same record as gr_draw_native(D2GR_OP_DRAWVERTEXARRAY, ...), but the caller
+// hands HOST pointers to its vertices (native F3: the game's own vertex array,
+// reached directly): no per-vertex hostptr() — a virtual call with an arena
+// range check, 10 per strip, two strips per drawn cell. A null pointer leaves
+// its slot unwritten, as in gr_draw_native.
+uint32_t gr_draw_native_hv(uint32_t mode, uint32_t count, const uint8_t* const* hv, uint32_t stride){
+    if(!g_grHdrHost || !g_grRingHost || stride>D2GR_MAX_STRIDE) return 0;
+    const uint32_t bytes=count*stride, words=4u+((bytes+3u)>>2);
+    uint32_t off=0; uint32_t* p=gr_nd_alloc(words,&off);
+    if(!p) return 0;
+    p[0]=D2GR_HDR(D2GR_OP_DRAWVERTEXARRAY,words); p[1]=mode; p[2]=count; p[3]=stride;
+    uint8_t* d=(uint8_t*)(p+4);
+    if(stride==28u){
+        for(uint32_t i=0;i<count;i++){ if(!hv[i]) continue;
+            uint32_t w[7]; std::memcpy(w,hv[i],28); std::memcpy(d+i*28u,w,28); }
+    } else {
+        for(uint32_t i=0;i<count;i++) if(hv[i]) std::memcpy(d+i*stride,hv[i],stride);
     }
     ++g_ndCalls; g_ndBytes+=bytes;
     return g_grDataVA+off;

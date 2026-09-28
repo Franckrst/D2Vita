@@ -42,6 +42,23 @@ the source of truth for the public repository.
       untextured instead of a stale sprite — console confirmation pending.
       The boot_progress log is asynchronous (periodic reports no longer stall
       the game thread; `journal=0` on console).
+- [x] Act V frame cost cut ~1.6 ms of guest work per frame by default
+      (2026-09-28, console, Harrogath patrol, same-route interleaved
+      passes): trap round trips for intrinsics served in line from the
+      translated code (`D2_INTRINLINE`), the ring DLL's per-vertex copy in
+      line, 32 KiB read-ahead on a seek. Native F3 optimized and served in
+      line takes another ~1.25 ms but stays opt-in (`D2_F3NATIF=1`).
+      New measurement flavour `D2VPK_BLKSAMP=1` gives the first reliable
+      time-per-function profile (`tools/bancs/blksamp_fonctions.py`).
+- [x] Act V stutter fixed (2026-09-28): the engine-side 25 Hz online frame
+      cap (`D2_ONLINE_CAP`) armed whenever `D2NET` was set — i.e. in solo
+      too. Solo D2 already draws exactly once per 40 ms simulation step; the
+      cap waited 40 ms rounded up to the next ms plus wake-up latency
+      (~41.6 ms/frame), drifted against D2's own clock and made D2 skip
+      draws. Now off by default: 24.0 → 25.0 fps and 25 → 3 frames over
+      60 ms per 110 s of Harrogath patrol (console, 1 pass before, 3 after).
+      Online play has no cap either unless `D2_ONLINE_CAP=<hz>` is set —
+      not re-measured online.
 - [x] Native 960×544 resolution (`D2_RES`, on by default; `D2_RES=0` or
       `D2_RES=WxH`, 640×480 to 1280×1024, to override): the game itself
       draws 960×544 (one texel = one pixel, no filter, no pillarbox),

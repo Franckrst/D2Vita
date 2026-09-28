@@ -2,7 +2,8 @@
 #ifdef __vita__
 #include "runtime/gil.h"
 #include <malloc.h>
-#include "runtime/trapcnt.h"   // trap counts per slot: the denominator for the "traversals" cost line
+#include "runtime/trapcnt.h"
+#include <utility>   // trap counts per slot: the denominator for the "traversals" cost line
 #ifdef D2_TLSWRAP
 // Counter defined in rt_boot.cpp (measurement build D2VPK_TLSWRAP=1). Must be
 // declared at FILE scope: an extern "C" linkage spec is not allowed inside a
@@ -939,6 +940,13 @@ extern "C" { extern uint32_t d2rt_timeprof_base; }   // guest module base (cpu_b
 // samples are kept WITH their timestamp, and rt_boot retroactively keeps only
 // the ones that fall inside a frame that exceeded the threshold.
 extern "C" {
+    extern volatile uint32_t dyn86_blksamp_ip;        // D2_BLKSAMP flavour (engine, dyn86.c)
+    extern const int dyn86_blksamp_built;
+    // DBGetBlock counters (engine, dynablock.c): always defined, counted only
+    // in the D2_BLKSAMP flavour.
+    extern volatile unsigned long long dyn86_dbg_calls, dyn86_dbg_tests, dyn86_dbg_hashb, dyn86_dbg_inval, dyn86_dbg_always;
+    extern volatile uint32_t d2rt_frame_now;          // frame_profile.cpp (needs WX86_FRAMEPROF)
+    const char* wx86_slot_tag(uint32_t idx);          // engine, bridge.cpp
     volatile uint32_t d2rt_ts_w = 0;                  // write index
     uint64_t d2rt_ts_t[4096];                         // timestamp (us)
     uint32_t d2rt_ts_ip[4096];                        // guest EIP
@@ -960,7 +968,63 @@ volatile bool g_wd_stop = false;
 // sample represents equal time and the resulting shares are genuine time
 // shares.
 volatile bool g_ts_stop = false;
+// ---- D2_BLKSAMP: whole-window block profile, dumped once ------------------
+// The 10 s top-8 above cannot rank functions: a function is spread over tens
+// of blocks. Here every sample between frames D2_TIMESAMP_FROM and
+// D2_TIMESAMP_TO (default: the Act V patrol window, 2800-5700) goes into one
+// table, dumped in full at the end as "blksamp:" lines (rva=n, or
+// S<slot>=n for time inside a shim). tools/bancs/blksamp_fonctions.py folds
+// blocks into their enclosing functions offline.
+struct BsEnt { unsigned ip, n; };
+static BsEnt  g_bs[16384];
+static unsigned g_bsFrom = 2800, g_bsTo = 5700, g_bsState = 0;   // 0 before, 1 counting, 2 dumped
+static unsigned long long g_bsTot = 0, g_bsDrop = 0, g_bsIdle = 0;
+static void bs_note(unsigned ip) {
+    const unsigned fr = d2rt_frame_now;
+    if (g_bsState == 0) { if (fr < g_bsFrom) return; g_bsState = 1; }
+    if (g_bsState == 2) return;
+    if (fr > g_bsTo) {
+        g_bsState = 2;
+        char m[1000]; int w = std::snprintf(m, sizeof m,
+            "blksamp: fenetre f%u-f%u echantillons=%llu vides=%llu perdus=%llu base=%x",
+            g_bsFrom, g_bsTo, g_bsTot, g_bsIdle, g_bsDrop, d2rt_timeprof_base);
+        d2vita_progress(m);
+        w = std::snprintf(m, sizeof m, "blk:"); int k = 0;
+        for (unsigned i = 0; i < 16384; ++i) {
+            const BsEnt& e = g_bs[i]; if (!e.ip) continue;
+            if ((e.ip & 0xFFFF0000u) == 0xFFFD0000u) {
+                // ENGINE stage of a trap round trip (cpu_box86.cpp BLKSAMP_STAGE).
+                w += std::snprintf(m + w, sizeof m - w, " E%u=%u", e.ip & 0xFFFFu, e.n);
+            } else if ((e.ip & 0xFFFF0000u) == 0xFFFE0000u) {
+                // A native port's PHASE marker (e.g. native_f3_114.cpp PH()).
+                w += std::snprintf(m + w, sizeof m - w, " P%u=%u", e.ip & 0xFFFFu, e.n);
+            } else if ((e.ip & 0xFFFF0000u) == 0xFFFF0000u) {
+                const char* t = wx86_slot_tag(e.ip & 0xFFFFu); const char* b = t ? std::strchr(t, '!') : nullptr;
+                w += std::snprintf(m + w, sizeof m - w, " S%s=%u", b ? b + 1 : (t ? t : "?"), e.n);
+            } else if (d2rt::trapcnt::base && e.ip >= d2rt::trapcnt::base && e.ip < d2rt::trapcnt::base + (d2rt::trapcnt::kMax << 4)) {
+                // A translated block AT a trap slot: the dispatch into the
+                // Bridge before the shim body starts, or an intrinsic served
+                // inline (it never enters the Bridge, so never sets S<slot>).
+                const char* t = wx86_slot_tag((e.ip - d2rt::trapcnt::base) >> 4); const char* b = t ? std::strchr(t, '!') : nullptr;
+                w += std::snprintf(m + w, sizeof m - w, " T%s=%u", b ? b + 1 : (t ? t : "?"), e.n);
+            } else w += std::snprintf(m + w, sizeof m - w, " %x=%u", e.ip - d2rt_timeprof_base, e.n);
+            if (++k == 40 || w > 900) { d2vita_progress(m); w = std::snprintf(m, sizeof m, "blk:"); k = 0; }
+        }
+        if (k) d2vita_progress(m);
+        d2vita_progress("blksamp: fin");
+        return;
+    }
+    ++g_bsTot;
+    if (!ip) { ++g_bsIdle; return; }
+    unsigned h = (ip * 2654435761u) >> 18, i = 0;
+    for (; i < 64; ++i) { BsEnt& t = g_bs[(h + i) & 16383];
+        if (t.ip == ip) { ++t.n; return; }
+        if (!t.ip) { t.ip = ip; t.n = 1; return; } }
+    ++g_bsDrop;
+}
 int timesamp_thread(SceSize, void*) {
+    if (const char* e = std::getenv("D2_TIMESAMP_FROM")) g_bsFrom = (unsigned)std::atoi(e);
+    if (const char* e = std::getenv("D2_TIMESAMP_TO"))   g_bsTo   = (unsigned)std::atoi(e);
     const char* e = std::getenv("D2_TIMESAMP");
     const unsigned per_us = (e && *e && *e != '0') ? (unsigned)std::atoi(e) : 0;
     if (!per_us) return 0;
@@ -971,7 +1035,11 @@ int timesamp_thread(SceSize, void*) {
     uint64_t t_pub = sceKernelGetProcessTimeWide();
     while (!g_ts_stop) {
         sceKernelDelayThread(per_us);
-        const unsigned ip = g_wd_eip ? *g_wd_eip : 0u;
+        // Block flavour (-DD2_BLKSAMP): the word written at every block entry
+        // and at every shim entry — the code running NOW. Otherwise the emu's
+        // EIP, only refreshed at dispatcher exits (biased, audit §4).
+        const unsigned ip = dyn86_blksamp_built ? (unsigned)dyn86_blksamp_ip : (g_wd_eip ? *g_wd_eip : 0u);
+        if (dyn86_blksamp_built) bs_note(ip);
         { const uint32_t w = d2rt_ts_w & 4095u;
           d2rt_ts_t[w] = sceKernelGetProcessTimeWide(); d2rt_ts_ip[w] = ip;
           d2rt_ts_w = d2rt_ts_w + 1; }
@@ -1224,6 +1292,44 @@ int watchdog_thread(SceSize, void*) {
                     (unsigned long long)tot, (unsigned long long)dT, dF,
                     (unsigned long long)(dF > 0 ? dT / (uint64_t)dF : 0));
                 d2vita_progress(tp);
+                // D2_TRAPTOP=1: the 12 busiest slots of the window, per frame,
+                // named — shims AND intrinsics (trapcnt counts both). Says
+                // which traps make up the ~1000 round trips per frame.
+                static int s_top = -1; if (s_top < 0) s_top = std::getenv("D2_TRAPTOP") ? 1 : 0;
+                static uint64_t s_prevHit[d2rt::trapcnt::kMax];
+                if (s_top && dF > 0) {
+                    uint32_t best[12]; uint64_t bv[12]; int nb = 0;
+                    for (uint32_t i = 0; i < d2rt::trapcnt::kMax; ++i) {
+                        const uint64_t d = d2rt::trapcnt::hits[i] - s_prevHit[i];
+                        s_prevHit[i] = d2rt::trapcnt::hits[i];
+                        if (!d) continue;
+                        int j;
+                        if (nb < 12) j = nb++;
+                        else if (bv[11] < d) j = 11;
+                        else continue;
+                        best[j] = i; bv[j] = d;
+                        for (; j > 0 && bv[j-1] < bv[j]; --j) { std::swap(bv[j], bv[j-1]); std::swap(best[j], best[j-1]); }
+                    }
+                    char tt[900]; int w = std::snprintf(tt, sizeof tt, "traps/top:");
+                    for (int k = 0; k < nb && w < (int)sizeof tt - 64; ++k) {
+                        const char* t = wx86_slot_tag(best[k]); const char* b = t ? std::strchr(t, '!') : nullptr;
+                        w += std::snprintf(tt + w, sizeof tt - w, " %s=%llu", b ? b + 1 : (t ? t : "?"),
+                                           (unsigned long long)(bv[k] / (uint64_t)dF));
+                    }
+                    d2vita_progress(tt);
+                }
+                if (dyn86_blksamp_built && dF > 0) {
+                    static unsigned long long pc = 0, pt = 0, ph = 0, pi = 0, pa = 0;
+                    const unsigned long long c = dyn86_dbg_calls, t = dyn86_dbg_tests, h = dyn86_dbg_hashb,
+                                             iv = dyn86_dbg_inval, al = dyn86_dbg_always;
+                    char dg[240];
+                    std::snprintf(dg, sizeof dg,
+                        "dbgetblock: appels=%llu/img test+hachage=%llu/img (%llu o/img) toujours-teste=%llu/img invalides=%llu",
+                        (c - pc) / (unsigned long long)dF, (t - pt) / (unsigned long long)dF,
+                        (h - ph) / (unsigned long long)dF, (al - pa) / (unsigned long long)dF, iv - pi);
+                    d2vita_progress(dg);
+                    pc = c; pt = t; ph = h; pi = iv; pa = al;
+                }
                 s_prevTraps = tot; s_prevFrames = fr;
             } }
           // Cell-loop fork-join (D2_CELLPAR). The final report never arrives

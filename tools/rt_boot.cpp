@@ -2779,6 +2779,9 @@ int main(int argc,char**argv){
                        "que ring: (dessins/sommets par image) n'a pas bouge"
                      : "nopend: mode=%d", v);
           std::printf("%s\n",m); d2vita_progress(m); } }
+    { extern int dyn86_repmovs;
+      if(const char* e=getenv("D2_REPMOVS")){ dyn86_repmovs = atoi(e)==1 ? 1 : atoi(e)==9 ? 9 : 0;   // 9 = SABOTAGE (the fast path drops its 16-byte stores): oracle self-test only
+          jpline("dynarec: REP MOVSD par paquets de 16 octets %s (D2_REPMOVS=%d)", dyn86_repmovs?"ACTIF":"inactif", dyn86_repmovs); } }
     { extern int box86_dynarec_forward;
       if(const char* e=getenv("D2_FORWARD")){ int v=atoi(e); if(v<0) v=0;
           box86_dynarec_forward = v;
@@ -3952,6 +3955,18 @@ int main(int argc,char**argv){
           // D2_GLCOPY=boucle: the DLL copies draws with its old C loop instead
           // of rep movs (A/B of the copy only; default rep movs).
           { const char* e=getenv("D2_GLCOPY"); c.write_u32(cfg+32,(e&&!strcmp(e,"boucle"))?1u:0u); }
+          // D2_GLRUNS=0: the DLL copies drawn vertices one call per vertex, as
+          // before it coalesced contiguous ones into runs (A/B of that change).
+          // Vertex copy of grDrawVertexArray/draw_ptrs (glide3x_ring.c). Default
+          // (and D2_GLRUNS=2): each vertex copied in line, unrolled, without
+          // a call — a Perspective strip's vertices are never contiguous.
+          // Console, Act V patrol, route A, 28/09/2026: guest run 27.5 ms/img
+          // (3 passes, D2_GLRUNS=0) -> 26.6 ms/img (2 passes). 1 = runs of
+          // contiguous vertices through d2gr_copy (measured neutral), 0 = one
+          // d2gr_copy call per vertex (the old path).
+          { const char* e=getenv("D2_GLRUNS");
+            c.write_u32(cfg+36,(e&&!strcmp(e,"0"))?1u:0u);
+            c.write_u32(cfg+40,(e&&(!strcmp(e,"0")||!strcmp(e,"1")))?0u:1u); }
           std::snprintf(m,sizeof m,"ring: ARME — en-tete 0x%08x donnees 0x%08x taille %u Ko, TMU annoncee %u Mio x%u (v%u) dedup-DLL=%s natdraw=%u",
                         hdr,grDataVA,grSize>>10,texmax>>20,ntmu,ver,dedup?"oui":"NON (D2_GRDEDUP=0)",natdraw);
           d2vita_progress(m); std::printf("[%s]\n",m); std::fflush(stdout);
@@ -3968,7 +3983,7 @@ int main(int argc,char**argv){
           gr_flush(c,c.arg(0),pp_flush_begin);   // D2_GRPROF benchmark, flush timing, pp_flush_begin (D2_PHASEPROF), gr_replay, tail/stalls/dropped
           pp_flush_end();
           online_cap_wait(online_cap_period_us());   // D2_ONLINE_CAP: see the comment at its definition site
-          ++g_frame; lw_frame(c); pp_frame(); fp_tick(g_frame); ep_tick(g_frame); cmd_poll(); frameTick(c);   // lw_frame: D2_LOOPWATCH also sees the ring path
+          ++g_frame; lw_frame(c); pp_frame(); fp_owner(&c); fp_tick(g_frame); ep_tick(g_frame); cmd_poll(); frameTick(c);   // lw_frame: D2_LOOPWATCH also sees the ring path
 #ifdef D2V_CRASHTEST
           d2crashtest_tick(c, br, g_frame);
 #endif

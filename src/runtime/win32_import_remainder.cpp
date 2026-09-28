@@ -171,19 +171,76 @@ void win32_import_remainder_install(Bridge& br){
               out+=cv;                                            // unknown: literal
           }
           return out; };
-      Shim ws; ws.argc=0; ws.stdcall_cleanup=false; ws.tag="USER32.dll!wsprintfA";
-      ws.fn=[fmtA](Cpu&c)->uint32_t{ uint32_t E=c.reg(R_ESP);
-          uint32_t buf=c.read_u32(E+4), fp=c.read_u32(E+8), ai=E+12;
-          std::string r=fmtA(c,fp,[&](){ uint32_t v=c.read_u32(ai); ai+=4; return v; });
-          if(buf) c.write(buf,r.c_str(),(uint32_t)r.size()+1);
+      // FAST formatter, same walk and same 1024 cap as fmtA above, without
+      // std::function, without a std::string per specifier, and with the
+      // plain %d/%u/%x (no flag, no width) converted directly instead of
+      // through newlib's snprintf. The game calls wsprintfA 30-60 times per
+      // frame (UI text): ~14 us per call measured on console (block
+      // sampler, Act V patrol, 28/09/2026), 1.45 % of the frame.
+      // fmtA stays as the ORACLE: D2_WSPRINTF_VERIFY=1 runs both on every
+      // call and counts any difference in the text or the length.
+      auto fmtFast=[](Cpu& c,uint32_t fmtp,auto next,std::string& out){
+          const std::string f=gread_mb(c,fmtp,-1);
+          out.clear(); out.reserve(f.size()+64);
+          const size_t n=f.size();
+          for(size_t i=0;i<n&&out.size()<1024;i++){
+              const char ch=f[i];
+              if(ch!='%'){ out+=ch; continue; }
+              char spec[40]; size_t sl=0; spec[sl++]='%'; ++i;
+              bool plain=true;
+              while(i<n&&(f[i]=='-'||f[i]=='0'||f[i]=='#'||f[i]==' '||(f[i]>='1'&&f[i]<='9')||f[i]=='.')){
+                  if(sl<sizeof spec-4) spec[sl++]=f[i]; plain=false; ++i; }
+              if(i<n&&f[i]=='l'){ if(sl<sizeof spec-4) spec[sl++]='l'; ++i; }
+              if(i>=n) break;
+              const char cv=f[i]; char tmp[64];
+              if(cv=='%'){ out+='%'; continue; }
+              if(cv=='s'){ const uint32_t p=next(); if(p) out+=gread_mb(c,p,-1); else out+="(null)"; continue; }
+              if(cv=='c'){ out+=(char)next(); continue; }
+              if(cv=='d'||cv=='i'||cv=='u'||cv=='x'||cv=='X'){
+                  const uint32_t v=next();
+                  if(plain){
+                      char* e=tmp+sizeof tmp; char* q=e;
+                      if(cv=='x'||cv=='X'){ const char* dg=(cv=='x')?"0123456789abcdef":"0123456789ABCDEF";
+                          uint32_t u=v; do{ *--q=dg[u&15u]; u>>=4; }while(u); }
+                      else if(cv=='u'){ uint32_t u=v; do{ *--q=(char)('0'+u%10u); u/=10u; }while(u); }
+                      else { const int32_t sv=(int32_t)v; uint32_t u=sv<0?0u-(uint32_t)sv:(uint32_t)sv;
+                             do{ *--q=(char)('0'+u%10u); u/=10u; }while(u); if(sv<0) *--q='-'; }
+                      out.append(q,(size_t)(e-q)); continue; }
+                  spec[sl++]=(cv=='i')?'d':cv; spec[sl]=0;
+                  if(cv=='d'||cv=='i') std::snprintf(tmp,sizeof tmp,spec,(int32_t)v);
+                  else std::snprintf(tmp,sizeof tmp,spec,v);
+                  out+=tmp; continue; }
+              out+=cv;                                            // unknown: literal
+          }
+      };
+      static const bool vfy = std::getenv("D2_WSPRINTF_VERIFY") != nullptr;
+      static uint64_t vfyN=0, vfyBad=0;
+      // c.write, not a hostptr memcpy: it keeps the dynarec's dirty-page
+      // tracking, exactly as before.
+      auto emit=[](Cpu& c,uint32_t buf,const std::string& r){
+          if(buf) c.write(buf,r.c_str(),(uint32_t)r.size()+1); };
+      auto run=[fmtA,fmtFast,emit](Cpu& c,uint32_t buf,uint32_t fp,uint32_t args)->uint32_t{
+          static std::string r;
+          uint32_t a=args;
+          fmtFast(c,fp,[&](){ const uint32_t v=c.read_u32(a); a+=4; return v; },r);
+          if(vfy){
+              uint32_t b=args;
+              const std::string ref=fmtA(c,fp,[&](){ const uint32_t v=c.read_u32(b); b+=4; return v; });
+              ++vfyN;
+              if(ref!=r){ ++vfyBad;
+                  if(vfyBad<=8) jpline("wsprintf ORACLE: divergence #%llu fmt=\"%.60s\" attendu=\"%.60s\" obtenu=\"%.60s\"",
+                      (unsigned long long)vfyBad,gread_mb(c,fp,-1).c_str(),ref.c_str(),r.c_str()); }
+              if((vfyN&4095u)==0) jpline("wsprintf ORACLE: %llu appels compares, %llu divergences",(unsigned long long)vfyN,(unsigned long long)vfyBad);
+          }
+          emit(c,buf,r);
           return (uint32_t)r.size(); };
+      Shim ws; ws.argc=0; ws.stdcall_cleanup=false; ws.tag="USER32.dll!wsprintfA";
+      ws.fn=[run](Cpu&c)->uint32_t{ const uint32_t E=c.reg(R_ESP);
+          return run(c,c.read_u32(E+4),c.read_u32(E+8),E+12); };
       br.register_shim("USER32.dll","wsprintfA",ws);
       Shim wv=ws; wv.tag="USER32.dll!wvsprintfA";
-      wv.fn=[fmtA](Cpu&c)->uint32_t{ uint32_t E=c.reg(R_ESP);
-          uint32_t buf=c.read_u32(E+4), fp=c.read_u32(E+8), va=c.read_u32(E+12);
-          std::string r=fmtA(c,fp,[&](){ uint32_t v=c.read_u32(va); va+=4; return v; });
-          if(buf) c.write(buf,r.c_str(),(uint32_t)r.size()+1);
-          return (uint32_t)r.size(); };
+      wv.fn=[run](Cpu&c)->uint32_t{ const uint32_t E=c.reg(R_ESP);
+          return run(c,c.read_u32(E+4),c.read_u32(E+8),c.read_u32(E+12)); };
       br.register_shim("USER32.dll","wvsprintfA",wv); }
 
     // ---------------- ADVAPI32: NT services (never actually a service) -----

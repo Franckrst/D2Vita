@@ -28,6 +28,7 @@ void gr_tex_upload_count(uint64_t nb);
 // as glide3x_ring.c would; returns its guest VA (0 = nothing written).
 // gr_draw_intrinsic serves the same call without a Bridge crossing.
 uint32_t gr_draw_native(d2rt::Cpu& c, uint32_t op, uint32_t mode, uint32_t count, uint32_t src, uint32_t stride);
+uint32_t gr_draw_native_hv(uint32_t mode, uint32_t count, const uint8_t* const* hv, uint32_t stride);
 bool gr_draw_intrinsic(d2rt::Cpu& c, uint32_t slot);
 // Texture identity on the host is (tmu, startAddress): with GR_NUM_TMU >= 2
 // the game keeps caches on both TMUs and their address ranges start at 0.

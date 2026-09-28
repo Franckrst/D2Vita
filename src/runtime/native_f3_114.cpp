@@ -58,6 +58,15 @@
 using namespace d2rt;
 
 extern "C" uintptr_t dyn86_membase;   // guest VA -> host: membase + va
+extern "C" void wx86_intrinline_counts(int* on, unsigned long long* stubs, unsigned long long* skip);   // engine, cpu_box86.cpp
+// Block-sampler flavour (D2VPK_BLKSAMP): the sampled word takes a PHASE value
+// (0xFFFE0000 | phase) inside this port, so the sampler splits the shim's
+// time by phase without a clock read (rt_now_us costs ~1.3 us on Vita, and
+// D2_F3PROF's per-cell reads inflated what they measured). A plain store,
+// dead weight outside the flavour (dyn86_blksamp_built is 0).
+extern "C" { extern volatile uint32_t dyn86_blksamp_ip; extern const int dyn86_blksamp_built; }
+static inline void PH(uint32_t ph){ if(dyn86_blksamp_built) dyn86_blksamp_ip = 0xFFFE0000u | ph; }
+enum { PH_ACCEPT=1, PH_FRONT=2, PH_CORNERS=3, PH_MID=4, PH_GRID=5, PH_WVTX=6, PH_DRAW=7, PH_STEP=8 };
 
 namespace {
 
@@ -149,7 +158,7 @@ static uint32_t lut(const Glob& g, uint32_t colour){
     return 0xFF000000u | ((uint32_t)b1 << 16) | ((uint32_t)b2 << 8) | b3;
 }
 
-struct Vtx { float x, y; uint32_t col; bool set; };
+struct Vtx { float x, y; uint32_t col; };
 
 // One activation of F3 (not reentrant: 0x50fbd0 never calls F3).
 struct State {
@@ -173,7 +182,7 @@ static bool visible(float x, float y){
     const double X=x, Y=y;
     return X >= (double)(float)S.L && X < (double)S.R && Y >= (double)S.T && Y < (double)S.B;
 }
-static void set_vtx(int k, int32_t ox, int32_t oy){ S.v[k].x=(float)ox; S.v[k].y=(float)oy; S.v[k].set=true; }
+static void set_vtx(int k, int32_t ox, int32_t oy){ S.v[k].x=(float)ox; S.v[k].y=(float)oy; }
 
 // Corners and visibility of cell S.i; fills the cell part of S. False = culled.
 static bool cell_front(Cpu& c){
@@ -187,17 +196,23 @@ static bool cell_front(Cpu& c){
     const int32_t T3=(int32_t)ld(b+12), T4=(int32_t)ld(b+16), T5=(int32_t)ld(b+20);
     S.x0w=T0+S.Xs; S.y0w=T1+S.Ys; S.a0=T2-dy;
     S.x2w=T3+S.Xs; S.y2w=T4+S.Ys; S.a2=T5-dy;
-    for(auto& v: S.v) v.set=false;
     load_glob(S.g);
-    PJ p[4]; int32_t ox,oy;
+    PJ p[4]; int32_t ox[4],oy[4];
     pj_start(S.g,S.x0w,S.y0w,S.a0,p[0]);
     pj_start(S.g,S.x0w,S.y0w,S.a0-0x20,p[1]);
     pj_start(S.g,S.x2w,S.y2w,S.a2-0x20,p[2]);
     pj_start(S.g,S.x2w,S.y2w,S.a2,p[3]);
-    pj_end(S.g,p[0],&ox,&oy); set_vtx(0,ox,oy);
-    pj_end(S.g,p[1],&ox,&oy); set_vtx(12,ox,oy);
-    pj_end(S.g,p[2],&ox,&oy); set_vtx(14,ox,oy);
-    pj_end(S.g,p[3],&ox,&oy); set_vtx(2,ox,oy);
+    static const int K[4]={0,12,14,2};
+    for(int i=0;i<4;i++){ pj_end(S.g,p[i],&ox[i],&oy[i]); set_vtx(K[i],ox[i],oy[i]); }
+    // Integer test when every value converts to float EXACTLY (|v| < 2^24):
+    // then (double)(float)v == v and visible()'s comparisons are the integer
+    // ones. Outside that range, the original float/double test.
+    auto small=[](int32_t v){ return v > -(1<<24) && v < (1<<24); };
+    if(small(S.L)&&small(S.T)&&small(S.R)&&small(S.B)
+       &&small(ox[0])&&small(ox[1])&&small(ox[2])&&small(ox[3])&&small(oy[0])&&small(oy[1])&&small(oy[2])&&small(oy[3])){
+        for(int i=0;i<4;i++) if(ox[i]>=S.L && ox[i]<S.R && oy[i]>=S.T && oy[i]<S.B) return true;
+        return false;
+    }
     return visible(S.v[0].x,S.v[0].y) || visible(S.v[12].x,S.v[12].y)
         || visible(S.v[14].x,S.v[14].y) || visible(S.v[2].x,S.v[2].y);
 }
@@ -301,15 +316,50 @@ static void write_corners(Cpu& c){
         std::memcpy(a,&S.v[k].x,4); std::memcpy(a+4,&S.v[k].y,4);
     }
 }
+// One grDrawVertexArray(4, 10, strip) record. Fast path: every pointer of the
+// strip lies in the game's vertex array (the case F3 is written for), reached
+// directly in host memory. Anything else: the generic gr_draw_native.
+// D2_F3CHECK=1 re-reads the record just written against the generic path's
+// bytes (the vertex memory it would have read), and counts differences.
+static bool g_f3check=false; static uint64_t n_chk=0, n_chk_bad=0, n_draw_fast=0, n_draw_slow=0;
+static void draw_strip(Cpu& c, uint32_t rvaPtrs, uint32_t stride){
+    const uint32_t lo=VA(RVA_VTX), hi=lo+15u*VTX_STRIDE;
+    const uint8_t* hv[10]; bool fast=true;
+    for(int i=0;i<10;i++){ const uint32_t p=ld(VA(rvaPtrs)+4u*i);
+        if(p<lo || p>=hi || p+stride>hi+VTX_STRIDE){ fast=false; break; }
+        hv[i]=G(p); }
+    if(!fast){ ++n_draw_slow; gr_draw_native(c,D2GR_OP_DRAWVERTEXARRAY,4,10,VA(rvaPtrs),stride); return; }
+    ++n_draw_fast;
+    const uint32_t rec=gr_draw_native_hv(4,10,hv,stride);
+    if(g_f3check && rec){
+        ++n_chk;
+        const uint8_t* got=(const uint8_t*)c.hostptr(rec+16u,10u*stride);
+        std::vector<uint8_t> exp(10u*stride);
+        for(int i=0;i<10;i++){ const uint32_t p=c.read_u32(VA(rvaPtrs)+4u*i); c.read(p,&exp[(size_t)i*stride],stride); }
+        if(!got || std::memcmp(got,exp.data(),exp.size())!=0){
+            ++n_chk_bad;
+            if(n_chk_bad<=4) jpline("F3 natif CONTROLE: enregistrement de bande different (#%llu)",(unsigned long long)n_chk_bad); }
+    }
+}
 static uint32_t step(Cpu& c, Bridge& br){
     while((int32_t)S.i < (int32_t)S.count){
         ++n_cells;
         const uint64_t t0 = g_prof ? now_us() : 0;
+        PH(PH_FRONT);
         const bool vis=cell_front(c);
-        write_corners(c);
+        PH(PH_STEP);
         if(g_prof) us_front += now_us()-t0;
-        if(!vis){ ++S.i; continue; }
+        // The original writes the four corners of EVERY cell. A culled cell's
+        // corners are overwritten by the next cell before any guest code runs
+        // (culled cells call nothing): only the visible cell's (before the
+        // guest texture call) and the LAST cell's are observable.
+        if(!vis){ ++S.i; if((int32_t)S.i >= (int32_t)S.count){ PH(PH_CORNERS); write_corners(c); PH(PH_STEP); } continue; }
+        PH(PH_CORNERS);
+        write_corners(c);
+        PH(PH_STEP);
+        PH(PH_MID);
         cell_mid(c);
+        PH(PH_STEP);
         // 0x50fbd0(ecx = cell): guest code, returns into the continuation trap.
         st(S.E-4,g_trapCont);
         c.set_reg(R_ECX,S.cellptr);
@@ -325,15 +375,19 @@ static uint32_t step(Cpu& c, Bridge& br){
 static uint32_t cont(Cpu& c, Bridge& br){
     if(!S.active){ d2_crashlog("F3 natif: continuation sans activation"); return c.reg(R_EAX); }
     const uint64_t t0 = g_prof ? now_us() : 0;
+    PH(PH_GRID);
     cell_grid(c);
+    PH(PH_WVTX);
     write_vtx(c);
+    PH(PH_DRAW);
     const uint64_t t1 = g_prof ? now_us() : 0;
     volatile uint32_t* H=nullptr; const uint8_t* R=nullptr; uint32_t sz=0;
     gr_ring_view(&R,&sz,&H);
     const uint32_t stride=H[12];
-    gr_draw_native(c,D2GR_OP_DRAWVERTEXARRAY,4,10,VA(RVA_STRIP0),stride);
-    gr_draw_native(c,D2GR_OP_DRAWVERTEXARRAY,4,10,VA(RVA_STRIP1),stride);
+    draw_strip(c,RVA_STRIP0,stride);
+    draw_strip(c,RVA_STRIP1,stride);
     if(g_prof){ const uint64_t t2=now_us(); us_grid+=t1-t0; us_draw+=t2-t1; }
+    PH(PH_STEP);
     S.drew=true; ++n_drawn; ++S.i;
     return step(c,br);
 }
@@ -397,6 +451,7 @@ void native_f3_install(Cpu* cpu, Bridge& br){
     const char* e=getenv("D2_F3NATIF");
     g_mode = e ? atoi(e) : 0;
     g_prof = getenv("D2_F3PROF") != nullptr;
+    g_f3check = getenv("D2_F3CHECK") != nullptr;
     if(g_mode<1 || g_mode>2 || !g_114 || !g_d2base) return;
     g_cpu=cpu;
     // The original must start with `push ebp; mov ebp,esp; sub esp,0x60`.
@@ -416,7 +471,9 @@ void native_f3_install(Cpu* cpu, Bridge& br){
         ++n_calls;
         if(S.active || S.verify){ ++n_fb_busy; return fallback(c,br); }   // never nested
         const uint64_t ta = g_prof ? now_us() : 0;
+        PH(PH_ACCEPT);
         const bool ok = accept(c);
+        PH(PH_STEP);
         if(g_prof) us_accept += now_us()-ta;
         if(!ok) return fallback(c,br);
         if(g_mode==2) return verify_enter(c,br);
@@ -424,6 +481,11 @@ void native_f3_install(Cpu* cpu, Bridge& br){
         return step(c,br); };
     br.register_shim("native.hook","f3",se);
     cpu->set_alternate(VA(RVA_F3),br.shim_trap("native.hook","f3"));
+    // D2_INTRINLINE: the entry and the continuation never block — served in
+    // line from translated code (~300-480 round trips per frame in Act V).
+    if(g_mode==1){ cpu->set_inline_shim(br.shim_trap("native.hook","f3")); cpu->set_inline_shim(g_trapCont);
+        int on=0; unsigned long long st=0, sk=0; wx86_intrinline_counts(&on,&st,&sk);
+        if(on) jpline("F3 natif: entree et continuation servies EN LIGNE (D2_INTRINLINE, %llu stubs en ligne au total, %llu laisses en sortie)",st,sk); }
     jpline("F3 natif: ARME (%s) — Game+0x%x, texture en continuation, dessins ecrits par l'hote",
            g_mode==2?"ORACLE, le jeu dessine":"sert",RVA_F3);
 }
@@ -432,6 +494,8 @@ void native_f3_line(){
     if(!g_mode) return;
     if(g_prof) jpline("f3prof: accept=%llu us coins+visibilite=%llu us grille=%llu us dessins=%llu us (cumules)",
         (unsigned long long)us_accept,(unsigned long long)us_front,(unsigned long long)us_grid,(unsigned long long)us_draw);
+    jpline("f3natif/bandes: directes=%llu generiques=%llu | controle D2_F3CHECK=%llu ecarts=%llu",
+        (unsigned long long)n_draw_fast,(unsigned long long)n_draw_slow,(unsigned long long)n_chk,(unsigned long long)n_chk_bad);
     jpline("f3natif: appels=%llu servis=%llu cellules=%llu dessinees=%llu | replis type=%llu sub=%llu glide=%llu ring=%llu imbrique=%llu | oracle=%llu divergences=%llu cellules-comparees=%llu octets=%llu",
         (unsigned long long)n_calls,(unsigned long long)n_served,(unsigned long long)n_cells,(unsigned long long)n_drawn,
         (unsigned long long)n_fb_type,(unsigned long long)n_fb_sub,(unsigned long long)n_fb_glide,(unsigned long long)n_fb_ring,

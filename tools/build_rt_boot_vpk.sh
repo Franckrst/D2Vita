@@ -163,7 +163,13 @@ WX86="$ROOT/third_party/winx86"
 # would overwrite each other under the same archive name).
 WX86_LIBTAG=""
 [ "${D2VPK_PROF:-0}" = "1" ] && WX86_LIBTAG="_prof"
-LIBTAG="$WX86_LIBTAG" EXTRA="$PROF_DEF" TARGET=vita bash "$WX86/build.sh" >/dev/null
+# D2VPK_BLKSAMP=1: MEASUREMENT flavour of the engine — every translated block
+# publishes its x86 address on entry, for D2_TIMESAMP's time-per-block
+# profile (dynarec_arm_pass.c). Costs ~5 ARM instructions per block entry:
+# never shipped. Build it into its own D2VPK_OUT.
+WX86_EXTRA="$PROF_DEF"
+if [ "${D2VPK_BLKSAMP:-0}" = "1" ]; then WX86_LIBTAG="${WX86_LIBTAG}_blksamp"; WX86_EXTRA="$WX86_EXTRA -DD2_BLKSAMP"; fi
+LIBTAG="$WX86_LIBTAG" EXTRA="$WX86_EXTRA" TARGET=vita bash "$WX86/build.sh" >/dev/null
 DYNLIB="$WX86/build-vita/libwinx86_vita${WX86_LIBTAG}.a"
 
 CXX=arm-vita-eabi-g++

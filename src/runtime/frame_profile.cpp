@@ -296,7 +296,15 @@ uint32_t online_cap_period_us(){
     if(v<0){ const char* e=getenv("D2_ONLINE_CAP");
         if(e && *e){ long hz=strtol(e,nullptr,10);
             v = (hz<=0) ? 0 : (int)(1000000L/((hz>120)?120:(int)hz)); }
-        else v = getenv("D2NET") ? (1000000/25) : 0;
+        // OFF by default since 28/09/2026. It used to arm whenever D2NET was
+        // set — i.e. in SOLO too, since the player's env always carries
+        // D2NET=1. Solo D2 already locks itself at exactly one draw per
+        // 40 ms step; this cap waited for 40 ms rounded UP to the next ms,
+        // plus wake-up latency (~41.6 ms/frame), drifted against D2's own
+        // clock and made D2 skip draws: 24.0 fps and 20-27 frames over 60 ms
+        // per 110 s of patrol, against 25.0 fps and 3 with the cap off
+        // (console, Act V patrol). Opt in with D2_ONLINE_CAP=<hz>.
+        else v = 0;
         if(v) d2vita_progress("online-cap: arme (cadence ciblee 25 Hz, cote moteur, aucun octet du jeu touche)"); }
     return (uint32_t)v;
 }
@@ -706,12 +714,21 @@ static void ep_line(){
                            (unsigned long long)(d[i]*100ull/tot));
     d2vita_progress(m); std::printf("[%s]\n",m); std::fflush(stdout);
 }
+// Per-frame slice of D2_NATPROF (engine, bridge.cpp): which shims the render
+// thread spent a slow frame in. Closes the slice on every frame; formats it
+// only for frames over the lagwatch threshold ("natif-image fN ..."). The
+// remainder INEXPLIQUE= of the lente# line is exactly this kind of time.
+extern "C" uint64_t wx86_natprof_frame_cut(const void* cpu, char* out, unsigned n, int topk, int emit);
+static const void* g_fpCpu = nullptr;
+extern "C" { volatile uint32_t d2rt_frame_now = 0; }   // last frame seen by fp_tick (D2_IOTRACE tags reads with it)
+void fp_owner(const void* cpu){ g_fpCpu = cpu; }
 void fp_tick(int frame){
     if(!g_fpArmed){ g_fpArmed = 1;
         g_fpOn = getenv("WX86_FRAMEPROF")!=nullptr || getenv("D2_FRAMEPROF")!=nullptr;
         if(g_fpOn){ g_fpPrev = fp_now(); g_fpWinBase = g_fpPrev; g_fpWinT0 = g_fpPrev.t;
                     g_fpPrevT = g_fpPrev.t; } }
     if(!g_fpOn) return;
+    d2rt_frame_now = (uint32_t)frame;
     FpCnt cur = fp_now();
     // PPTRACE events are stamped with rt_now_us (another clock origin than
     // cur.t): the frame window for the timeline dump is kept in that domain.
@@ -726,7 +743,10 @@ void fp_tick(int frame){
     g_fpHist[ ms<50?0 : ms<100?1 : ms<250?2 : ms<500?3 : ms<1000?4 : 5 ]++;
     { const unsigned b = ms>=120 ? 12u : (unsigned)(ms/10); ++g_fpWinHist[b]; }
     if(g_lagMs && ms >= g_lagMs){ lag_attrib(r, g_fpPrevT, cur.t); slow_collect(g_fpPrevT, cur.t);
-        { void pp_trace_dump(uint64_t,uint64_t,uint32_t); pp_trace_dump(g_fpPrevRt, nowRt, (uint32_t)frame); } }
+        { void pp_trace_dump(uint64_t,uint64_t,uint32_t); pp_trace_dump(g_fpPrevRt, nowRt, (uint32_t)frame); }
+        char nf[400]; const uint64_t tot = wx86_natprof_frame_cut(g_fpCpu, nf, sizeof nf, 8, 1);
+        if(nf[0]) jpline("natif-image f%d %ums: shims=%llums |%s", frame, ms, (unsigned long long)(tot/1000ull), nf); }
+    else wx86_natprof_frame_cut(g_fpCpu, nullptr, 0, 0, 0);
     g_fpPrevT = cur.t;
     fp_top_insert(r);
     ++g_fpWinFrames;

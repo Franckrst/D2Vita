@@ -34,7 +34,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 IP="${VITA_IP:-10.113.1.159}"
 FTP="ftp://$IP:1337/ux0:"
 W="${D2VITA_WORK:-$ROOT/build-vita/bancs/acte5}"
-REF="$W/save_banc_ref"; REFIMG="$W/ref_apparition_2499.png"; REFFIN="$W/ref_fin_5760.png"
+REF="$W/save_banc_ref"; REFIMG="$W/ref_apparition_2499.png"; REFFIN="$W/ref_fin_5760.png"; REFFIN_B="$W/ref_fin_5760_B.png"
 END=5850
 [ $# -ge 1 ] || { echo "usage: patrouille_acte5.sh <LAB> [VAR=val ...]"; exit 2; }
 LAB="$1"; shift
@@ -109,20 +109,52 @@ EOF
     echo "  controle parcours : reference de fin CREEE depuis cette passe ($REFFIN) — a verifier a l'oeil"
     return 0
   fi
-  python3 - "$TMP/fin.bmp" "$REFFIN" <<'PYEOF' || { echo "$LAB: parcours DIVERGENT (fin differente de la reference)"; return 1; }
-import sys
+  # TWO routes. The end-of-route gap is bimodal (~1 or ~16.7 on 30 passes,
+  # 27-28/09/2026): the patrol forks at ONE click (an NPC or the mercenary
+  # in the way) and each branch is itself reproducible (route B passes are
+  # within 1.6 of each other). A pass that matches route A or route B is
+  # measured and LABELLED with its route; A/B comparisons are made within
+  # one route only. Only an end matching neither is rejected.
+  local route
+  route=$(python3 - "$TMP/fin.bmp" "$REFFIN" "$REFFIN_B" <<'PYEOF'
+import sys, os
 from PIL import Image
 import numpy as np
 g=lambda p: np.asarray(Image.open(p).convert('L').resize((240,136)),dtype=float)[5:110]
-d=float(np.abs(g(sys.argv[1])-g(sys.argv[2])).mean())
-print(f"  controle parcours : ecart de la fin a la reference = {d:.1f} (seuil 6)")
-sys.exit(0 if d < 6 else 1)
+f=g(sys.argv[1])
+dA=float(np.abs(f-g(sys.argv[2])).mean())
+dB=float(np.abs(f-g(sys.argv[3])).mean()) if os.path.exists(sys.argv[3]) else 99.0
+r='A' if dA<6 else ('B' if dB<6 else '-')
+print(f"{r} {dA:.1f} {dB:.1f}")
 PYEOF
-  return 0
+)
+  echo "  controle parcours : route ${route%% *} (ecart a A=$(echo $route | cut -d' ' -f2), a B=$(echo $route | cut -d' ' -f3), seuil 6)"
+  case "${route%% *}" in
+    A|B) echo "[banc] route=${route%% *}" >> "$BP"; return 0 ;;
+    *)   echo "$LAB: parcours DIVERGENT (fin differente des routes A et B)"; return 1 ;;
+  esac
 }
 
+# The player's env.txt: saved before the first pass (unless it is itself a
+# bench env, left behind by an interrupted run), put back when the script
+# exits whatever happens. The bench used to leave its own env on the console:
+# the next time the player launched the game, it replayed the patrol on the
+# bench save.
+ENVJ="$W/env_joueur_console.txt"
+if timeout 20 curl -sf "$FTP/data/d2vita/env.txt" -o "$TMP/env_avant.txt" && ! grep -q '^D2SCRIPT=' "$TMP/env_avant.txt"; then
+  cp "$TMP/env_avant.txt" "$ENVJ"
+fi
+restore_env(){
+  [ -f "$ENVJ" ] || { echo "ATTENTION: aucune copie de l'env.txt du joueur ($ENVJ) — env.txt du banc laisse sur la console"; return; }
+  vc destroy; sleep 4
+  timeout 20 curl -sf -T "$ENVJ" "$FTP/data/d2vita/env.txt" && echo "env.txt du joueur restaure" \
+    || echo "ATTENTION: restauration de env.txt ECHOUEE — la console garde l'env du banc"
+}
+trap 'restore_env; rm -rf "$TMP"' EXIT
+
 one_pass "$@"; rc=$?
-if [ $rc = 1 ]; then echo "$LAB: passe invalide, relance a l'identique"; one_pass "$@"; rc=$?; fi
+if [ $rc = 1 ]; then echo "$LAB: passe invalide, relance a l'identique"; mv -f "$BP" "$W/bp_${LAB}_rejetee1.txt" 2>/dev/null; one_pass "$@"; rc=$?; fi
+[ $rc = 0 ] || mv -f "$BP" "$W/bp_${LAB}_rejetee.txt" 2>/dev/null
 [ $rc = 0 ] || { echo "$LAB: ECHEC (non mesure)"; exit 1; }
 
 python3 - "$BP" <<'EOF'
@@ -141,7 +173,8 @@ if len(w)<2: print("fenetre vide"); sys.exit(1)
 t0,t1=w[0][0],w[-1][0]
 fps=(w[-1][1]-w[0][1])/(t1-t0)
 c0=[c for t,c in cpu if t0<=t<=t1]; rr=[r for t,r in runs if t0<=t<=t1]
-print(f"  fenetre 2800-5700 : {t1-t0} s, fps={fps:.2f}"
+route=next((l.split('route=')[1].strip() for l in L if l.startswith('[banc] route=')),'?')
+print(f"  route {route} | fenetre 2800-5700 : {t1-t0} s, fps={fps:.2f}"
       f" | c0 med={st.median(c0) if c0 else float('nan'):.0f}%"
       f" | run/img med={st.median(rr) if rr else float('nan'):.1f} ms")
 EOF

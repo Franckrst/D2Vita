@@ -80,7 +80,11 @@ void io_init(){
     if(const char* e=getenv("D2_READAHEAD_MAX")){ long v=strtol(e,nullptr,0); if(v>0) g_raMaxKB=(uint32_t)v; }
     g_raMinKB = g_raKB<32?g_raKB:32;
     if(const char* e=getenv("D2_READAHEAD_MIN")){ long v=strtol(e,nullptr,0); if(v>0 && (uint32_t)v<g_raKB) g_raMinKB=(uint32_t)v; }
-    g_raJumpKB = g_raMinKB<8?g_raMinKB:8;
+    // Seek fill 32 KiB (was 8). A file's sectors follow its seek: at 8 KiB they
+    // were fetched in 2-3 card reads of 2.6-7 ms each. Console, Act V patrol,
+    // same route, 28/09/2026: card reads in the window 65-71 -> 25-27, card
+    // time 208-223 -> 130-197 ms. No extra memory: a window is still 32 KiB.
+    g_raJumpKB = g_raMinKB<32?g_raMinKB:32;
     if(const char* e=getenv("D2_READAHEAD_JUMP")){ long v=strtol(e,nullptr,0); if(v>0 && (uint32_t)v<=g_raMinKB) g_raJumpKB=(uint32_t)v; }
     g_raWins=8>RA_WINMAX?RA_WINMAX:8;
     if(const char* e=getenv("D2_READAHEAD_WIN")){ long v=strtol(e,nullptr,0);
@@ -200,7 +204,18 @@ uint32_t ra_read(IoH& f, long off, void* dst, uint32_t n, bool& fromRam){
     }
     return done;
 }
+// D2_IOTRACE=<frame>: from that frame on, one line per read — file, offset,
+// size, RAM or card, host time — tagged with the frame in progress. Reads
+// are rare in steady play (a few dozen per 100 s on the Act V patrol) but
+// each costs 1-2 ms from the card: this names what the game streams in, and
+// whether the same offsets come back (i.e. whether a cache would catch them).
+extern "C" volatile uint32_t d2rt_frame_now;
+static long g_ioTraceFrom = -2;
 void io_account(IoH* f, long at, uint32_t n, uint32_t got, uint64_t us, bool hit){
+    if(g_ioTraceFrom==-2){ const char* e=getenv("D2_IOTRACE"); g_ioTraceFrom = e&&*e ? strtol(e,nullptr,0) : -1; }
+    if(g_ioTraceFrom>=0 && (long)d2rt_frame_now>=g_ioTraceFrom)
+        jpline("iotr f%u %s @%ld n=%u got=%u %s %lluus", (unsigned)d2rt_frame_now, f? io_short(f->nm) : "?",
+               at, n, got, hit? "ram" : "carte", (unsigned long long)us);
     IoCnt* cs[2]={&g_ioW,&g_ioT};
     if(f) f->lastUse=++g_raClock;
     const int b = n<=4096u?0 : n<=65536u?1 : n<=524288u?2 : 3;

@@ -5,6 +5,37 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.13 — 2026-09-28
+
+- **Fini les à-coups de l'acte V.** Sur la patrouille scriptée de Harrogath
+  (console réelle, 110 s), les images de plus de 60 ms passent de ~25 à 3,
+  et le fps atteint le plafond du jeu lui-même : 24,0 → 25,0 img/s. La cause
+  était chez nous : un limiteur de cadence à 25 Hz, écrit pour le jeu en
+  ligne, tournait aussi en solo (il s'armait dès que `D2NET` était présent,
+  ce que la configuration par défaut fait toujours). Diablo II en solo
+  dessine déjà exactement une image par pas de simulation de 40 ms ; le
+  limiteur attendait un peu plus de 40 ms à chaque image, dérivait contre
+  l'horloge du jeu, et le jeu sautait alors un dessin toutes les quelques
+  secondes. Le limiteur est désormais désactivé par défaut. **En ligne :** il
+  n'y a plus de limiteur non plus — pas encore remesuré en ligne ; si le jeu
+  tourne trop vite dans une partie Battle.net, `D2_ONLINE_CAP=25` dans
+  `env.txt` rétablit l'ancien limiteur.
+- **Moins de calcul par image (~1,6 ms sur le fil de jeu, ~5 % d'une
+  image).** Les appels les plus fréquents du jeu vers le runtime (lectures
+  d'horloge, sections critiques — ~650 par image) sont servis depuis le code
+  traduit au lieu d'en sortir puis d'y revenir ; la DLL Glide ring copie les
+  sommets de la perspective en ligne ; `wsprintfA` n'alloue plus. Charge du
+  cœur principal sur la patrouille : ~77 % → ~74 %. Prouvé identique sous
+  qemu (image identique au pixel sur 4000 images, test de contention des
+  sections critiques) et mesuré sur console en passes entrelacées.
+- **Moins de lectures carte quand du contenu neuf arrive** : un saut lit
+  désormais 32 Kio d'avance au lieu de 8 (~60 % de lectures carte en moins
+  sur la patrouille), sans RAM supplémentaire.
+- **Sol en perspective natif (`D2_F3NATIF=1`) plus rapide**, toujours
+  optionnel : servi en ligne et écrivant ses dessins directement, ~1,25 ms de
+  plus par image sur la patrouille (0 divergence face au code du jeu sur
+  168 503 cellules comparées).
+
 ## v0.1.12 — 2026-09-27
 
 - **Le sol en perspective ne clignote plus.** Dans les scènes lourdes en

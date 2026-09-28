@@ -25,6 +25,8 @@
 /* No msvcrt: we want ZERO dependency outside kernel32, otherwise we'd have to
  * shim a guest CRT for three functions. Hand-rolled copies instead. */
 static unsigned int g_copyLoop = 0;   /* g_cfg.copy_loop, latched at boot: 1 = old C loop (A/B only) */
+static unsigned int g_perVertex = 0;  /* g_cfg.per_vertex, latched at boot: 1 = no run coalescing (A/B only) */
+static unsigned int g_inlineVtx = 0;  /* g_cfg.inline_vtx, latched at boot: 1 = unrolled in-line vertex copy */
 /* `rep movsd` + `rep movsb`, not a C loop: the dynarec translates REP MOVSD
  * into a tight native loop (ldr/str post-indexed, subs, bne — no flags, no
  * block exit), where the C loop cost six translated x86 instructions per
@@ -68,7 +70,10 @@ typedef struct {
                                         docs/audi_perf.md §12.6). 0 / older host = translated path. */
     unsigned int copy_loop;          /* 1 = copy draws with the old C loop instead of rep movs
                                         (D2_GLCOPY=boucle; A/B of the copy only) */
-    unsigned int reserved[7];
+    unsigned int per_vertex;         /* 1 = one copy call per vertex, as before copy_ptr_runs
+                                        (D2_GLRUNS=0; A/B only). 0 / older host = runs */
+    unsigned int inline_vtx;         /* 1 = vertices copied in line, unrolled (D2_GLRUNS=2) */
+    unsigned int reserved[5];
 } D2GRConfig;
 
 /* Resolved at runtime via LoadLibraryA/GetProcAddress against a fake SYSTEM
@@ -125,6 +130,8 @@ static void ring_boot(void)
      * (the oracle of the rep-movs copy). Otherwise the host serializes. */
     if (!g_cfg.natdraw || g_cfg.natdraw == 3) d2vGlideDraw = 0;
     g_copyLoop = g_cfg.copy_loop;
+    g_perVertex = g_cfg.per_vertex;
+    g_inlineVtx = g_cfg.inline_vtx;
     /* Calibrates the COST OF A CROSSING: g_cfg.flags carries the call count
      * requested by the host (D2_GLIDEBENCH=<n>). The host timestamps the
      * first and last call, so it measures n full crossings — prologue, GIL,
@@ -336,6 +343,54 @@ static void natdraw_check(const unsigned int* p, unsigned int op, unsigned int w
     if (bad) g_hdr.natdraw_bad++;
 }
 
+/* Copies `count` vertices given by pointer into consecutive slots of `dst`.
+ * Consecutive pointers that are themselves contiguous in guest memory
+ * (pp[k+1] == pp[k] + stride) are copied as ONE run: same bytes, far fewer
+ * copy calls. The per-vertex call was the hot spot, not the bytes: ~21 000
+ * vertices per frame in Act V, each a separate call + REP setup for 20-60
+ * bytes (block profile, console, 28/09/2026). A null pointer leaves its slot
+ * untouched, exactly as before. */
+/* Vertices copied IN LINE, one loop per vertex size: the size is chosen ONCE
+ * per call, then each vertex is straight loads and stores — no call, no REP
+ * setup, no per-vertex indirect jump. A Perspective strip hands its 10
+ * vertices in zigzag order (v0, v3, v1, v4...), never contiguous, so each is
+ * its own 28-byte copy: through d2gr_copy that was a call, 4 saved registers
+ * and a REP prologue for 7 words — the call cost more than the bytes (block
+ * profile, console, 28/09/2026: 4.4 % of the patrol inside d2gr_copy, 1.9 %
+ * in the loop around it). A null pointer leaves its slot untouched. */
+#define D2GR_VLOOP(W, BODY) \
+    for (; i < count; ++i) { const unsigned int* s = (const unsigned int*)pp[i]; \
+        unsigned int* d = (unsigned int*)(dst + i * stride); if (!s) continue; BODY }
+#define C1(k) d[k] = s[k];
+static int copy_inline(unsigned char* dst, void** pp, unsigned int count, unsigned int stride)
+{
+    unsigned int i = 0;
+    switch (stride) {
+    case 20: D2GR_VLOOP(5, C1(0) C1(1) C1(2) C1(3) C1(4)) return 1;
+    case 24: D2GR_VLOOP(6, C1(0) C1(1) C1(2) C1(3) C1(4) C1(5)) return 1;
+    case 28: D2GR_VLOOP(7, C1(0) C1(1) C1(2) C1(3) C1(4) C1(5) C1(6)) return 1;
+    case 32: D2GR_VLOOP(8, C1(0) C1(1) C1(2) C1(3) C1(4) C1(5) C1(6) C1(7)) return 1;
+    case 36: D2GR_VLOOP(9, C1(0) C1(1) C1(2) C1(3) C1(4) C1(5) C1(6) C1(7) C1(8)) return 1;
+    case 40: D2GR_VLOOP(10, C1(0) C1(1) C1(2) C1(3) C1(4) C1(5) C1(6) C1(7) C1(8) C1(9)) return 1;
+    default: return 0;
+    }
+}
+#undef C1
+#undef D2GR_VLOOP
+static void copy_ptr_runs(unsigned char* dst, void** pp, unsigned int count, unsigned int stride)
+{
+    unsigned int i = 0;
+    if (g_inlineVtx && copy_inline(dst, pp, count, stride)) return;   /* D2_GLRUNS=2 */
+    while (i < count) {
+        const unsigned char* s0 = (const unsigned char*)pp[i];
+        unsigned int j = i + 1;
+        if (!s0) { i = j; continue; }
+        if (!g_perVertex)
+            while (j < count && (const unsigned char*)pp[j] == s0 + (j - i) * stride) ++j;
+        d2gr_copy(dst + i * stride, s0, (j - i) * stride);
+        i = j;
+    }
+}
 FXAPI grDrawVertexArrayContiguous(unsigned int mode,unsigned int count,void* vertex,unsigned int stride)
 {
     unsigned int bytes, words, *p;
@@ -360,7 +415,7 @@ FXAPI grDrawVertexArrayContiguous(unsigned int mode,unsigned int count,void* ver
 }
 FXAPI grDrawVertexArray(unsigned int mode,unsigned int count,void* pointers)
 {
-    unsigned int stride = g_vtxSize, bytes, words, i, *p;
+    unsigned int stride = g_vtxSize, bytes, words, *p;
     void** pp = (void**)pointers;
     if (!count || !pointers || stride > D2GR_MAX_STRIDE) return;
     bytes = count * stride; words = 4 + ((bytes + 3) >> 2);
@@ -373,8 +428,7 @@ FXAPI grDrawVertexArray(unsigned int mode,unsigned int count,void* pointers)
     p = ring_alloc(words);
     if (!p) return;
     p[0]=D2GR_HDR(D2GR_OP_DRAWVERTEXARRAY,words); p[1]=mode; p[2]=count; p[3]=stride;
-    for (i = 0; i < count; ++i)
-        if (pp[i]) d2gr_copy(((unsigned char*)(p+4)) + i*stride, pp[i], stride);
+    copy_ptr_runs((unsigned char*)(p+4), pp, count, stride);
     if (g_cfg.natdraw == 3) { unsigned int h[3]; h[0]=mode; h[1]=count; h[2]=stride;
         natdraw_check(p, D2GR_OP_DRAWVERTEXARRAY, words, 4, h, count, stride, pp, 0); }
 }
@@ -383,7 +437,7 @@ FXAPI grDrawVertexArray(unsigned int mode,unsigned int count,void* pointers)
  * &a is handed to the host as-is. */
 static void draw_ptrs(unsigned int op, unsigned int n, void** pv)
 {
-    unsigned int stride=g_vtxSize, words=2+((n*stride+3)>>2), i, *p;
+    unsigned int stride=g_vtxSize, words=2+((n*stride+3)>>2), *p;
     if (stride > D2GR_MAX_STRIDE) return;
     if (d2vGlideDraw) {
         p = (unsigned int*)d2vGlideDraw(op, 0, n, pv, stride);
@@ -393,8 +447,7 @@ static void draw_ptrs(unsigned int op, unsigned int n, void** pv)
     }
     p = ring_alloc(words); if(!p) return;
     p[0]=D2GR_HDR(op,words); p[1]=stride;
-    for (i = 0; i < n; ++i)
-        if (pv[i]) d2gr_copy((unsigned char*)(p+2)+i*stride,pv[i],stride);
+    copy_ptr_runs((unsigned char*)(p+2), pv, n, stride);
     if (g_cfg.natdraw == 3) { unsigned int h[1]; h[0]=stride;
         natdraw_check(p, op, words, 2, h, n, stride, pv, 0); }
 }

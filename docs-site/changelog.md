@@ -4,6 +4,35 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.13 — 2026-09-28
+
+- **Act V stutter gone.** On the scripted Harrogath patrol (real console,
+  110 s), frames over 60 ms drop from ~25 to 3 and the frame rate reaches
+  the game's own cap: 24.0 → 25.0 fps. The cause was ours: an engine-side
+  25 Hz frame cap written for online play also ran in solo (it armed
+  whenever `D2NET` was set, which the default config always sets). Solo
+  Diablo II already draws exactly once per 40 ms simulation step; the cap
+  waited a little longer than 40 ms every frame, drifted against the game's
+  own clock, and the game then skipped a draw every few seconds. The cap is
+  now off by default. **Online:** there is no engine cap either anymore —
+  not re-measured online yet; if the game ever runs too fast in a
+  Battle.net game, `D2_ONLINE_CAP=25` in `env.txt` brings the old cap back.
+- **Less CPU per frame (~1.6 ms of game-thread work, ~5% of a frame).**
+  The most frequent calls from the game into the runtime (clock reads,
+  critical sections — ~650 per frame) are now served from inside the
+  translated code instead of leaving it and coming back; the Glide ring
+  DLL copies Perspective vertices in line; `wsprintfA` no longer allocates.
+  Main core load on the patrol: ~77% → ~74%. Proven identical on qemu
+  (pixel-identical image over 4000 frames, critical-section contention
+  test) and measured on console with interleaved passes.
+- **Fewer memory-card reads when new content streams in:** a seek now
+  reads 32 KiB ahead instead of 8 (~60% fewer card reads on the patrol),
+  no extra RAM.
+- **Native Perspective floor (`D2_F3NATIF=1`) faster**, still opt-in: it is
+  now served in line and writes its draws directly, another ~1.25 ms per
+  frame on the patrol (0 divergence against the game's own code on 168,503
+  compared cells).
+
 ## v0.1.12 — 2026-09-27
 
 - **Perspective floor no longer flickers.** In heavy Perspective scenes
