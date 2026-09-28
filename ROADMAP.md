@@ -205,17 +205,24 @@ the source of truth for the public repository.
       free-cursor + assist combination working; not picked back up since.
       The core logic (`src/platform/pad_core.h/.cpp`,
       `src/runtime/pad_state.h/.cpp`) is pure, host-tested
-      (`tests/pad/pad_core_test.cpp`, 1460 lines) and reads the game's own
-      ground-item label table (`Game+0x3c54a8`) rather than guessing label
-      positions — see PR #14's description for why that table read was
-      necessary. **Not directly mergeable as-is**: the branch also carries
-      ~2700 unrelated lines (a `glide_ring`/`gx_host.cpp` rewrite, deleted
-      `native_f3_114.cpp`, dropped `tools/bancs/*` scripts) from having
-      diverged from `main` before the 0.1.12/0.1.13 perf work landed, and
-      its own `vita_present.cpp` changes replace the whole input tick —
-      which would silently undo the `l=`/`r=`/`select=`/`l+` remap work
-      above rather than sit next to it. Next step: extract just
-      `pad_core`/`pad_state` onto current `main`, wire them behind a new
+      (`tests/pad/pad_core_test.cpp`, 1460 lines, 295 checks) and reads the
+      game's own ground-item label table (`Game+0x3c54a8`) rather than
+      guessing label positions — see PR #14's description for why that
+      table read was necessary. **Not directly mergeable as-is**: the
+      branch also carries ~2700 unrelated lines (a `glide_ring`/
+      `gx_host.cpp` rewrite, deleted `native_f3_114.cpp`, dropped
+      `tools/bancs/*` scripts) from having diverged from `main` before the
+      0.1.12/0.1.13 perf work landed, and its own `vita_present.cpp`
+      changes replace the whole input tick — which would silently undo the
+      `l=`/`r=`/`select=`/`l+` remap work above rather than sit next to it.
+      2026-09-28: `pad_core`/`pad_state` (plus their test) copied as-is
+      onto branch `manette/pad-core-port` (NOT `main` — this file still
+      describes `main`), verified independently there: compiles clean
+      (`-Wall -Wextra -Werror -fsanitize=address,undefined`), 295/295 pass
+      against current `main`, full VPK build unaffected (neither file is
+      in `rt_boot_srcs.sh`'s explicit source list, so nothing calls them
+      yet — intentionally dead code at this stage). Next step: merge that
+      branch, then write fresh glue in `vita_present.cpp` behind a new
       opt-in `aim=1` (default off — everyone's current bindings stay
       exactly as they are), and ship it the same way as the earlier test
       builds — a downloadable beta for Discord feedback, not a merge to
