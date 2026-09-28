@@ -199,6 +199,11 @@ the source of truth for the public repository.
       `boot_progress.txt` instead of silently doing nothing; a fully
       commented reference file ships in the VPK (`app0:controls.reference.txt`)
       and is seeded to `ux0:data/d2vita/controls.txt` on first boot only.
+      Fixed the same day (Discord, psyinfolaf: `l=alt` ignored): the parser
+      kept trailing comments and padding, so every line uncommented from
+      the reference file (`l=alt   # ...`) was rejected. It now cuts at `#`
+      and trims key and value — console A/B on the same file: 0 applied /
+      3 rejected before, 3 applied after.
       Validated: host oracle (`oracle_controls_help.sh`, unaffected),
       qemu-arm boot gate PASS(natif), both build paths (VPK + CMake host)
       green.

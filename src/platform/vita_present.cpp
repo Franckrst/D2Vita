@@ -1915,25 +1915,33 @@ void load_controls_txt(){
     // gets one boot_progress line, capped so a genuinely garbled file can't
     // flood the log the watchdog and bug reports both read.
     constexpr int MAX_WARN = 8;
+    // The reference file writes "#l=lclick   # comment": a player who
+    // uncomments it gets a trailing comment and padding, so cut at '#' and
+    // trim key and value — no valid action or button name contains either.
+    auto trim=[](char* s){ while(*s==' '||*s=='\t') ++s;
+        char* e=s+strlen(s); while(e>s&&(e[-1]==' '||e[-1]=='\t')) *--e=0; return s; };
     while (fgets(line,sizeof line,f)) {
         char* nl=strpbrk(line,"\r\n"); if(nl)*nl=0;
-        if(!line[0]||line[0]=='#') continue;
-        char raw[80]; snprintf(raw,sizeof raw,"%s",line);   // pre-split copy, for the warning text
-        char* eq=strchr(line,'='); if(!eq||eq==line) continue; *eq=0; char* v=eq+1;
+        char* hash=strchr(line,'#'); if(hash)*hash=0;
+        char* k=trim(line);
+        if(!k[0]) continue;
+        char raw[80]; snprintf(raw,sizeof raw,"%s",k);   // pre-split copy, for the warning text
+        char* eq=strchr(k,'='); if(!eq||eq==k) continue; *eq=0; char* v=trim(eq+1);
+        k=trim(k);
         auto warn=[&](const char* why){
             ++bad;
             if (bad<=MAX_WARN){ char m[128]; snprintf(m,sizeof m,"input: controls.txt ignore \"%s\" (%s)",raw,why); d2vita_progress(m); }
         };
-        if      (!strcasecmp(line,"orbit"))    { g_orbit=atoi(v); n++; continue; }
-        else if (!strcasecmp(line,"sens"))     { g_sens=(float)atof(v); n++; continue; }
-        else if (!strcasecmp(line,"deadzone")) { g_dz=(float)atof(v); n++; continue; }
-        else if (!strcasecmp(line,"anchor_y")) { g_anchor_y_pm=atoi(v); n++; continue; }
-        else if (!strcasecmp(line,"l"))        { if(parse_act(v,&g_l_act)) n++; else warn("action inconnue"); continue; }
-        else if (!strcasecmp(line,"r"))        { if(parse_act(v,&g_r_act)) n++; else warn("action inconnue"); continue; }
-        else if (!strcasecmp(line,"select"))   { if(parse_act(v,&g_select_act)) n++; else warn("action inconnue"); continue; }
-        bool r_layer = !strncasecmp(line,"r+",2);
-        bool l_layer = !r_layer && !strncasecmp(line,"l+",2);
-        uint32_t bit = name_bit((r_layer||l_layer)?line+2:line);
+        if      (!strcasecmp(k,"orbit"))    { g_orbit=atoi(v); n++; continue; }
+        else if (!strcasecmp(k,"sens"))     { g_sens=(float)atof(v); n++; continue; }
+        else if (!strcasecmp(k,"deadzone")) { g_dz=(float)atof(v); n++; continue; }
+        else if (!strcasecmp(k,"anchor_y")) { g_anchor_y_pm=atoi(v); n++; continue; }
+        else if (!strcasecmp(k,"l"))        { if(parse_act(v,&g_l_act)) n++; else warn("action inconnue"); continue; }
+        else if (!strcasecmp(k,"r"))        { if(parse_act(v,&g_r_act)) n++; else warn("action inconnue"); continue; }
+        else if (!strcasecmp(k,"select"))   { if(parse_act(v,&g_select_act)) n++; else warn("action inconnue"); continue; }
+        bool r_layer = !strncasecmp(k,"r+",2);
+        bool l_layer = !r_layer && !strncasecmp(k,"l+",2);
+        uint32_t bit = name_bit((r_layer||l_layer)?k+2:k);
         if (!bit) { warn("bouton inconnu"); continue; }
         Act a; if (!parse_act(v,&a)) { warn("action inconnue"); continue; }
         // Select resolves a valid bit (name_bit knows it) but has no
