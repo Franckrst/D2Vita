@@ -1936,7 +1936,17 @@ void load_controls_txt(){
         uint32_t bit = name_bit((r_layer||l_layer)?line+2:line);
         if (!bit) { warn("bouton inconnu"); continue; }
         Act a; if (!parse_act(v,&a)) { warn("action inconnue"); continue; }
-        for (BtnMap& m : g_btn) if (m.bit==bit) { (r_layer?m.layer:l_layer?m.llayer:m.base)=a; n++; }
+        // Select resolves a valid bit (name_bit knows it) but has no
+        // g_btn[] entry: its base action is the dedicated `select=` branch
+        // above (which always intercepts the plain form before this point),
+        // and it has no combo layer at all — R+Select is hardcoded to
+        // Space, never remappable. Without this check, "r+select=" or
+        // "l+select=" would match zero g_btn entries and vanish with
+        // neither effect nor warning.
+        if (bit == B_SELECT) { warn("select ne prend pas de couche r+/l+"); continue; }
+        bool matched=false;
+        for (BtnMap& m : g_btn) if (m.bit==bit) { (r_layer?m.layer:l_layer?m.llayer:m.base)=a; n++; matched=true; }
+        if (!matched) warn("bouton sans effet");
     }
     fclose(f);
     char m[96];
