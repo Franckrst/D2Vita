@@ -152,29 +152,74 @@ the source of truth for the public repository.
       drawn with the virtual keyboard's own font. Added 2026-09-23 after a
       beta tester's bug report could not be tied to a specific build with
       confidence; `D2VITA_BUILDTAG=0` hides it
-
-## In progress / open
-
-- [ ] **Title-screen "controls help" overlay**: a persistent icon in D2's
-      left letterbox band, title screen only (not character select, not
-      options, not in-game), opens a translucent panel listing the current
-      effective bindings (from `g_btn[]` plus a fixed non-remappable list),
-      scrollable by D-pad or touch-drag, closed by Circle or Start
-      (`src/platform/controls_help.h`, wired into
-      `src/platform/vita_present.cpp`); text is drawn with the existing
-      virtual-keyboard pixel font rather than a new one. The host oracle
+- [x] **Title-screen "controls help" overlay**, merged 2026-09-28: a
+      persistent icon in D2's left letterbox band, title screen only (not
+      character select, not options, not in-game), opens a translucent
+      panel listing the current effective bindings (`format_controls_help()`
+      in `src/platform/vita_present.cpp`, following `l=`/`r=`/`select=`/`l+`
+      dynamically — see the next entry), scrollable by D-pad or
+      touch-drag, closed by Circle or Start
+      (`src/platform/controls_help.h`). The host oracle
       (`tools/oracle_controls_help.sh`) passes (21 checks, 0 failed) and the
       qemu-arm boot gate (`tools/rt_boot_arm_check.sh`) reaches a clean exit
       at the title screen with the overlay's draw call wired into every
       frame — but neither is a visual check of the panel itself.
-      **Not yet validated on Vita3K**: it SIGSEGVs before the title screen
-      on an unrelated, pre-existing sceGxm shader-patcher crash (reproduced
+      **Not yet validated on Vita3K**: SIGSEGVs before the title screen on
+      an unrelated, pre-existing sceGxm shader-patcher crash (reproduced
       identically on the commit predating this feature). **Not yet
       validated on real console** either: a build with this feature ran
       stably on hardware for 7.5+ minutes with no crash, but the title
       screen's arrival was never confirmed reached in that session, so the
       icon, panel legibility, scrolling and the close gesture have no
       on-console evidence yet.
+- [x] **`controls.txt`: L, R, Select remappable, `l+` layer, unknown-line
+      warnings, `controls.reference.txt`**, landed 2026-09-28 in response to
+      controls feedback (Discord, GitHub #16): `l=`/`r=`/`select=` remap
+      what L, R and Select do held/pressed alone without touching their
+      combo-layer role (`r+` unchanged, new `l+` mirror, free by default); a
+      rejected `controls.txt` line (unknown button, unknown action, or an
+      `r+select=`/`l+select=` combo Select doesn't have) is now named in
+      `boot_progress.txt` instead of silently doing nothing; a fully
+      commented reference file ships in the VPK (`app0:controls.reference.txt`)
+      and is seeded to `ux0:data/d2vita/controls.txt` on first boot only.
+      Validated: host oracle (`oracle_controls_help.sh`, unaffected),
+      qemu-arm boot gate PASS(natif), both build paths (VPK + CMake host)
+      green. **Not console-validated**: this logic only runs from a real
+      controller/touch tick, which qemu-arm's scripted boot doesn't drive —
+      needs a Discord test build like the ones for the aim-assist track
+      below.
+      Investigated and found NOT separable from that same track: a
+      "move-only" left stick (no attack/pickup while walking past a
+      monster) and multi-action macros (e.g. one button = map + run) both
+      need the same per-frame reading of monster/item positions that
+      aim-assist already does — see the next entry.
+
+## In progress / open
+
+- [ ] **Aim-assist controller scheme, opt-in**: `wt/manette-curseur-libre`
+      (5 iterative test builds, `manette-v2-test1` through `-v5-test1` plus
+      `v0.1.11-remapping-beta2..4`) reworks the right stick into a
+      hostile-auto-target assist and adds D-pad browsing of ground-item
+      labels — the two pieces most asked for on GitHub #16 and Discord
+      (chrhaeusler, xkosiorx). Feedback on #16 stopped 2026-09-21 with the
+      free-cursor + assist combination working; not picked back up since.
+      The core logic (`src/platform/pad_core.h/.cpp`,
+      `src/runtime/pad_state.h/.cpp`) is pure, host-tested
+      (`tests/pad/pad_core_test.cpp`, 1460 lines) and reads the game's own
+      ground-item label table (`Game+0x3c54a8`) rather than guessing label
+      positions — see PR #14's description for why that table read was
+      necessary. **Not directly mergeable as-is**: the branch also carries
+      ~2700 unrelated lines (a `glide_ring`/`gx_host.cpp` rewrite, deleted
+      `native_f3_114.cpp`, dropped `tools/bancs/*` scripts) from having
+      diverged from `main` before the 0.1.12/0.1.13 perf work landed, and
+      its own `vita_present.cpp` changes replace the whole input tick —
+      which would silently undo the `l=`/`r=`/`select=`/`l+` remap work
+      above rather than sit next to it. Next step: extract just
+      `pad_core`/`pad_state` onto current `main`, wire them behind a new
+      opt-in `aim=1` (default off — everyone's current bindings stay
+      exactly as they are), and ship it the same way as the earlier test
+      builds — a downloadable beta for Discord feedback, not a merge to
+      `main` — before it earns real validation.
 - [ ] **Warden / anti-cheat fidelity**: no structured exception handling at
       all (a guest fault kills the thread), no PEB/LDR, no per-region
       `VirtualProtect` tracking, self `OpenProcess` still denied — detailed

@@ -13,23 +13,36 @@
 | Stick gauche | **Déplacement direct** (curseur en orbite autour du personnage + clic gauche maintenu) |
 | Stick droit | Souris libre, sans clic (visée, menus, survol) |
 | Écran tactile | Curseur absolu ; tap bref = clic gauche |
-| **L (maintenu)** | **Clic gauche** |
-| **R (maintenu)** | **Clic droit** (sert aussi de couche combo, voir plus bas) |
+| **L (maintenu)** | **Clic gauche** — remappable, voir plus bas (sert aussi de couche combo, voir plus bas) |
+| **R (maintenu)** | **Clic droit** — remappable, voir plus bas (sert aussi de couche combo, voir plus bas) |
 | Croix | R — bascule marche/course |
 | Rond | Shift (maintenu) — attaque sur place / cast forcé |
 | Carré (maintenu) | Alt — affiche les objets au sol |
 | Triangle | W — échange d'armes |
 | D-pad ↑ / ← / ↓ / → | Potions ceinture 1 / 2 / 3 / 4 |
 | Start | Échap (menu / fermer) |
-| **Select** | **Menu radial** (voir plus bas) |
+| **Select** | **Menu radial** — remappable, voir plus bas |
 
-## Couche R (R maintenu + …)
+Remapper L et R ne change jamais leur second rôle : R continue d'armer
+chaque combo « R + … » ci-dessous, et L sa propre couche « L + … »,
+quelle que soit l'action assignée à l'appui seul.
+
+## Couche R (R maintenu + …) et couche L (L maintenu + …)
 
 | Combo | Action |
 |---|---|
 | R + Triangle | **Clavier virtuel** (ouvrir ; fermer avec Select — il s'ouvre aussi de lui-même sur les champs texte, voir plus bas) |
 | R + D-pad | F1 / F2 / F3 / F4 — compétences rapides |
-| R + Select | Espace — fermer tous les panneaux |
+| R + Select | Espace — fermer tous les panneaux (fixe, non remappable) |
+| L + Start | Capture d'écran (fixe, non remappable) |
+
+R + Triangle, R + Select et L + Start l'emportent toujours : ils sont
+vérifiés avant tout remappage de `controls.txt`, donc leur assigner
+autre chose via ce fichier n'a aucun effet (le panneau d'aide à
+l'écran-titre, voir plus bas, et `controls.reference.txt` le rappellent
+tous les deux). Le reste de la couche « R + … » est lié par défaut ; la
+couche miroir « L + … » démarre **entièrement libre** — rien par défaut,
+elle attend d'être remplie via `controls.txt`.
 
 ## Menu radial (Select)
 
@@ -90,13 +103,30 @@ Le rendu du clavier virtuel lui-même (police, disposition) vient du moteur
 générique winx86 (`src/platform/vita_kb.h`/`vita_kb_font.h`). Le
 déclenchement (R + Triangle), lui, est spécifique à d2vita.
 
+## Panneau d'aide aux contrôles (écran-titre)
+
+Un petit onglet « Controls » se trouve dans la bande gauche de
+l'écran-titre. Tap ou clic dessus ouvre un panneau plein écran listant
+tous les bindings **réellement en vigueur** (défauts + ce que
+`controls.txt` a changé) — D-pad ou glisser pour défiler, Rond/Start pour
+fermer. Il relit `controls.txt` plutôt que de répéter cette page : il ne
+peut donc jamais être en décalage avec votre propre fichier.
+
 ## Remappage sans rebuild
 
-Fichier `ux0:data/d2vita/controls.txt`, une ligne par entrée :
+Fichier `ux0:data/d2vita/controls.txt`. Une copie de référence entièrement
+commentée y est déposée automatiquement au tout premier démarrage du jeu
+(ne remplace jamais un fichier déjà présent — supprimez le vôtre et il
+revient au démarrage suivant) ; le tour d'horizon ci-dessous couvre le
+même terrain.
 
 ```
 cross=rclick
 r+triangle=f5
+l+circle=perso   # couche L : entièrement libre par défaut, à vous de la remplir
+l=rclick         # action de L seul (défaut : lclick)
+r=none           # action de R seul (défaut : rclick) — "none" la désactive
+select=inv       # action de Select seul (défaut : ouvre le menu radial)
 orbit=70         # rayon du déplacement direct (px)
 sens=10          # vitesse du stick droit
 deadzone=0.25
@@ -104,12 +134,32 @@ anchor_y=470     # ancre verticale du personnage (pour une résolution de 1000)
 ```
 
 **Boutons** : `cross`/`croix`, `circle`/`rond`, `square`/`carre`,
-`triangle`, `up`, `down`, `left`, `right`, `start`, `select` (préfixer `r+`
-pour la couche R).
+`triangle`, `up`, `down`, `left`, `right`, `start` (préfixer `r+` pour la
+couche R, `l+` pour la couche L — jamais les deux sur la même ligne).
+`l=`, `r=` et `select=` sont des clés de premier niveau à part (sans
+préfixe de bouton) : elles fixent ce que L, R et Select font **seuls**,
+pas en combo.
 
 **Actions** : `lclick`, `rclick`, `alt`, `shift`, `tab`/`automap`,
 `esc`/`echap`, `inv`, `perso`, `skills`, `quests`, `swap`, `space`, `run`,
 `enter`, `pot1`-`pot4`, `f1`-`f8`, `vk:0xNN` (code de touche brut), `none`.
+
+Une ligne que le jeu ne reconnaît pas — bouton inconnu, action inconnue,
+ou (`r+select=`/`l+select=`) un combo que Select n'a pas — n'est jamais
+appliquée, et le dit désormais : regarder `boot_progress.txt` pour les
+lignes `controls.txt ignore "..."`, une par ligne rejetée (plafonné à 8).
+Avant cela, une ligne fautive ne faisait simplement rien, sans indiquer
+pourquoi — le cas le plus fréquent étant un `controls.txt` copié depuis
+un build qui ne reconnaît pas exactement les mêmes clés que celui
+réellement lancé.
+
+**Pas encore possible** : un seul bouton déclenchant plusieurs actions à
+la suite (par exemple « ouvrir la carte et courir »), et un stick gauche
+qui déplace sans jamais tenir de clic. Les deux s'avèrent nécessiter la
+même lecture, image par image, des positions des monstres/objets en
+mémoire qu'un schéma d'assist de visée complet — ce ne sont pas de
+simples ajouts à ce fichier, voir le chantier ouvert du mode manette
+assist de visée.
 
 ## Diagnostic
 
