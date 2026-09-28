@@ -7,10 +7,16 @@
 #include <cstdint>
 #include <string>
 
+namespace d2rt { struct Cpu; }
+
 extern bool g_snap;                     // one-shot frame dump request (D2SCRIPT "snap")
+extern bool g_memscan;                  // one-shot guest-memory snapshot request (D2SCRIPT "memscan")
 extern uint8_t g_keyState[256];         // VK states driven by injected input
 
-extern "C" { __attribute__((weak)) void d2vita_input_tick(void); }   // Vita physical-input tick (weak)
+// Vita physical-input tick (weak). `cpu` is the guest CPU handle of the
+// thread currently running the PeekMessageA pump — valid on every screen D2
+// redraws (menu, character select/creation, options, in a game).
+extern "C" { __attribute__((weak)) void d2vita_input_tick(d2rt::Cpu* cpu); }
 
 void win_activate_once();               // WM_ACTIVATEAPP/ACTIVATE/SETFOCUS, idempotent
 void inj_parse(const char* s);          // parses D2SCRIPT into the scheduled event list

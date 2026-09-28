@@ -15,11 +15,14 @@ extern "C" int d2_tlswrap_dump(char*, unsigned);
 #include "platform/vita_net.h"
 #include "platform/vita_kb.h"   // full virtual keyboard (layouts, font, drawing)
 #include "platform/radial_menu.h"   // 7-sector radial menu (hold Select + left stick)
+#include "platform/controls_help.h"   // title-screen controls-help icon/panel
 #include "runtime/text_focus_probe.h"   // d2vita_text_focus : edit box focalisee (ouverture auto du clavier)
 #include "platform/vita_gxm.h"      // d2gxm_ui_active: le menu part-il sur le GPU ?
 #include "platform/vita_host.h"        // engine: log, cores, sleep (CONSOLE-specific)
 #include "runtime/host_clock.h"           // engine: monotonic host clock
 #include "runtime/scripted_input.h"       // inj_set_bounds : le curseur injecte suit la taille du jeu
+#include "runtime/cpu.h"                  // d2rt::Cpu — screen-state reads (controls_help)
+#include "runtime/screen_state.h"         // d2_title_screen_active(cpu)
 #include "platform/present_scale.h"   // engine: generic scaling (D2_PRESENT_WX86)
 #include "crashreport/build_id.h"     // d2cr::build_id() : etiquette de build a l'ecran
 
@@ -197,6 +200,26 @@ d2kb::State g_kb;
 int g_kb_simple = -1;                 // read once, on first open
 radial_menu::State g_rm{};            // radial menu: state written by the input tick, read by presentation
 uint32_t g_kb_last_focus = 0;         // ouverture auto du clavier : dernier focus texte vu
+// Title-screen controls-help icon/panel (src/platform/controls_help.h):
+// same benign-race model as g_kb/g_rm above — written by the input tick,
+// drawn by the presentation path. Declared here, alongside g_kb/g_rm,
+// rather than near g_ctl_prev further down (where the plan draft originally
+// placed it): d2vita_overlay() and the GDI presentation function both draw
+// this overlay and are defined ABOVE the anonymous namespace that holds
+// g_ctl_prev/g_btn[], so declaring it there would leave those two draw
+// sites referencing it before its declaration.
+d2ch::State g_ch;
+char g_ch_labels[64][64];
+// d2ch::draw() takes one array of row pointers (const char* const*), not a
+// 2D char array -- char[64][64] does NOT convert to that (different memory
+// layout: one is a flat block of bytes, the other an array of pointers).
+// This is populated to mirror g_ch_labels right after format_controls_help()
+// fills it, and is what the draw call sites below actually pass.
+const char* g_ch_lines[64];
+int  g_ch_count = 0;
+bool d2ch_title_active_cached = false;   // recomputed every ~4 ticks by
+                                          // d2vita_input_tick; read by that
+                                          // same gate and by the draw calls
 // Translucent by default: the player can still see the character/menu behind
 // the keys while typing. D2_KBALPHA=0-100 in env.txt overrides (100 = opaque,
 // the old look); read once and clamped, like every other knob here.
@@ -494,6 +517,9 @@ void d2vita_overlay(uint32_t* fb) {
     // skip it, d2gxm_submit's own scene-injected quad composes it on the GPU
     // instead (vita_gxm.cpp) -- drawing it here too would blend it TWICE.
     if (g_kb.open && !(kb_alpha() < 100 && d2gxm_kb_active())) draw_keyboard(fb);
+    // Controls-help icon/panel: only ever active on D2's literal title
+    // screen (d2ch_title_active_cached, maintained by d2vita_input_tick).
+    if (d2ch_title_active_cached) d2ch::draw(g_ch, fb, SCR_W, SCR_H, g_ch_count ? g_ch_lines : nullptr);
 }
 
 const d2kb::State* d2vita_kb_state() { return g_kb.open ? &g_kb : nullptr; }
@@ -706,6 +732,11 @@ void do_scale_and_flip(const PresentSlot* sfr) {
     if (fps_en < 0) { const char* e = getenv("D2VITA_FPS"); fps_en = (e && *e && std::strcmp(e, "0") != 0); }   // off by default; D2VITA_FPS=1 to show
     if (fps_en) draw_fps(dst, sfr->fps10);
     if (g_kb.open) draw_keyboard(dst);
+    // Controls-help icon/panel: same gate as the sceGxm overlay path above
+    // (d2vita_overlay) — this is the GDI/historical presentation path's own
+    // copy, needed so the overlay is visible whichever path is actually
+    // presenting the title screen.
+    if (d2ch_title_active_cached) d2ch::draw(g_ch, dst, SCR_W, SCR_H, g_ch_count ? g_ch_lines : nullptr);
     SceDisplayFrameBuf fb;
     std::memset(&fb, 0, sizeof fb);
     fb.size        = sizeof fb;
@@ -1844,6 +1875,73 @@ void load_controls_txt(){
     fclose(f);
     char m[64]; snprintf(m,sizeof m,"input: controls.txt applique (%d entrees)",n); d2vita_progress(m);
 }
+// Human-readable label for one Act, for the controls-help panel. Mirrors the
+// vk-code choices already made in g_btn[]'s own comments (line 1576+).
+const char* act_label(const Act& a) {
+    if (a.kind == A_NONE) return "-";
+    if (a.kind == A_LMB)  return "Left click";
+    if (a.kind == A_RMB)  return "Right click";
+    switch (a.vk) {
+        case 0x52: return "R (walk/run)";
+        case 0x10: return "Shift";
+        case 0x12: return "Alt";
+        case 0x57: return "W (weapon swap)";
+        case 0x31: return "Potion 1"; case 0x32: return "Potion 2";
+        case 0x33: return "Potion 3"; case 0x34: return "Potion 4";
+        case 0x70: return "F1"; case 0x71: return "F2";
+        case 0x72: return "F3"; case 0x73: return "F4";
+        case 0x74: return "F5"; case 0x75: return "F6";
+        case 0x76: return "F7"; case 0x77: return "F8";
+        case 0x1B: return "Escape";
+        case 0x20: return "Space";
+        case 0x09: return "Tab / Automap";
+        case 0x49: return "Inventory";
+        case 0x43: return "Character";
+        case 0x54: return "Skills";
+        case 0x51: return "Quests";
+        case 0x0D: return "Enter";
+        default:   return "?";
+    }
+}
+const char* bit_label(uint32_t bit) {
+    if (bit == B_CROSS)  return "Cross";
+    if (bit == B_CIR)    return "Circle";
+    if (bit == B_SQR)    return "Square";
+    if (bit == B_TRI)    return "Triangle";
+    if (bit == B_UP)     return "D-pad Up";
+    if (bit == B_DOWN)   return "D-pad Down";
+    if (bit == B_LEFT)   return "D-pad Left";
+    if (bit == B_RIGHT)  return "D-pad Right";
+    if (bit == B_START)  return "Start";
+    return "?";
+}
+// Fills `out[i]` with up to `max` "<button>: <action>" lines: every g_btn[]
+// entry with a bound base action, its R+ layer if bound, then the fixed set
+// that is NOT remappable via controls.txt (kept in sync here, by hand, on
+// purpose — see design doc section 4: these six never move).
+int format_controls_help(char out[][64], int max) {
+    int n = 0;
+    for (const BtnMap& m : g_btn) {
+        if (n >= max) break;
+        if (m.base.kind != A_NONE)
+            snprintf(out[n++], 64, "%s: %s", bit_label(m.bit), act_label(m.base));
+        if (n < max && m.layer.kind != A_NONE)
+            snprintf(out[n++], 64, "R+%s: %s", bit_label(m.bit), act_label(m.layer));
+    }
+    static const char* const kFixed[] = {
+        "L: Left click (held)",
+        "R: Right click (held)",
+        "Select: Radial menu",
+        "R+Select: Space",
+        "R+Triangle: Virtual keyboard",
+        "L+Start: Screenshot",
+    };
+    for (const char* f : kFixed) {
+        if (n >= max) break;
+        snprintf(out[n++], 64, "%s", f);
+    }
+    return n;
+}
 void lmb_update(){
     bool want = g_lmb_stick || g_lmb_btn;
     if (want && !g_lmb_sent){ d2vita_inject("ldown",(int)g_cx,(int)g_cy); g_lmb_sent=true; }
@@ -1866,7 +1964,7 @@ void kb_open_now(){
 }
 } // namespace
 
-extern "C" void d2vita_input_tick(void){
+extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
     if (!g_ctl_init){
         g_ctl_init=true;
         sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
@@ -2041,6 +2139,114 @@ extern "C" void d2vita_input_tick(void){
             g_sel_mode=SEL_IDLE;
         }
         if (g_sel_mode==SEL_RADIAL) return;   // menu open: nothing else passes through to the game
+    }
+
+    // ---- Controls-help overlay (title screen only) -------------------------
+    // Gated by d2_title_screen_active(cpu), recomputed at ~1/4 tick rate:
+    // this signal doesn't need every-frame freshness, and cpu->read() is a
+    // guest-memory read not worth paying every tick on the core all guest
+    // threads share.
+    bool title = d2ch_title_active_cached;
+    { static int s_gate = 0;
+      if ((++s_gate & 3) == 0) d2ch_title_active_cached = d2_title_screen_active(cpu); }
+
+    // d2ch-local touch bookkeeping, in SCREEN space (SCR_W x SCR_H, per
+    // controls_help.h's BAND_* constants) -- kept fully separate from the
+    // D2-cursor's own g_t_*/GAME-space state further below, and reset
+    // whenever the title screen isn't active or the panel's open/closed
+    // mode changes, so nothing carries stale state across screens or across
+    // that transition (letting stale state leak into the D2-cursor block's
+    // own g_t_at bookkeeping, e.g., would make its NEXT genuine tap-click
+    // silently stop registering).
+    static int  ch_tap_at=-1, ch_tap_x0=0, ch_tap_y0=0;
+    static bool ch_tap_moved=false, ch_tap_claimed=false;
+    static bool ch_drag_have_prev=false;
+    static int  ch_drag_prev_y=0;
+
+    if (!title) {
+        ch_tap_at = -1; ch_drag_have_prev = false; ch_tap_claimed = false;
+        // Force-close: don't let a title-screen panel survive leaving the
+        // title screen. No input leaks to D2 while `title` is false either
+        // way (the whole consuming block lives inside the `else` below),
+        // but without this, `g_ch.open` itself would survive a
+        // title->false->true cycle and the panel would silently reappear
+        // already open next time the title screen is reached (e.g. some
+        // auto-advance/attract-mode path that leaves the title screen
+        // without the player closing the panel via Circle/Start first).
+        g_ch.open = 0;   // volatile int, not bool -- controls_help.h's State::open
+    } else {
+        // Own SCE_TOUCH_PORT_FRONT sample, in SCREEN space -- same scaling
+        // as draw_keyboard()'s own touch handling below
+        // (tk.report[0].x*SCR_W/1920), NOT pad_to_game()'s GAME-space
+        // output. Guarded by `title`: this sceTouchPeek is only ever paid
+        // while d2ch itself can be relevant, so it never adds a THIRD
+        // sceTouchPeek to an ordinary in-game tick (title screen only:
+        // when the panel is closed and the player touches D2's own
+        // buttons, this is still a second, non-destructive peek here,
+        // alongside the D2-cursor block's own below -- harmless, just not
+        // "zero-added" on every title-screen tick).
+        bool ch_touched=false; int ch_tx=0, ch_ty=0;
+        { SceTouchData cht; memset(&cht,0,sizeof cht);
+          if (sceTouchPeek(SCE_TOUCH_PORT_FRONT,&cht,1)>=0 && cht.reportNum>0){
+              ch_touched=true;
+              ch_tx = cht.report[0].x*SCR_W/1920;
+              ch_ty = cht.report[0].y*SCR_H/1088;
+          } }
+
+        if (g_ch.open) {
+            // Panel open: D-pad scroll, Circle/Start close, and this
+            // frame's touch (if any) drives drag-scroll instead of the D2
+            // cursor. Unconditionally consumed below: nothing reaches D2.
+            ch_tap_at = -1;   // any pending closed-panel tap tracking is now moot
+            auto ch_edge=[&](uint32_t bit){ return (b&bit)&&!(was&bit); };
+            if (ch_edge(B_UP))   d2ch::scroll_dpad(g_ch, -1);
+            if (ch_edge(B_DOWN)) d2ch::scroll_dpad(g_ch, +1);
+            if (ch_edge(B_CIR) || ch_edge(B_START)) d2ch::close(g_ch);
+            if (ch_touched) {
+                if (ch_drag_have_prev) d2ch::scroll_drag(g_ch, ch_ty - ch_drag_prev_y);
+                ch_drag_prev_y = ch_ty; ch_drag_have_prev = true;
+            } else {
+                ch_drag_have_prev = false;
+            }
+            return;   // consumed: nothing this frame reaches D2's own input path
+        }
+        ch_drag_have_prev = false;   // panel not open: no drag state to keep
+
+        // Panel closed: a touch gesture is "claimed" by d2ch (and from then
+        // on never reaches D2) only if it BEGAN inside the icon band --
+        // decided once, at the down edge, so a drag wandering in/out of the
+        // band mid-gesture can't flip the verdict partway through, and so
+        // every OTHER touch on this screen (D2's own title-screen buttons:
+        // Single Player, Battle.net, Exit, ...) keeps reaching the ordinary
+        // D2-cursor code below exactly as it did before this task.
+        if (ch_touched) {
+            if (ch_tap_at < 0) {
+                ch_tap_at = g_itick; ch_tap_x0 = ch_tx; ch_tap_y0 = ch_ty; ch_tap_moved = false;
+                ch_tap_claimed = d2ch::icon_hit(ch_tx, ch_ty);
+            }
+            if (std::abs(ch_tx-ch_tap_x0)>10 || std::abs(ch_ty-ch_tap_y0)>10) ch_tap_moved = true;
+            if (ch_tap_claimed) return;   // consumed: this gesture is ours
+            // not claimed: fall through, exactly like every tick before this task.
+        } else if (ch_tap_at >= 0) {
+            const bool tap_short = (g_itick-ch_tap_at < g_tap_ticks) && !ch_tap_moved;
+            const bool claimed   = ch_tap_claimed;
+            ch_tap_at = -1;
+            if (claimed) {
+                if (tap_short) {
+                    d2ch::tap(g_ch, ch_tap_x0, ch_tap_y0);
+                    if (g_ch.open) {
+                        g_ch_count = format_controls_help(g_ch_labels, 64);
+                        for (int i = 0; i < g_ch_count; ++i) g_ch_lines[i] = g_ch_labels[i];
+                        g_ch.row_count = g_ch_count;
+                        g_ch.visible_rows = 20;   // tuned on-device in Task 8
+                        g_ch.row_px = d2ch::DEFAULT_ROW_PX;   // matches text() glyph height in draw(); see final-review Bug 1
+                    }
+                }
+                return;   // consumed: this release belonged to a claimed touch
+            }
+            // not claimed: fall through, D2's own release-tap-click logic
+            // (the "Front touch" block further down) handles it as always.
+        }
     }
 
     // L: left click (held); R: right click (held). Independent of `layer`: R

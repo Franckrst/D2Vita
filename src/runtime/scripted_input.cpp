@@ -21,6 +21,7 @@
 using namespace d2rt;
 
 bool g_snap=false;                         // one-shot frame dump request
+bool g_memscan=false;                      // one-shot guest-memory snapshot request
 extern "C" { __attribute__((weak)) void d2gxm_shot_request(void); }   // vita_gxm.cpp (Vita only)
 uint8_t g_keyState[256]={0};               // VK states driven by injected input
 
@@ -143,6 +144,7 @@ void inj_queue(const std::string& act,int a,int b){
     // when the Glide/GXM path is the one drawing (d2gxm_shot_request is weak:
     // absent from the qemu build, present on the Vita).
     else if(act=="snap"){    g_snap=true; if(d2gxm_shot_request) d2gxm_shot_request(); }
+    else if(act=="memscan"){ g_memscan=true; }
     else if(act=="activate"){ g_msgQ.push_back({0x1C,1,0}); g_msgQ.push_back({6,1,0}); g_msgQ.push_back({7,0,0}); g_injN+=3; }  // WM_ACTIVATEAPP, WM_ACTIVATE, WM_SETFOCUS
     else if(act=="scriptoff"){ g_injIx=g_inj.size(); }   // autopilot: drop the remaining D2SCRIPT events (hand control back to physical input)
     // WM_CLOSE — the Windows close box. D2 handles it through its own CLEAN

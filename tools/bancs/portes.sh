@@ -36,6 +36,9 @@ cat "$W/porte_branches.log"; echo "   rc=$rbr"
 echo "== oracle clavier $(date +%H:%M)"
 bash tools/oracle_clavier.sh > "$W/porte_clavier.log" 2>&1; r0=$?
 grep -E "^PASS|^FAIL" "$W/porte_clavier.log"; echo "   rc=$r0"
+echo "== oracle controles $(date +%H:%M)"
+bash tools/oracle_controls_help.sh > "$W/porte_controles.log" 2>&1; r_ch=$?
+grep -E "^PASS|^FAIL" "$W/porte_controles.log"; echo "   rc=$r_ch"
 (
   flock -w 7200 9 || { echo "FAIL: verrou $LOCK non obtenu en 2 h"; exit 3; }
   # Reference gate (native) runs first: it's the shipped config, so a failure
@@ -84,4 +87,5 @@ grep -E "^PASS|^FAIL" "$W/porte_clavier.log"; echo "   rc=$r0"
 ) 9>"$LOCK"; rc=$?
 [ $r0 -eq 0 ] || rc=$(( rc == 0 ? 4 : rc ))
 [ $rbr -eq 0 ] || rc=$(( rc == 0 ? 5 : rc ))
+[ $r_ch -eq 0 ] || rc=$(( rc == 0 ? 6 : rc ))
 echo "PORTES-FINI rc=$rc"; exit $rc

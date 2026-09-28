@@ -3595,7 +3595,57 @@ int main(int argc,char**argv){
         if(g_nocapFrom && !g_nocapDone && (uint32_t)g_frame>=g_nocapFrom) nocap_apply();
         ep_tick(g_frame);   // D2_EIPPROF_FROM/TO: profiling window (no-op without the knobs)
         { FuScope _s(&g_fuCmd);   cmd_poll(); }      // vision-driven runtime injection ($D2CMDFILE)
-        { FuScope _s(&g_fuInput); if(d2vita_input_tick) d2vita_input_tick(); }   // physical controls (Vita)
+        { FuScope _s(&g_fuInput); if(d2vita_input_tick) d2vita_input_tick(&c); }   // physical controls (Vita)
+        // D2_SCREENSCAN: one-shot guest-memory snapshot, armed by D2SCRIPT
+        // "memscan" and env-gated so it costs nothing when unset. Used only by
+        // the Task 3 title-screen-signal spike; not part of the shipped feature.
+        // Lives here (not vita_present.cpp) because this TU is linked into both
+        // the qemu-arm oracle and the VPK build — see Task 1 Step 5.
+        if (g_memscan) {
+            g_memscan = false;
+            const char* label = getenv("D2_SCREENSCAN_LABEL");
+            const char* baseS  = getenv("D2_SCREENSCAN_BASE");
+            const char* lenS   = getenv("D2_SCREENSCAN_LEN");
+            if (label && baseS) {
+                uint32_t base = (uint32_t)strtoul(baseS, nullptr, 16);
+                uint32_t len  = lenS ? (uint32_t)strtoul(lenS, nullptr, 16) : 0x20000u;
+                // Reject 0/garbage sizes: this vector is sized straight off the
+                // env var, inside a per-frame lambda — a huge value should fail
+                // loudly here, not thrash or silently truncate downstream.
+                const uint32_t kMaxLen = 8u*1024*1024;
+                if (len == 0 || len > kMaxLen) {
+                    std::printf("screenscan: D2_SCREENSCAN_LEN=0x%x hors bornes (1..0x%x) -> ignore\n",
+                                len, kMaxLen);
+                } else {
+                    std::vector<uint8_t> buf(len);
+                    // Captures used to hardcode ux0:data/d2vita/, which does NOT
+                    // exist under qemu-arm (that path is Vita-only elsewhere in
+                    // this codebase, e.g. cdkeys_file.cpp) — this TU builds for
+                    // both, so the write silently died exactly where the Task 3
+                    // spike runs. Same fix as the "snap" dump a few lines below:
+                    // route through g_writeRoot (D2WRITE, defaults to /tmp),
+                    // which exists everywhere.
+                    const char* froot = g_writeRoot.empty() ? "/tmp" : g_writeRoot.c_str();
+                    char path[256];
+                    snprintf(path, sizeof path, "%s/screenscan_%s.bin", froot, label);
+                    if (!c.read(g_d2base + base, buf.data(), len)) {
+                        std::printf("screenscan: %s lecture hors zone mappee a Game+0x%x (%u Ko) -> abandon, rien ecrit\n",
+                                    label, base, len >> 10);
+                    } else {
+                        FILE* f = fopen(path, "wb");
+                        if (f) {
+                            fwrite(buf.data(), 1, len, f);
+                            fclose(f);
+                            std::printf("screenscan: %s (%u Ko a Game+0x%x) -> %s\n",
+                                        label, len >> 10, base, path);
+                        } else {
+                            std::printf("screenscan: %s: echec ouverture %s (%s)\n",
+                                        label, path, strerror(errno));
+                        }
+                    }
+                }
+            }
+        }
 #ifdef D2V_CRASHTEST
         d2crashtest_tick(c, br, g_frame);
 #endif
