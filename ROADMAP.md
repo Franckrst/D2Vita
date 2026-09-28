@@ -228,6 +228,43 @@ the source of truth for the public repository.
 
 ## In progress / open
 
+- [ ] **Belt UI flickers with a multi-row belt equipped**, found 2026-09-28
+      while chasing the Discord belt-potion reports (zymonx 27/09,
+      voice_of.reason 28/09 — "cannot put potions in the upper belt row").
+      Root cause of THAT report is still open, but a directly-related,
+      more severe symptom is now confirmed on console: dragging a potion
+      between rows of an actual multi-row belt produces heavy flicker
+      ("plein de clignotements, de scintillements... ça fonctionne très
+      très très mal" — hands-on report). Likely explanation: nobody had
+      ever tested this port with a real multi-row belt equipped before —
+      the maintainer's own long-running test character had NO belt at all
+      (confirmed by decoding its `.d2s` item list) — so `belt_rec`/
+      `belt_pos` (`src/runtime/native_hooks_resolution.cpp`), which
+      reposition the belt's screen rectangles for the 960x544 canvas, may
+      simply never have been exercised past a 1-row belt.
+      **Ruled out**: today's panel-anchoring default flip
+      (centre-vs-bords). A/B'd directly on console (`D2_RES_PANNEAUX=
+      bords` vs the new centre default) — identical flicker either way,
+      and reading the code confirms why: `belt_rec`/`belt_pos` call
+      `dx_centre(mode)`/`dy_bas(mode)` unconditionally, never checking
+      `g_centre` — the belt has always used centre-style positioning
+      regardless of that toggle, so it was never a candidate.
+      **Not yet ruled out**: the specific belt item used to reproduce this
+      is not a legitimate one. No real "Girdle" (4-row belt) existed on
+      the test character, so its equipped Leather Gloves were repurposed
+      in place (equip slot + item code overwritten in the `.d2s`, byte-
+      diffed clean, checksum valid — see the save-patch work below) to
+      test with 4 rows. Its durability/defense bytes are still whatever
+      was originally rolled for gloves, which may not be what the belt
+      row-count logic (or something adjacent) expects. A cleaner
+      from-scratch belt item, or reproducing with a legitimately-earned
+      one, would rule this in or out.
+      Investigation tools now in place for next time: `tools/d2s_stats.py`
+      gained no changes, but the item-list bit layout (`JM` header,
+      per-item fields from bit 58 through the 4-char type code at bit 76)
+      is now verified empirically against a real save and cross-checked
+      against two independent public format docs — see this entry's
+      originating session for the byte offsets if picking this back up.
 - [ ] **Aim-assist controller scheme, opt-in**: `wt/manette-curseur-libre`
       (5 iterative test builds, `manette-v2-test1` through `-v5-test1` plus
       `v0.1.11-remapping-beta2..4`) reworks the right stick into a
