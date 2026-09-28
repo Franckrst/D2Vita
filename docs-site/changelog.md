@@ -4,6 +4,22 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.16-beta — 2026-09-28
+
+- **Multi-row belts no longer flicker.** Hovering or dragging potions in
+  an expanded 2–4 row belt made it flicker: the game got two different
+  screen positions for the same belt slot. This is very likely also why
+  potions sometimes refused to go into the upper belt rows — please
+  confirm on Discord.
+- **`controls.txt`: lines uncommented from the reference file now work.**
+  The reference file writes `#l=lclick   # comment`; uncommenting a line
+  kept the trailing comment, so the line was rejected (e.g. `l=alt` left
+  L as a left click). Comments after `#` and extra spaces around `=` are
+  now ignored.
+
+Beta: both fixes were checked on a real console. Tell us on Discord if
+anything regressed compared to 0.1.15.
+
 ## v0.1.15-beta — 2026-09-28
 
 - **Inventory, stash and character panels are centered by default now.**

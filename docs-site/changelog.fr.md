@@ -5,6 +5,22 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.16-beta — 2026-09-28
+
+- **Les ceintures à plusieurs rangs ne clignotent plus.** Survoler ou
+  glisser des potions dans une ceinture ouverte de 2 à 4 rangs la faisait
+  clignoter : le jeu recevait deux positions différentes pour la même
+  case. C'est très probablement aussi pourquoi les potions refusaient
+  parfois d'aller dans les rangs du haut — confirmez-le sur Discord.
+- **`controls.txt` : les lignes décommentées du fichier de référence
+  fonctionnent.** Le fichier de référence écrit `#l=lclick   # commentaire` ;
+  décommenter une ligne gardait le commentaire, et la ligne était rejetée
+  (par exemple `l=alt` laissait L en clic gauche). Les commentaires après
+  `#` et les espaces autour de `=` sont désormais ignorés.
+
+Bêta : les deux correctifs ont été vérifiés sur une vraie console.
+Dites-nous sur Discord si quelque chose a régressé par rapport à la 0.1.15.
+
 ## v0.1.15-beta — 2026-09-28
 
 - **Les panneaux inventaire, coffre et personnage sont désormais centrés
