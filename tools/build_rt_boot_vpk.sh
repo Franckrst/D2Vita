@@ -594,7 +594,18 @@ for a in "sce_sys/icon0.png" "sce_sys/livearea/contents/bg.png" \
          "sce_sys/livearea/contents/startup.png" "sce_sys/livearea/contents/template.xml"; do
   [ -f "$ROOT/$a" ] && LIVEAREA_ARGS+=(-a "$ROOT/$a=$a")
 done
-vita-pack-vpk -s "$OUT/param.sfo" -b "$OUT/eboot.bin" "${SHADER_ARGS[@]}" "${GLIDE_ARGS[@]}" "${LIVEAREA_ARGS[@]}" "$OUT/$VPKOUT" >/dev/null
+# controls.reference.txt: a fully-commented sample of every controls.txt
+# key, action and button name the parser (load_controls_txt() in
+# vita_present.cpp) actually recognises. Copied to
+# ux0:data/d2vita/controls.txt on first boot ONLY (a player's existing file
+# is never touched) so remapping starts from real, documented keys instead
+# of a blank page — Discord, 25-28/09: several players either couldn't find
+# the file's syntax or pasted one from an unrelated branch and got silent
+# no-ops. Soft dependency: an older checkout without the file still builds,
+# it just keeps the plain "mapping par defaut" boot line.
+REF_ARGS=()
+[ -f "$ROOT/controls.reference.txt" ] && REF_ARGS+=(-a "$ROOT/controls.reference.txt=controls.reference.txt")
+vita-pack-vpk -s "$OUT/param.sfo" -b "$OUT/eboot.bin" "${SHADER_ARGS[@]}" "${GLIDE_ARGS[@]}" "${LIVEAREA_ARGS[@]}" "${REF_ARGS[@]}" "$OUT/$VPKOUT" >/dev/null
 echo "== built $OUT/$VPKOUT =="
 
 # ---------------------------------------------------------------------------

@@ -1764,20 +1764,30 @@ void d2vita_watchdog_start(const unsigned long long* pump_count, const int* fram
 //   L=left click (held)  R=right click (held)  Square(held)=Alt
 //   Cross=R walk/run toggle  Circle=Shift (held)  Triangle=W weapon swap
 //   D-pad = belt potions 1-4  |  Start=Escape
-//   R is ALSO the combo layer (its own click is independent of this role):
+//   R is ALSO the r+ combo layer (its own click is independent of this
+//   role), and L is likewise the l+ combo layer (free/unbound by default):
 //   R+Triangle=virtual keyboard  R+D-pad=F1..F4  R+Select=Space
 //   Select = radial menu (see radial_menu.h): skill tree, quests, automap,
 //   inventory, chat, party, character — replaces the older R+Cross=C,
 //   R+Circle=S, R+Square=Q, Triangle=Tab bindings. The virtual keyboard opens
 //   via R+Triangle (Triangle alone still swaps weapons).
 // Remap without a rebuild: ux0:data/d2vita/controls.txt ("cross=rclick",
-// "r+triangle=f5", "orbit=140", "sens=10", "deadzone=0.25", "anchor_y=470").
+// "r+triangle=f5", "l+circle=perso", "l=rclick", "r=none",
+// "select=inv", "orbit=140", "sens=10", "deadzone=0.25", "anchor_y=470").
+// A reference copy, fully commented, ships at app0:controls.reference.txt
+// and is copied to ux0:data/d2vita/controls.txt on first boot only (never
+// overwrites a file the player already has). Every rejected key or value in
+// an existing controls.txt is now named in boot_progress.txt instead of
+// silently doing nothing (see load_controls_txt()'s `warn` lambda).
 extern "C" { __attribute__((weak)) void d2gxm_shot_request(void); }
 extern "C" void d2vita_inject(const char* act, int a, int b);
 namespace {
 enum { A_NONE=0, A_LMB=1, A_RMB=2, A_KEY=3 };
 struct Act { int kind; int vk; };
-struct BtnMap { uint32_t bit; Act base, layer; };
+// llayer: the L+ combo, mirroring layer's R+ role. Free (A_NONE) on every
+// entry by default — l+ is purely opt-in via controls.txt, unlike r+ which
+// ships four bindings (F1-F4) out of the box.
+struct BtnMap { uint32_t bit; Act base, layer, llayer; };
 // D2_LAGMARK=0 disables the freeze marker (up arrow); it arms automatically
 // whenever D2_LAGWATCH is present, since it's meaningless without it. Cost:
 // one bit test per controller read (30 Hz).
@@ -1796,18 +1806,33 @@ constexpr uint32_t B_SELECT=0x000001, B_START=0x000008, B_UP=0x000010, B_RIGHT=0
 BtnMap g_btn[] = {
     // Cross/Circle carry the role L used to hold alone (L/R are now the
     // click buttons, handled separately — see the L/R block further below).
-    { B_CROSS,  {A_KEY,0x52}, {A_NONE,0} },      // Cross: R, walk/run (toggle) | R+: free
-    { B_CIR,    {A_KEY,0x10}, {A_NONE,0} },     // Circle: Shift (held)         | R+: free
-    { B_SQR,    {A_KEY,0x12}, {A_NONE,0} },     // Square: Alt      | R+: (free: Q lives in the radial menu)
-    { B_TRI,    {A_KEY,0x57}, {A_NONE,0} },     // Tri  : W weapon swap | R+: keyboard (handled separately)
-    { B_UP,     {A_KEY,0x31}, {A_KEY,0x70} },   // ^ potion1       | R+: F1
-    { B_LEFT,   {A_KEY,0x32}, {A_KEY,0x71} },   // < potion2       | R+: F2
-    { B_DOWN,   {A_KEY,0x33}, {A_KEY,0x72} },   // v potion3       | R+: F3
-    { B_RIGHT,  {A_KEY,0x34}, {A_KEY,0x73} },   // > potion4       | R+: F4
-    { B_START,  {A_KEY,0x1B}, {A_NONE,0} },     // Start: ESCAPE | R+Start = keyboard (handled separately)
+    { B_CROSS,  {A_KEY,0x52}, {A_NONE,0}, {A_NONE,0} },      // Cross: R, walk/run (toggle) | R+: free | L+: free
+    { B_CIR,    {A_KEY,0x10}, {A_NONE,0}, {A_NONE,0} },     // Circle: Shift (held)         | R+: free | L+: free
+    { B_SQR,    {A_KEY,0x12}, {A_NONE,0}, {A_NONE,0} },     // Square: Alt      | R+: (free: Q lives in the radial menu) | L+: free
+    { B_TRI,    {A_KEY,0x57}, {A_NONE,0}, {A_NONE,0} },     // Tri  : W weapon swap | R+: keyboard (handled separately) | L+: free
+    { B_UP,     {A_KEY,0x31}, {A_KEY,0x70}, {A_NONE,0} },   // ^ potion1       | R+: F1 | L+: free
+    { B_LEFT,   {A_KEY,0x32}, {A_KEY,0x71}, {A_NONE,0} },   // < potion2       | R+: F2 | L+: free
+    { B_DOWN,   {A_KEY,0x33}, {A_KEY,0x72}, {A_NONE,0} },   // v potion3       | R+: F3 | L+: free
+    { B_RIGHT,  {A_KEY,0x34}, {A_KEY,0x73}, {A_NONE,0} },   // > potion4       | R+: F4 | L+: free
+    { B_START,  {A_KEY,0x1B}, {A_NONE,0}, {A_NONE,0} },     // Start: ESCAPE | R+Start: free | L+Start = screenshot (handled separately, always wins over l+ below)
     // Select is handled separately (see below): opens the radial menu
-    // (7 sectors) immediately; R+Select = Space.
+    // (7 sectors) immediately, unless remapped with controls.txt's
+    // top-level `select=`; R+Select = Space always.
 };
+// L and R's OWN action when held alone (not a g_btn entry: L/R are also the
+// r+/l+ combo-layer prefixes for every button above, which is independent of
+// what pressing L or R *by itself* does). Remappable via controls.txt's
+// top-level `l=`/`r=`; default to the historical hold-to-click behaviour.
+// KNOWN LIMITATION: lclick/rclick track ONE shared g_lmb_btn/g_rmb_sent
+// flag each, not per-source — binding l= AND r= to the same click would let
+// releasing either one drop it while the other is still held. Nobody asked
+// for that combination; not worth a per-source ref-count for it here.
+Act g_l_act = {A_LMB,0}, g_r_act = {A_RMB,0};
+Act g_l_engaged = {A_NONE,0}, g_r_engaged = {A_NONE,0};
+// Select's OWN action when pressed alone, remappable via top-level
+// `select=`. A_NONE (the default) keeps the radial menu; any other Act
+// bypasses it and fires directly instead — R+Select stays Space either way.
+Act g_select_act = {A_NONE,0};
 float g_cx=400.f, g_cy=300.f;                    // cursor, GAME coords
 bool  g_lmb_stick=false, g_lmb_btn=false, g_lmb_sent=false, g_rmb_sent=false;
 uint32_t g_ctl_prev=0; bool g_ctl_init=false;
@@ -1825,8 +1850,9 @@ int   g_in_hz=0, g_tap_ticks=15;
 int   g_t_at=-1, g_t_x=0, g_t_y=0, g_t_x0=0, g_t_y0=0; bool g_t_moved=false;
 Act g_engaged[sizeof g_btn / sizeof *g_btn];
 // Select: opens the radial menu on press (no direct fallback); R+Select = Space.
-enum { SEL_IDLE=0, SEL_SPACE, SEL_RADIAL };
+enum { SEL_IDLE=0, SEL_SPACE, SEL_RADIAL, SEL_CUSTOM };
 int g_sel_mode = SEL_IDLE;
+Act g_sel_engaged = {A_NONE,0};   // engaged Act while g_sel_mode==SEL_CUSTOM
 
 bool parse_act(const char* v, Act* out){
     struct E { const char* n; Act a; };
@@ -1854,26 +1880,69 @@ uint32_t name_bit(const char* n){
 }
 void load_controls_txt(){
     FILE* f = fopen("ux0:data/d2vita/controls.txt","r");
-    if (!f) { d2vita_progress("input: mapping par defaut"); return; }
+    if (!f) {
+        // First boot, or the file was deleted: seed a fully-commented
+        // reference copy from the VPK (app0:controls.reference.txt) so the
+        // player finds real, documented keys under ux0:data/d2vita/ instead
+        // of nothing — see docs-site/controles.md. Never overwrites: this
+        // whole branch only runs when the fopen("r") just above failed.
+        // The default mapping still applies for THIS boot either way; the
+        // seeded file (being all comments plus the shipped defaults) takes
+        // effect starting next boot.
+        FILE* ref = fopen("app0:controls.reference.txt","r");
+        if (ref) {
+            FILE* out = fopen("ux0:data/d2vita/controls.txt","w");
+            if (out) {
+                char buf[512]; size_t r;
+                while ((r=fread(buf,1,sizeof buf,ref))>0) fwrite(buf,1,r,out);
+                fclose(out);
+                d2vita_progress("input: controls.txt de reference copie (ux0:data/d2vita/controls.txt)");
+            }
+            fclose(ref);
+        } else {
+            d2vita_progress("input: mapping par defaut");
+        }
+        return;
+    }
     // 1024, not 96: an input script (D2SCRIPT) can run several hundred
     // characters, and silently truncating it would launch a different
     // scenario than the one intended.
-    char line[1024]; int n=0;
+    char line[1024]; int n=0, bad=0;
+    // A bad line is silently DROPPED, not applied — but silent is exactly
+    // what confused players pasting a controls.txt from a different branch
+    // or build (scheme=, aim=, cone=... keys this parser has never known):
+    // the file "did nothing" with no clue why. Every rejected key/value now
+    // gets one boot_progress line, capped so a genuinely garbled file can't
+    // flood the log the watchdog and bug reports both read.
+    constexpr int MAX_WARN = 8;
     while (fgets(line,sizeof line,f)) {
         char* nl=strpbrk(line,"\r\n"); if(nl)*nl=0;
         if(!line[0]||line[0]=='#') continue;
+        char raw[80]; snprintf(raw,sizeof raw,"%s",line);   // pre-split copy, for the warning text
         char* eq=strchr(line,'='); if(!eq||eq==line) continue; *eq=0; char* v=eq+1;
-        if      (!strcasecmp(line,"orbit"))   { g_orbit=atoi(v); n++; continue; }
-        else if (!strcasecmp(line,"sens"))    { g_sens=(float)atof(v); n++; continue; }
-        else if (!strcasecmp(line,"deadzone")){ g_dz=(float)atof(v); n++; continue; }
-        else if (!strcasecmp(line,"anchor_y")){ g_anchor_y_pm=atoi(v); n++; continue; }
-        bool layer = !strncasecmp(line,"r+",2);
-        uint32_t bit = name_bit(layer?line+2:line);
-        Act a; if (!bit || !parse_act(v,&a)) continue;
-        for (BtnMap& m : g_btn) if (m.bit==bit) { (layer?m.layer:m.base)=a; n++; }
+        auto warn=[&](const char* why){
+            ++bad;
+            if (bad<=MAX_WARN){ char m[128]; snprintf(m,sizeof m,"input: controls.txt ignore \"%s\" (%s)",raw,why); d2vita_progress(m); }
+        };
+        if      (!strcasecmp(line,"orbit"))    { g_orbit=atoi(v); n++; continue; }
+        else if (!strcasecmp(line,"sens"))     { g_sens=(float)atof(v); n++; continue; }
+        else if (!strcasecmp(line,"deadzone")) { g_dz=(float)atof(v); n++; continue; }
+        else if (!strcasecmp(line,"anchor_y")) { g_anchor_y_pm=atoi(v); n++; continue; }
+        else if (!strcasecmp(line,"l"))        { if(parse_act(v,&g_l_act)) n++; else warn("action inconnue"); continue; }
+        else if (!strcasecmp(line,"r"))        { if(parse_act(v,&g_r_act)) n++; else warn("action inconnue"); continue; }
+        else if (!strcasecmp(line,"select"))   { if(parse_act(v,&g_select_act)) n++; else warn("action inconnue"); continue; }
+        bool r_layer = !strncasecmp(line,"r+",2);
+        bool l_layer = !r_layer && !strncasecmp(line,"l+",2);
+        uint32_t bit = name_bit((r_layer||l_layer)?line+2:line);
+        if (!bit) { warn("bouton inconnu"); continue; }
+        Act a; if (!parse_act(v,&a)) { warn("action inconnue"); continue; }
+        for (BtnMap& m : g_btn) if (m.bit==bit) { (r_layer?m.layer:l_layer?m.llayer:m.base)=a; n++; }
     }
     fclose(f);
-    char m[64]; snprintf(m,sizeof m,"input: controls.txt applique (%d entrees)",n); d2vita_progress(m);
+    char m[96];
+    if (bad>0) snprintf(m,sizeof m,"input: controls.txt applique (%d entrees, %d ignorees)",n,bad);
+    else       snprintf(m,sizeof m,"input: controls.txt applique (%d entrees)",n);
+    d2vita_progress(m);
 }
 // Human-readable label for one Act, for the controls-help panel. Mirrors the
 // vk-code choices already made in g_btn[]'s own comments (line 1576+).
@@ -1921,17 +1990,20 @@ const char* bit_label(uint32_t bit) {
 // purpose — see design doc section 4: these six never move).
 int format_controls_help(char out[][64], int max) {
     int n = 0;
+    if (n < max) snprintf(out[n++], 64, "L: %s", act_label(g_l_act));
+    if (n < max) snprintf(out[n++], 64, "R: %s", act_label(g_r_act));
+    if (n < max) snprintf(out[n++], 64, "Select: %s",
+        g_select_act.kind == A_NONE ? "Radial menu" : act_label(g_select_act));
     for (const BtnMap& m : g_btn) {
         if (n >= max) break;
         if (m.base.kind != A_NONE)
             snprintf(out[n++], 64, "%s: %s", bit_label(m.bit), act_label(m.base));
         if (n < max && m.layer.kind != A_NONE)
             snprintf(out[n++], 64, "R+%s: %s", bit_label(m.bit), act_label(m.layer));
+        if (n < max && m.llayer.kind != A_NONE)
+            snprintf(out[n++], 64, "L+%s: %s", bit_label(m.bit), act_label(m.llayer));
     }
     static const char* const kFixed[] = {
-        "L: Left click (held)",
-        "R: Right click (held)",
-        "Select: Radial menu",
         "R+Select: Space",
         "R+Triangle: Virtual keyboard",
         "L+Start: Screenshot",
@@ -2044,6 +2116,9 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
         return;                     // consomme : ni potion, ni autre effet
     }
     const bool layer=(b&B_R)!=0;
+    // l+ combos only engage when R isn't ALSO held — R keeps first refusal
+    // on every button below, same as it already had over L's own click.
+    const bool l_layer=!layer && (b&B_L)!=0;
     bool moved=false;
 
     // L + Start = on-demand screenshot (ux0:data/d2vita/shot_<frame>.bmp) —
@@ -2113,12 +2188,16 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
     }
 
     // Select opens the radial menu IMMEDIATELY (no "tap = I" fallback: the
-    // radial menu's 7 functions fully replace the old individual controls).
-    // R+Select = Space, unchanged.
+    // radial menu's 7 functions fully replace the old individual controls),
+    // UNLESS controls.txt's top-level `select=` set a direct action instead
+    // (voice_of.reason, Discord 28/09: wanted Select to reach the mercenary's
+    // inventory rather than the radial menu). R+Select = Space, unchanged
+    // either way — it never goes through g_select_act.
     {
         const bool selDown=(b&B_SELECT)!=0, selWas=(was&B_SELECT)!=0;
         if (selDown && !selWas) {
             if (layer) { g_sel_mode=SEL_SPACE; d2vita_inject("keydown",0x20,0); }
+            else if (g_select_act.kind!=A_NONE) { g_sel_mode=SEL_CUSTOM; g_sel_engaged=g_select_act; do_press(g_sel_engaged); }
             // Le menu n'existe QUE sur le GPU. S'il n'est pas armé (.gxp
             // absent, atlas non alloué), ne pas l'ouvrir : un menu invisible
             // qui avale quand même les entrées serait pire que pas de menu.
@@ -2131,6 +2210,7 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
         }
         if (!selDown && selWas) {
             if      (g_sel_mode==SEL_SPACE)  d2vita_inject("keyup",0x20,0);
+            else if (g_sel_mode==SEL_CUSTOM) { do_release(g_sel_engaged); g_sel_engaged={A_NONE,0}; }
             else if (g_sel_mode==SEL_RADIAL) {
                 const int idx = radial_menu::resolved_index(g_rm);
                 radial_menu::end(g_rm);
@@ -2249,20 +2329,22 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
         }
     }
 
-    // L: left click (held); R: right click (held). Independent of `layer`: R
-    // keeps its OWN click while still arming the combo layer for the OTHER
-    // buttons (Triangle, D-pad, Select) — R's two effects coexist without
-    // conflict since `layer` is re-read every tick, never consumed by this
-    // block.
-    if ((b&B_L)&&!(was&B_L)){ g_lmb_btn=true; lmb_update(); }
-    if (!(b&B_L)&&(was&B_L)){ g_lmb_btn=false; lmb_update(); }
-    if ((b&B_R)&&!(was&B_R)){ if(!g_rmb_sent){ d2vita_inject("rdown",(int)g_cx,(int)g_cy); g_rmb_sent=true; } }
-    if (!(b&B_R)&&(was&B_R)){ if(g_rmb_sent){ d2vita_inject("rup",(int)g_cx,(int)g_cy); g_rmb_sent=false; } }
+    // L: g_l_act, held (default: left click). R: g_r_act, held (default:
+    // right click). Remappable via controls.txt's top-level `l=`/`r=`, but
+    // ALWAYS independent of `layer`/`l_layer`: R keeps its own action while
+    // still arming the r+ combo layer for the OTHER buttons (Triangle,
+    // D-pad, Select), and likewise L for l+ — the two effects coexist
+    // without conflict since `layer`/`l_layer` are re-read every tick, never
+    // consumed by this block.
+    if ((b&B_L)&&!(was&B_L)){ g_l_engaged=g_l_act; do_press(g_l_engaged); }
+    if (!(b&B_L)&&(was&B_L)){ do_release(g_l_engaged); g_l_engaged={A_NONE,0}; }
+    if ((b&B_R)&&!(was&B_R)){ g_r_engaged=g_r_act; do_press(g_r_engaged); }
+    if (!(b&B_R)&&(was&B_R)){ do_release(g_r_engaged); g_r_engaged={A_NONE,0}; }
 
-    // Mapped buttons (edges, R layer sampled at the moment of press)
+    // Mapped buttons (edges, R/L layer sampled at the moment of press; R wins if both held)
     for (size_t i=0;i<sizeof g_btn/sizeof*g_btn;i++){
         bool now=(b&g_btn[i].bit)!=0, before=(was&g_btn[i].bit)!=0;
-        if (now&&!before){ g_engaged[i]= layer?g_btn[i].layer:g_btn[i].base; do_press(g_engaged[i]); }
+        if (now&&!before){ g_engaged[i]= layer?g_btn[i].layer:l_layer?g_btn[i].llayer:g_btn[i].base; do_press(g_engaged[i]); }
         else if (!now&&before){ do_release(g_engaged[i]); g_engaged[i]={A_NONE,0}; }
     }
 
