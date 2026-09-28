@@ -5,6 +5,32 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.14-beta — 2026-09-28
+
+- **Onglet « Controls » à l'écran-titre.** Une petite icône dans la bande
+  gauche de l'écran-titre ouvre un panneau plein écran listant tous les
+  bindings réellement en vigueur — défauts + ce que `controls.txt` a
+  changé — défilable au D-pad ou en glissant, fermé par Rond ou Start.
+- **L, R et Select sont désormais remappables**, sans toucher à leur rôle
+  de préfixe de couche combo : `l=`/`r=`/`select=` dans `controls.txt`
+  changent ce que ces boutons font *seuls* (défaut : clic gauche, clic
+  droit, le menu radial). Une nouvelle couche `l+` fait le miroir de la
+  couche `r+` existante et démarre entièrement libre, à remplir par
+  chacun.
+- **Une ligne fautive de `controls.txt` le dit désormais.** Un bouton
+  inconnu, une action inconnue, ou un combo que Select n'a pas étaient
+  auparavant ignorés en silence ; chaque ligne rejetée est maintenant
+  nommée dans `boot_progress.txt`.
+- **Une copie de référence entièrement commentée de `controls.txt`** est
+  embarquée dans le VPK et copiée vers `ux0:data/d2vita/controls.txt` au
+  tout premier démarrage du jeu — elle ne remplace jamais un fichier déjà
+  présent.
+
+Bêta : démarre proprement sur console réelle, mais personne n'a encore
+testé à la main chaque nouveau remap (`l=`, `r=`, `select=`, la couche
+`l+`). Retours bienvenus sur Discord avant que ça devienne la release par
+défaut.
+
 ## v0.1.13 — 2026-09-28
 
 - **Fini les à-coups de l'acte V.** Sur la patrouille scriptée de Harrogath

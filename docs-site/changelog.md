@@ -4,6 +4,28 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.14-beta — 2026-09-28
+
+- **Title-screen "Controls" tab.** A small icon in the left letterbox band
+  of the title screen opens a full-screen panel listing every binding
+  currently in effect — defaults plus anything `controls.txt` changed —
+  scrollable by D-pad or drag, closed with Circle or Start.
+- **L, R and Select are now remappable**, without touching their role as
+  combo-layer prefixes: `l=`/`r=`/`select=` in `controls.txt` change what
+  pressing them *alone* does (default: left click, right click, the radial
+  menu). A new `l+` layer mirrors the existing `r+` one and starts
+  entirely free, for players to fill in themselves.
+- **A bad `controls.txt` line now says so.** An unknown button, an unknown
+  action, or a combo Select doesn't have used to be silently ignored;
+  every rejected line is now named in `boot_progress.txt`.
+- **A fully-commented reference `controls.txt`** ships inside the VPK and
+  is copied to `ux0:data/d2vita/controls.txt` the very first time the game
+  boots — it never overwrites a file a player already has.
+
+Beta: boots cleanly on real hardware, but nobody has hand-tested every new
+remap yet (`l=`, `r=`, `select=`, the `l+` layer). Feedback wanted on
+Discord before this becomes the default release.
+
 ## v0.1.13 — 2026-09-28
 
 - **Act V stutter gone.** On the scripted Harrogath patrol (real console,
