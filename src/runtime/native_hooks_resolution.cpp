@@ -466,9 +466,11 @@ uint32_t belt_rec(Cpu& c, Bridge& br) {
     const uint32_t idx = c.read_u32(E + 4), mode = c.read_u32(E + 8), out = c.read_u32(E + 12);
     const uint32_t rec = g_applied ? belt_ligne(c, idx, mode) : 0;
     if (!rec) { original(c, br, g_base + RVA_BELTREC); return 0; }
-    // 264 o : nombre de cases, un mot, puis 16 rectangles.
+    // 264 o : un mot inutilise, le nombre de cases, puis 16 rectangles. Le
+    // compte est au 2e mot (trace console 28/09/2026 : mot0=0, n=16 en 4 rangs).
     c.write_u32(out, c.read_u32(rec)); c.write_u32(out + 4, c.read_u32(rec + 4));
-    const uint32_t n = c.read_u32(rec);
+    uint32_t n = c.read_u32(rec + 4);
+    if (n > 16) n = 16;
     for (uint32_t i = 0; i < 16; ++i)
         copie_rect(c, rec + 8 + i * 16, out + 8 + i * 16, i < n ? dx_centre(mode) : 0, i < n ? dy_bas(mode) : 0, false);
     return 1;
