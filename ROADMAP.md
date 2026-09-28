@@ -184,10 +184,25 @@ the source of truth for the public repository.
       and is seeded to `ux0:data/d2vita/controls.txt` on first boot only.
       Validated: host oracle (`oracle_controls_help.sh`, unaffected),
       qemu-arm boot gate PASS(natif), both build paths (VPK + CMake host)
-      green. **Not console-validated**: this logic only runs from a real
-      controller/touch tick, which qemu-arm's scripted boot doesn't drive —
-      needs a Discord test build like the ones for the aim-assist track
-      below.
+      green.
+      2026-09-28, deployed to the dev console (`tools/deploy_eboot.sh`,
+      eboot swap only — saves/`env.txt` untouched): clean boot, 60+ s of
+      sustained gameplay-thread activity with no `crash.log` and no
+      regression in the watchdog log. This confirms the new input tick
+      doesn't regress the console boot path, but it was an unattended
+      run — nobody physically exercised L, R, Select or an `l+` combo, so
+      the remaps themselves still await a hands-on pass.
+      **`controls.reference.txt` specifically is NOT yet reachable on
+      that console**: `boot_progress.txt` shows `input: mapping par
+      defaut`, meaning both the `ux0:data/d2vita/controls.txt` read AND
+      the `app0:controls.reference.txt` fallback missed. Cause: an eboot
+      swap only replaces the executable — `app0:` is the installed VPK's
+      OWN data segment, populated at install time, so a file added to
+      the VPK doesn't reach a console that only ever had an older VPK
+      installed. Needs a real VPK (re)install to actually land, not just
+      `deploy_eboot.sh`; the reference file itself was confirmed present
+      in the built `.vpk` archive (host-side `zipfile` check), so the gap
+      is in this deployment method, not the file.
       Investigated and found NOT separable from that same track: a
       "move-only" left stick (no attack/pickup while walking past a
       monster) and multi-action macros (e.g. one button = map + run) both
