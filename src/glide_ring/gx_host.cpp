@@ -1670,13 +1670,14 @@ static void gx_panel_gapfill(uint32_t n, uint32_t stride, const uint8_t* vh,
 // ---- LES DEUX BANDES LATERALES, entre cadre et bord d'ecran ----------------
 //
 // Deux ancrages possibles (D2_RES_PANNEAUX, native_hooks_resolution.cpp) :
-//   bords (defaut) : panneau gauche en 0..400, droit en W-400..W. Avec les
-//     deux ouverts D2 ne dessine plus le monde du tout et la colonne
-//     400..W-400, de 0 a H-47, n'est couverte par rien : noire. Avec un seul
-//     le monde y est visible, rien a combler.
-//   centre : disposition 800 centree (panneaux 160..800, cadre 80..880 a
-//     960). D2 ne dessine le monde que du cote oppose a un panneau ouvert :
-//     la bande 0..80 (gauche) ou W-80..W (droite) reste noire, meme seule.
+//   centre (defaut depuis 0.1.15) : disposition 800 centree (panneaux
+//     160..800, cadre 80..880 a 960). D2 ne dessine le monde que du cote
+//     oppose a un panneau ouvert : la bande 0..80 (gauche) ou W-80..W
+//     (droite) reste noire, meme seule.
+//   bords (D2_RES_PANNEAUX=bords/edges) : panneau gauche en 0..400, droit en
+//     W-400..W. Avec les deux ouverts D2 ne dessine plus le monde du tout et
+//     la colonne 400..W-400, de 0 a H-47, n'est couverte par rien : noire.
+//     Avec un seul le monde y est visible, rien a combler.
 //
 // Meme remede que le bandeau ci-dessus : on les comble avec la pierre DU CADRE
 // LUI-MEME, rechantillonnee depuis la barre verticale droite (piece 7 de

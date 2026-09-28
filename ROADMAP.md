@@ -107,14 +107,18 @@ the source of truth for the public repository.
       80 px away — the button under the cursor lit up, the click did
       nothing (measured on console, 2026-09-23). The shift is now written
       at the *entry* of that routine (its prologue replayed from the host,
-      zero bytes of `.text` changed), so drawing and clicks share it. By
-      default the panels stay at the screen edges (left panel 0..400,
-      right panel `W−400..W`, the game's own +80/−60 shift); the
-      `inventory.bin`/`belts.bin` tables and the replayed `800BorderFrame`
-      follow that anchoring. `D2_RES_PANNEAUX=centre` centres the 800
-      layout as one block instead (panels contiguous, SGD2FreeRes's
-      model, an 80 px stone strip on each side); `D2_RES_PANNEAUX=0`
-      keeps the game's own tables and frame, for A/B. With two panels
+      zero bytes of `.text` changed), so drawing and clicks share it.
+      **Since 0.1.15, panels are centred by default** (SGD2FreeRes's model:
+      the whole 800 layout as one contiguous block, an 80 px stone strip on
+      each side) — changed from the earlier edge anchoring after Discord
+      feedback (voice_of.reason, 28/09) that the black column between
+      inventory and stash at the edges got in the way of selling/dragging
+      items between them. `D2_RES_PANNEAUX=bords`/`edges` restores the old
+      edge anchoring (left panel 0..400, right panel `W−400..W`, the
+      game's own +80/−60 shift); the `inventory.bin`/`belts.bin` tables and
+      the replayed `800BorderFrame` follow whichever anchoring is active.
+      `D2_RES_PANNEAUX=0` keeps the game's own tables and frame, for A/B.
+      With two panels
       open the game draws no world, so the column between them (or, when
       centred, the side strips) is filled in the Glide ring with the
       frame's own stone (`D2_HUDFILL=0` to disable). Verified on console:
@@ -136,6 +140,19 @@ the source of truth for the public repository.
       draw and click could in X before this fix. Verified on console: full
       ornament visible top and bottom on both panels, inventory close-click
       still lands after the shift (594,432 vs the old 594,404)
+      **2026-09-28: switched the default from edges to centre**, per the
+      above. Console-confirmed: `boot_progress.txt` shows `res: panneaux
+      ancres au centre (defaut)` right after deploying the new build, and
+      the title screen (with the new controls-help tab from the same
+      session) renders correctly in a fetched screenshot. **Not yet
+      re-confirmed with a panel actually open on THIS build** — the
+      anchoring math itself is unchanged (only which value is chosen by
+      default), and was already console-measured under
+      `D2_RES_PANNEAUX=centre` before it became the default (scripted
+      clicks, `D2_TRACE_CLIC` globals read mid-draw, see above), but nobody
+      has looked at an open inventory/stash pair side by side since the
+      flip. Worth a hands-on look before calling the gap this was meant to
+      close actually closed.
 - [x] DirectSound audio (host mixer, natively-ported Storm codecs) —
       implemented, **enabled by default**; `D2_SON=0` opts back out to
       `DSERR_NODRIVER`, faithful to a machine with no sound card

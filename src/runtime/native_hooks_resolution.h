@@ -20,6 +20,8 @@
 // taille, D2_RES640=0 rend le 640x480 d'origine (borde).
 // D2_RES_PANNEAUX=0 garde la bascule mais laisse les tables d'inventaire, la
 // ceinture et le cadre 800BorderFrame la ou le jeu les met (jambe temoin).
+// Ancrage CENTRE par defaut depuis 0.1.15 (D2_RES_PANNEAUX=bords/edges pour
+// revenir aux panneaux colles aux bords) -- voir d2res_centre() plus bas.
 //
 // Le champ de vision elargi est un avantage en jeu : a reserver au solo et au
 // serveur prive.
@@ -36,7 +38,8 @@ extern "C" int d2res_w(void);
 extern "C" int d2res_h(void);
 // Mode du jeu en cours : 1 = disposition 800x600, 0 = disposition 640x480.
 extern "C" int d2res_mode(void);
-// 1 = disposition 800 centree d'un bloc (D2_RES_PANNEAUX=centre), 0 = panneaux
-// aux bords (defaut) : l'anneau Glide comble la zone que le jeu laisse noire
-// selon le cas (bandes laterales, ou colonne entre les deux panneaux).
+// 1 = disposition 800 centree d'un bloc (defaut depuis 0.1.15), 0 = panneaux
+// aux bords (D2_RES_PANNEAUX=bords/edges) : l'anneau Glide comble la zone que
+// le jeu laisse noire selon le cas (bandes laterales, ou colonne entre les
+// deux panneaux).
 extern "C" int d2res_centre(void);

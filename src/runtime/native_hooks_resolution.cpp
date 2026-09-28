@@ -140,16 +140,18 @@ int g_w0 = 848, g_h0 = 480;
 // Ancrage de la disposition 800x600 sur notre ecran (D2_RES_PANNEAUX) — cette
 // bascule ne pilote plus que l'axe X ; l'axe Y est toujours centre (voir
 // dy_centre plus bas, et pourquoi juste avant apply()) :
-//   0 (defaut, « bords ») : decalage ecran X 80, celui du jeu en mode 2. Le
-//     panneau de gauche reste colle a gauche (cadre 0..80, art 80..400), celui
-//     de droite est colle a droite (art W-400..W-80, cadre W-80..W) ; entre
-//     les deux, le monde. C'est l'aspect voulu sur une dalle de 960.
-//   1 (« centre ») : decalage X W/2-320, la disposition 800 entiere centree
-//     d'un bloc en X, panneaux jointifs (modele SGD2FreeRes) ; laisse une
-//     bande de 80 px entre le cadre et le bord de l'ecran.
+//   1 (« centre », defaut depuis 0.1.15) : decalage X W/2-320, la disposition
+//     800 entiere centree d'un bloc en X, panneaux jointifs (modele
+//     SGD2FreeRes) ; laisse une bande de 80 px entre le cadre et le bord de
+//     l'ecran. Retour Discord voice_of.reason (28/09) : aux bords, la colonne
+//     noire entre inventaire et coffre genait la vente/le drag d'objets.
+//   0 (« bords », D2_RES_PANNEAUX=bords/edges) : decalage ecran X 80, celui
+//     du jeu en mode 2. Le panneau de gauche reste colle a gauche (cadre
+//     0..80, art 80..400), celui de droite est colle a droite (art
+//     W-400..W-80, cadre W-80..W) ; entre les deux, le monde.
 // Dans les deux cas le MEME decalage sert au dessin et aux clics (crochet 3),
 // et tables (crochet 4) comme cadre (crochet 5) suivent ce meme ancrage.
-int g_centre = 0;
+int g_centre = 1;
 uint32_t g_base = 0;
 
 // Ces fonctions ne sont pas reentrantes (un changement de resolution a la
@@ -728,12 +730,20 @@ void native_hooks_resolution_install(Cpu* cpu, Bridge& br) {
     // D2_RES_PANNEAUX=0 : garde la bascule (crochets 1-3) mais laisse les
     // panneaux tels que le jeu les place — la jambe temoin d'un A/B a meme
     // eboot, et un repli si un jour une table modifiee ne se recale pas bien.
+    //
+    // CENTRE PAR DEFAUT depuis 0.1.15 (retour Discord voice_of.reason,
+    // 28/09 : la bande noire entre inventaire et coffre aux bords genait la
+    // vente/le drag d'objets — le centre les rapproche). D2_RES_PANNEAUX=
+    // bords/edges revient a l'ancien defaut (panneaux colles aux bords) ;
+    // =centre/center reste accepte explicitement, redondant avec le defaut
+    // mais documente les deux valeurs symetriquement.
     const char* pn = getenv("D2_RES_PANNEAUX");
     const bool panneaux = !(pn && *pn && (!std::strcmp(pn, "0") || !std::strcmp(pn, "non") || !std::strcmp(pn, "off")));
-    g_centre = (pn && (!std::strcmp(pn, "centre") || !std::strcmp(pn, "center"))) ? 1 : 0;
+    const bool bords = pn && (!std::strcmp(pn, "bords") || !std::strcmp(pn, "edges"));
+    g_centre = bords ? 0 : 1;
     int poses = gfx_ok ? 4 : 3;
     if (!panneaux) jpline("res: panneaux laisses au jeu (D2_RES_PANNEAUX=%s)", pn);
-    else jpline("res: panneaux ancres %s", g_centre ? "au centre (D2_RES_PANNEAUX=centre)" : "aux bords");
+    else jpline("res: panneaux ancres %s", g_centre ? "au centre (defaut)" : "aux bords (D2_RES_PANNEAUX=bords)");
 
     // 4. Les cinq accesseurs de table : remplaces, recales sur le centre.
     //    Tout ou rien, comme ci-dessus.

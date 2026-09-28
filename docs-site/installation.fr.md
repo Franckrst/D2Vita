@@ -137,9 +137,11 @@ menus est en taille fixe, il n'est jamais redessiné en 960×544.
 `D2_HUDFILL=0` empêche le bandeau d'interface de combler les deux trous que
 son art de 800 px laisse sur un écran de 960, et empêche aussi de combler
 avec la pierre du cadre la colonne noire entre deux panneaux ouverts
-(personnage + inventaire ou arbre). `D2_RES_PANNEAUX=centre` centre la
-disposition 800 d'un bloc au lieu de coller les panneaux aux bords (ils se
-touchent alors, avec une bande de pierre de 80 px de chaque côté) ;
+(personnage + inventaire ou arbre). Les panneaux sont centrés par défaut (la disposition 800 comme un seul
+bloc, une bande de pierre de 80 px de chaque côté — plus facile pour
+glisser des objets entre inventaire et coffre que l'ancien ancrage aux
+bords, qui laissait une colonne noire entre les deux).
+`D2_RES_PANNEAUX=bords`/`edges` revient aux panneaux collés aux bords ;
 `D2_RES_PANNEAUX=0` laisse au jeu ses tables d'inventaire et son cadre
 (objets, clics et cadre alors décalés par rapport aux panneaux).
 

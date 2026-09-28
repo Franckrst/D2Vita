@@ -4,6 +4,20 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.15-beta — 2026-09-28
+
+- **Inventory, stash and character panels are centered by default now.**
+  They used to be anchored to the screen edges, with a wide black gap
+  between two open panels; they now sit together as one 800-wide block
+  (the SGD2FreeRes model), which makes dragging items between an open
+  inventory and stash easier. `D2_RES_PANNEAUX=bords` (or `edges`) in
+  `env.txt` restores the previous edge anchoring.
+
+Beta: the anchoring math itself hasn't changed and was already
+console-measured before becoming the default, but nobody's looked at two
+open panels side by side on this exact build yet. Tell us on Discord if
+anything looks or clicks wrong.
+
 ## v0.1.14-beta — 2026-09-28
 
 - **Title-screen "Controls" tab.** A small icon in the left letterbox band

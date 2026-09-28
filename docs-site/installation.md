@@ -131,9 +131,11 @@ it is never redrawn at 960×544. `D2_HUDFILL=0` stops the HUD bar from
 filling the two gaps that its 800-wide art leaves on a 960-wide screen,
 and stops the black column between two open panels (character sheet plus
 inventory or skill tree) from being filled with the frame's own stone.
-`D2_RES_PANNEAUX=centre` centres the 800 layout as one block instead of
-keeping the panels at the screen edges (they then touch, with an 80 px
-stone strip on each side); `D2_RES_PANNEAUX=0` leaves the game its own
+Panels are centred by default (the 800 layout as one contiguous block, an
+80 px stone strip on each side — easier to drag items between inventory
+and stash than the old edge anchoring, which left a black column between
+the two). `D2_RES_PANNEAUX=bords`/`edges` goes back to the panels sitting
+at the screen edges instead; `D2_RES_PANNEAUX=0` leaves the game its own
 inventory tables and border frame (items, clicks and frame then sit off
 the panels).
 

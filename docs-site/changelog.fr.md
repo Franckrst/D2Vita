@@ -5,6 +5,21 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.15-beta — 2026-09-28
+
+- **Les panneaux inventaire, coffre et personnage sont désormais centrés
+  par défaut.** Ils étaient ancrés aux bords de l'écran, avec une large
+  colonne noire entre deux panneaux ouverts ; ils forment maintenant un
+  seul bloc de 800 px de large (le modèle SGD2FreeRes), ce qui facilite le
+  glissement d'objets entre un inventaire et un coffre ouverts.
+  `D2_RES_PANNEAUX=bords` (ou `edges`) dans `env.txt` rétablit l'ancien
+  ancrage aux bords.
+
+Bêta : le calcul d'ancrage lui-même n'a pas changé et avait déjà été
+mesuré sur console avant de devenir le défaut, mais personne n'a encore
+regardé deux panneaux côte à côte ouverts sur cette build précise. Dites-
+nous sur Discord si quelque chose a l'air ou se clique mal.
+
 ## v0.1.14-beta — 2026-09-28
 
 - **Onglet « Controls » à l'écran-titre.** Une petite icône dans la bande
