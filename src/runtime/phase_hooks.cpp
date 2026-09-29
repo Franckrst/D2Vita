@@ -469,40 +469,19 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
                 uint32_t w[7]={0,0,0,0,0,0,0};
                 if(u){
                     const uint32_t type=c.read_u32(u), id=c.read_u32(u+0xc), mode=c.read_u32(u+0x10), path=c.read_u32(u+0x2c);
-                    int32_t x=0,y=0; uint32_t r8=0,rc=0;
+                    int32_t x=0,y=0,sx=0,sy=0; uint32_t r8=0,rc=0;
                     if(path){
-                        // STATIC path (objects, items, tiles): the draw code picks between
-                        // TWO complete position sources each frame, gated by the live flag
-                        // the game computes as (Game+0x32da4c!=0) ? Game+0x32da48 : 0
-                        // (that's the entirety of Game+0xf51d0 — confirmed by disassembly to
-                        // be nothing but these two global reads, no other state). Our own
-                        // ground-item position fix AND the independently-disassembled Alt
-                        // ground-item name-label renderer (Game+0x71620/0x71450) both branch
-                        // on this exact same flag. We previously hardcoded branch A
-                        // (interpolated) unconditionally, which is wrong whenever the live
-                        // flag is 0 that frame — this is what produced the reported
-                        // "sometimes off, no consistent direction" symptom (confirmed by a
-                        // dispatched subagent's independent disassembly, not yet verified
-                        // live). Branch A (flag!=0): integer subtile at [+0xC]/[+0x10],
-                        // shifted to 16.16 (0x6203b0/0x620410) — the two values branch A
-                        // adds afterward (0x45afc0/0x45afd0) read global camera-scroll state,
-                        // not per-unit fields, so they must NOT be added here (our own
-                        // camera-relative world_to_screen already accounts for scroll).
-                        // Branch B (flag==0): [+4]/[+8] used DIRECTLY as the complete
-                        // position (0x620650/0x6206b0, "GetUnitX/Y") — not a near-zero
-                        // fractional offset as an earlier single-frame sample suggested; that
-                        // sample simply landed on a frame where the flag was nonzero, so
-                        // branch B's own fields were stale/near-zero at that instant.
-                        // DYNAMIC: [+8]/[+0xC] (0x6489c0/0x6489d0). Both 16.16.
+                        // STATIC (objects, items, tiles): the ring payload keeps the raw [+4]/[+8]
+                        // (matching only). The pad snapshot instead follows the draw code's own
+                        // choice, gated by (Game+0x32da4c ? Game+0x32da48 : 0): flag set -> integer
+                        // subtile [+0xC]/[+0x10] << 16, else raw [+4]/[+8].
                         if(type==2||type==4||type==5){
-                            const uint32_t flagGate=c.read_u32(g_d2base+0x0032da4cu);
-                            const uint32_t flag=flagGate?c.read_u32(g_d2base+0x0032da48u):0u;
-                            if(flag){
-                                x=(int32_t)(((uint32_t)c.read_u32(path+0xc))<<16);
-                                y=(int32_t)(((uint32_t)c.read_u32(path+0x10))<<16);
-                            } else {
-                                x=(int32_t)c.read_u32(path+4);
-                                y=(int32_t)c.read_u32(path+8);
+                            x=(int32_t)c.read_u32(path+4); y=(int32_t)c.read_u32(path+8);
+                            if(padOn){
+                                const uint32_t flagGate=c.read_u32(g_d2base+0x0032da4cu);
+                                if(flagGate && c.read_u32(g_d2base+0x0032da48u)){
+                                    sx=(int32_t)(c.read_u32(path+0xc)<<16); sy=(int32_t)(c.read_u32(path+0x10)<<16);
+                                } else { sx=x; sy=y; }
                             }
                         }
                         else { x=(int32_t)c.read_u32(path); y=(int32_t)c.read_u32(path+4); r8=c.read_u32(path+8); rc=c.read_u32(path+0xc); } }
@@ -511,21 +490,6 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
                         padst::Unit pu; std::memset(&pu,0,sizeof pu);
                         pu.id=id; pu.type=type; pu.mode=mode; pu.cls=c.read_u32(u+4);
                         pu.flags=c.read_u32(u+0xc4);            // see padst::Unit::flags
-                        if(type==2){
-                            // Two independent routes to the same ObjectTxt record.
-                            // A: the unit's own pObjectData (UnitAny+0x14, proven by
-                            // Game+0x2219c0, which type-checks then derefs exactly this).
-                            // B: the txt table base indexed by class, bounds-checked
-                            // against its own count. Agreement between two unrelated
-                            // paths is what makes the console line trustworthy.
-                            const uint32_t od=c.read_u32(u+0x14);
-                            pu.txtA = od?c.read_u32(od):0u;
-                            const uint32_t base=c.read_u32(g_d2base+0x0056d470u);
-                            const uint32_t cnt =c.read_u32(g_d2base+0x0056d474u);
-                            pu.txtB = (base && pu.cls<cnt && cnt<0x10000u) ? base+pu.cls*0x1c0u : 0u;
-                            pu.txtAgree = (pu.txtA && pu.txtA==pu.txtB) ? 1u : 0u;
-                            if(pu.txtA){ for(int k=0;k<11;k++) pu.objName[k]=(char)(c.read_u32(pu.txtA+(uint32_t)k)&0xffu); pu.objName[11]=0; }
-                        }
                         // DYNAMIC units (player, monsters): pPath+0/+4, the same
                         // two words the camera hook reads for the player -- a
                         // dynamic Path packs xOffset/xPos and yOffset/yPos as the
@@ -536,7 +500,7 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
                         // with no candidate in range -- L could not attack
                         // anything outside town. The ringtag payload below has
                         // always used x/y here; only this consumer drifted.
-                        pu.fx=x; pu.fy=y;
+                        pu.fx=(type==2||type==4||type==5)?sx:x; pu.fy=(type==2||type==4||type==5)?sy:y;
                         if(type==1){
                             pu.ownerType=c.read_u32(u+0x94); pu.ownerId=c.read_u32(u+0x98);
                         }
@@ -594,32 +558,10 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
                         // passed by coincidence: Act 1 Town and Act 1 Wilderness have
                         // type ids equal to their level numbers. Consumers must compare
                         // against TYPES (see pad_is_town).
-                        uint32_t lvptr=0;
                         const uint32_t r1=c.read_u32(path+0x1c);
                         if(r1){ const uint32_t r2=c.read_u32(r1+0x10);
-                            if(r2){ const uint32_t lv=c.read_u32(r2+0x58); lvptr=lv; if(lv) lvl=c.read_u32(lv+0x1c0); } }
-                        padst::set_level_ptr(lvptr);
+                            if(r2){ const uint32_t lv=c.read_u32(r2+0x58); if(lv) lvl=c.read_u32(lv+0x1c0); } }
                     }
-                    // Ground-item name labels: the game's OWN array (see
-                    // padst::Label). Read whole, in one pass, no hook and no
-                    // geometry -- these are the exact rects it hit-tests the
-                    // mouse against. It holds the PREVIOUS frame's labels at
-                    // this point (Game+0xc0810 runs later, with the UI), the
-                    // same one-frame lag the unit list already has.
-                    padst::Label lb[padst::MAX_LABELS]; int nlb=0;
-                    uint32_t lcount=c.read_u32(g_d2base+0x003c54a0u);
-                    if(lcount>(uint32_t)padst::MAX_LABELS) lcount=padst::MAX_LABELS;
-                    for(uint32_t i=0;i<lcount;i++){
-                        const uint32_t e=g_d2base+0x003c54a8u+i*0x120u;
-                        const uint32_t pu=c.read_u32(e+0x10);
-                        if(!pu) continue;
-                        padst::Label& L=lb[nlb];
-                        L.x1=(int32_t)c.read_u32(e);      L.y1=(int32_t)c.read_u32(e+4);
-                        L.x2=(int32_t)c.read_u32(e+8);    L.y2=(int32_t)c.read_u32(e+0xc);
-                        L.unitId=c.read_u32(pu+0xc);      // UnitAny+0x0c = dwUnitId
-                        if(L.x2>L.x1 && L.y2>L.y1) ++nlb;
-                    }
-                    padst::set_labels(lb,nlb);
                     padst::frame_begin(w[2], pfx, pfy, (int32_t)w[0], (int32_t)w[1], lvl,
                                        c.read_u32(g_d2base+0x003a6a94u), c.read_u32(g_d2base+0x003a6a78u),
                                        c.read_u32(g_d2base+0x003a6a8cu), ui);
@@ -698,25 +640,9 @@ void ringtag_hooks_install(Cpu* cpu, Bridge& br){
                 jpline("ringtag: phase Game+0x%x crochetee (forme %02x)%s",(unsigned)rva,b[0],rva==g_r60UiRva?" = borne UI":"");
             }
         }
-        // (e) pad only: ground-item name labels for the loot D-pad cursor
-        //
-        // NO HOOK. The labels are read straight out of the game's own array
-        // in the camera hook above (see padst::Label) -- Game+0xc0810 fills
-        // it every frame with the very rects it hit-tests the mouse against.
-        //
-        // Two earlier candidates are ruled out, both console-confirmed 20/09,
-        // so neither gets tried again:
-        //   Game+0x71620  -- the monster/object/player NAMEPLATE renderer. It
-        //     IS entered for items, but always bails first thing: bit 5 of
-        //     [unit+0xc4] is set for every item, every time.
-        //   Game+0x50b690 -- reached only through the active gfx backend's
-        //     vtable ([Game+0x3c8cc0]+0x90), which made it look like a shared
-        //     text renderer. It is slot 0x90 of the GLIDE backend table =
-        //     the sprite SHADOW blit (its GDI twin, 0x6c87e0, applies the
-        //     isometric shadow shear). It was hooked, and it captured the
-        //     shadows of every sprite on screen -- which is why its positions
-        //     kept landing near things but never on a word. The real text
-        //     path is D2WIN_DrawRectangledText (Game+0x1023b0), and the label
-        //     array makes hooking it unnecessary.
+        // Ground-item labels need no hook: the item assist reads the game's own
+        // array (Game+0x3c54a8) straight from the input tick. The nameplate
+        // renderer (Game+0x71620) and the glide shadow blit (Game+0x50b690)
+        // were both tried as label sources on 20/09 and both ruled out.
     }
 }

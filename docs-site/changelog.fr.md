@@ -5,6 +5,33 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.18-beta — 2026-09-29
+
+- **Nouveau schéma de manette par défaut — merci de le tester et de
+  donner votre avis sur Discord.** **L** est désormais la visée assistée
+  (maintenu) : en jeu elle agit sur la meilleure cible (votre cadavre, ce
+  que pointe le curseur, un ennemi dans un cône, le coffre/la porte/le PNJ
+  le plus proche) ; dans les menus, les panneaux ouverts et hors partie,
+  c'est un simple clic gauche. Le stick gauche ne fait que marcher, le
+  stick droit est un curseur libre. **Carré** est l'aide aux objets
+  (étiquettes au sol, croix directionnelle pour parcourir, Croix pour
+  ramasser). **L + Croix** = inventaire, **L + Rond** = carte, **L +
+  Carré** = inventaire du mercenaire. Vitesse de stick 18, zone morte
+  0,15. Croix seule ne clique plus dans les menus — c'est L. Pour retrouver
+  l'ancien schéma, mettez `l=lclick` dans `controls.txt` (sans autre
+  liaison `aim`). Les hooks de visée sont maintenant installés par défaut ;
+  leur coût en temps d'image n'est pas encore mesuré.
+- **La fenêtre d'ajout de socket de Larzuk** accepte désormais le clic de
+  visée (il ciblait la carte derrière elle). Premier essai sur console
+  seulement.
+- **Écran-titre : le bouton d'aide « Controls »** ne s'ouvre plus que
+  depuis son petit onglet, et non plus depuis tout le bord gauche.
+- **Décalage du tactile corrigé** en jeu.
+
+Bêta : vérifiée à la main sur console pour les menus, les fenêtres de PNJ
+et le tactile ; les nouveaux défauts n'ont pas encore été testés par la
+communauté. Inclut les options de la 0.1.17-beta.
+
 ## v0.1.17-beta — 2026-09-29
 
 - **Deux options pour le solo, désactivées par défaut** (à ajouter dans

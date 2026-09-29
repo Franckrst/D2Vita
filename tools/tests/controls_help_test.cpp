@@ -16,20 +16,25 @@ static int g_fail = 0, g_checks = 0;
 using namespace d2ch;
 
 static void t_icon_hit_rect_confined_to_left_band() {
-    // The band is x in [0,117), full height (960x544 screen, design section 2).
-    CHECK(icon_hit(50, 10) == true,   "inside the band should hit");
-    CHECK(icon_hit(0, 0) == true,     "top-left corner of the band should hit");
-    CHECK(icon_hit(116, 543) == true, "bottom-right corner of the band should hit");
-    CHECK(icon_hit(117, 10) == false, "one pixel past the band must NOT hit");
-    CHECK(icon_hit(400, 10) == false, "inside D2's own 800x600 canvas must NOT hit");
-    CHECK(icon_hit(50, 544) == false, "one row past the bottom must NOT hit");
+    // Only the drawn tab (bottom of the band) plus a finger margin hits, not the whole band.
+    CHECK(icon_hit(60, 528) == true,  "centre of the tab should hit");
+    CHECK(icon_hit(ICON_X0 - ICON_HIT_PAD, ICON_Y0 - ICON_HIT_PAD) == true, "finger margin corner should hit");
+    CHECK(icon_hit(50, 10) == false,  "top of the band must NOT hit");
+    CHECK(icon_hit(60, 300) == false, "middle of the band must NOT hit");
+    CHECK(icon_hit(0, 0) == false,    "top-left corner of the band must NOT hit");
+    CHECK(icon_hit(60, ICON_Y0 - ICON_HIT_PAD - 1) == false, "just above the margin must NOT hit");
+    CHECK(icon_hit(117, 528) == false, "one pixel past the band must NOT hit");
+    CHECK(icon_hit(400, 528) == false, "inside D2's own 800x600 canvas must NOT hit");
+    CHECK(icon_hit(60, 544) == false, "one row past the bottom must NOT hit");
 }
 
 static void t_open_close_toggle() {
     State s; std::memset(&s, 0, sizeof s);
     CHECK(s.open == false, "starts closed");
     tap(s, 50, 10);
-    CHECK(s.open == true, "tap inside the icon opens the panel");
+    CHECK(s.open == false, "tap elsewhere in the band does not open the panel");
+    tap(s, 60, 528);
+    CHECK(s.open == true, "tap on the icon opens the panel");
     close(s);
     CHECK(s.open == false, "close() closes it");
     // A tap outside the band, while closed, must not open it.

@@ -15,7 +15,8 @@ extern "C" int d2_tlswrap_dump(char*, unsigned);
 #include "platform/vita_net.h"
 #include "platform/vita_kb.h"   // full virtual keyboard (layouts, font, drawing)
 #include "platform/radial_menu.h"   // 7-sector radial menu (hold Select + left stick)
-#include "platform/pad_core.h"      // scheme v2 ("aim"): pure core
+#include "platform/pad_core.h"      // aim assist: pure core
+#include "platform/controls_scan.h" // controls.txt button names (shared with padst::on)
 #include "runtime/pad_state.h"      // per-frame guest snapshot (hooks)
 #include "platform/controls_help.h"   // title-screen controls-help icon/panel
 #include "platform/item_assist.h"     // item assist: ground labels + D-pad browse + Cross pick-up
@@ -202,8 +203,8 @@ void draw_fps(uint32_t* fb, int fps10) {           // fps*10 (one decimal)
 d2kb::State g_kb;
 int g_kb_simple = -1;                 // read once, on first open
 radial_menu::State g_rm{};            // radial menu: state written by the input tick, read by presentation
-// Scheme v2 overlay (game coords): hostile target diamond, ground aim dot,
-// loot cursor brackets (Phase 2). Published once per tick by the input
+// Aim/item overlay (game coords): diamond on the aim target, cyan brackets
+// on the item-assist focus. Published when it changes by the input
 // thread; consumed by draw_reticle on the GXM DISPLAY thread (see
 // display_cb in vita_gxm.cpp — runs on sceGxm's display thread, not the
 // game thread). A seqlock avoids tearing the read across the writer's
@@ -535,10 +536,10 @@ static void blend_px(uint32_t* fb, int W, int H, int x, int y,
     fb[o] = 0xFF000000u | ((uint32_t)nb << 16) | ((uint32_t)ng << 8) | nr;
 }
 
-// Scheme v2 overlay: a diamond on the current hostile target (gold once the
-// game is verified to hover it, white before) and cyan corner brackets on the
-// ground-item browse cursor (Phase 2). No ground-aim dot: the cast lands where
-// the cursor already is, so the cursor IS that marker.
+// A diamond on the current aim target (gold once the game is verified to
+// hover it, white before) and cyan corner brackets on the item-assist focus.
+// No ground-aim dot: the click lands where the cursor already is, so the
+// cursor IS that marker.
 // Game -> screen uses the same stretch as the presentation (vita_gxm.cpp).
 static void draw_reticle(uint32_t* fb) {
     const OverlayPub ov = overlay_read();
@@ -1888,7 +1889,11 @@ namespace {
 // A_ITEMS: item assist (held). Shows the ground-item labels by holding Alt
 // for the game, and while held the D-pad browses those labels and Cross
 // picks the focused one up — see platform/item_assist.h.
-enum { A_NONE=0, A_LMB=1, A_RMB=2, A_KEY=3, A_ITEMS=4 };
+// A_AIM: aim assist (held) — act on the best target (what the cursor points
+// at, else the hostile in the aim cone, else the nearest chest/door/NPC).
+// Binding it ANYWHERE in controls.txt is also what switches the sticks to
+// aim mode; see pad_core.h and docs-site/controles.md.
+enum { A_NONE=0, A_LMB=1, A_RMB=2, A_KEY=3, A_ITEMS=4, A_AIM=5 };
 struct Act { int kind; int vk; };
 // llayer: the L+ combo, mirroring layer's R+ role. Free (A_NONE) on every
 // entry by default — l+ is purely opt-in via controls.txt, unlike r+ which
@@ -1912,9 +1917,9 @@ constexpr uint32_t B_SELECT=0x000001, B_START=0x000008, B_UP=0x000010, B_RIGHT=0
 BtnMap g_btn[] = {
     // Cross/Circle carry the role L used to hold alone (L/R are now the
     // click buttons, handled separately — see the L/R block further below).
-    { B_CROSS,  {A_KEY,0x52}, {A_NONE,0}, {A_NONE,0} },      // Cross: R, walk/run (toggle) | R+: free | L+: free
-    { B_CIR,    {A_KEY,0x10}, {A_NONE,0}, {A_NONE,0} },     // Circle: Shift (held)         | R+: free | L+: free
-    { B_SQR,    {A_KEY,0x12}, {A_NONE,0}, {A_NONE,0} },     // Square: Alt      | R+: (free: Q lives in the radial menu) | L+: free
+    { B_CROSS,  {A_KEY,0x52}, {A_NONE,0}, {A_KEY,0x49} },    // Cross: R, walk/run (toggle) | R+: free | L+: inventory (I)
+    { B_CIR,    {A_KEY,0x10}, {A_NONE,0}, {A_KEY,0x09} },   // Circle: Shift (held)         | R+: free | L+: automap (Tab)
+    { B_SQR,    {A_ITEMS,0},  {A_NONE,0}, {A_KEY,0x4F} },   // Square: item assist | R+: (free: Q lives in the radial menu) | L+: mercenary inventory (O)
     { B_TRI,    {A_KEY,0x57}, {A_NONE,0}, {A_NONE,0} },     // Tri  : W weapon swap | R+: keyboard (handled separately) | L+: free
     { B_UP,     {A_KEY,0x31}, {A_KEY,0x70}, {A_NONE,0} },   // ^ potion1       | R+: F1 | L+: free
     { B_LEFT,   {A_KEY,0x32}, {A_KEY,0x71}, {A_NONE,0} },   // < potion2       | R+: F2 | L+: free
@@ -1933,7 +1938,7 @@ BtnMap g_btn[] = {
 // flag each, not per-source — binding l= AND r= to the same click would let
 // releasing either one drop it while the other is still held. Nobody asked
 // for that combination; not worth a per-source ref-count for it here.
-Act g_l_act = {A_LMB,0}, g_r_act = {A_RMB,0};
+Act g_l_act = {A_AIM,0}, g_r_act = {A_RMB,0};
 Act g_l_engaged = {A_NONE,0}, g_r_engaged = {A_NONE,0};
 // Select's OWN action when pressed alone, remappable via top-level
 // `select=`. A_NONE (the default) keeps the radial menu; any other Act
@@ -1949,7 +1954,7 @@ uint32_t g_ctl_prev=0; bool g_ctl_init=false;
 // Orbit radius for direct-movement mode; still adjustable without a rebuild
 // via controls.txt orbit=N.
 int   g_orbit=70, g_anchor_y_pm=470;             // character anchor: y = h*470/1000
-float g_sens=10.f, g_dz=0.25f;
+float g_sens=18.f, g_dz=0.15f;
 int   g_itick=0;
 // Tick rate (D2_INPUTHZ) and duration thresholds EXPRESSED IN TICKS. The
 // base thresholds (15 and 12) assume ~60 Hz — 250 ms and 200 ms. Leaving
@@ -1964,42 +1969,49 @@ enum { SEL_IDLE=0, SEL_SPACE, SEL_RADIAL, SEL_CUSTOM };
 int g_sel_mode = SEL_IDLE;
 Act g_sel_engaged = {A_NONE,0};   // engaged Act while g_sel_mode==SEL_CUSTOM
 
-// ---- scheme v2 ("aim") — mapping documented in docs-site/controles.md
-bool         g_scheme_aim = true;          // controls.txt scheme=aim|mouse ; env D2_PAD=0 forces mouse
+// ---- aim assist (the `aim` action) — behaviour documented in docs-site/controles.md
+// g_aim_refs counts the held buttons bound to `aim`; g_aim_bound is true when
+// controls.txt binds it at all (then the sticks run in aim mode in game).
+int          g_aim_refs = 0;
+bool         g_aim_bound = false, g_aim_lmb = false, g_aim_menu_lmb = false;
 pad::Config  g_padcfg;
-pad::Scheme* g_scheme = nullptr;           // built at first use (after controls.txt)
-bool         g_scheme_active = false;      // the scheme currently owns the controls (in game)
+pad::Assist* g_assist = nullptr;           // built at first use (after controls.txt)
+bool         g_assist_active = false;      // the assist currently owns the sticks (in game)
 uint32_t     g_pad_lastFrame = 0; int g_pad_stale = 0;
-int          g_padlog = -1;                // D2_PADLOG
 
-void pad_emit(const pad::Actions& a){
+// The overlay only needs publishing when it changes (30 Hz tick, 9 ints).
+void overlay_set(const OverlayPub& p){
+    static OverlayPub last; static bool have = false;
+    if (have && memcmp(&last, &p, sizeof p) == 0) return;
+    last = p; have = true; overlay_publish(p);
+}
+void lmb_update();
+// Apply the assist's actions in order, straight onto the shared cursor and
+// the shared left-button state (so a bound lclick and the assist cannot drop
+// each other's press).
+void aim_emit(const pad::Actions& a){
     for (int i = 0; i < a.n; i++) {
         const pad::Action& x = a.v[i];
         switch (x.k) {
-            case pad::A_MOVE:    d2vita_inject("move", x.a, x.b); break;
-            case pad::A_LDOWN:   d2vita_inject("ldown", x.a, x.b); break;
-            case pad::A_LUP:     d2vita_inject("lup", x.a, x.b); break;
-            case pad::A_RDOWN:   d2vita_inject("rdown", x.a, x.b); break;
-            case pad::A_RUP:     d2vita_inject("rup", x.a, x.b); break;
-            case pad::A_CLICK:   d2vita_inject("click", x.a, x.b); break;
-            case pad::A_KEYDOWN: d2vita_inject("keydown", x.a, 0); break;
-            case pad::A_KEYUP:   d2vita_inject("keyup", x.a, 0); break;
-            case pad::A_KEY:     d2vita_inject("key", x.a, 0); break;
+            case pad::A_MOVE:  g_cx = (float)x.a; g_cy = (float)x.b; d2vita_inject("move", x.a, x.b); break;
+            case pad::A_LDOWN: g_cx = (float)x.a; g_cy = (float)x.b; g_aim_lmb = true;  lmb_update(); break;
+            case pad::A_LUP:   g_cx = (float)x.a; g_cy = (float)x.b; g_aim_lmb = false; lmb_update(); break;
+            case pad::A_CLICK: g_cx = (float)x.a; g_cy = (float)x.b; d2vita_inject("click", x.a, x.b); break;
         }
     }
 }
-// Release everything the scheme holds (radial menu / keyboard opening, leaving the game).
+// Release everything the assist holds (radial menu / keyboard opening, leaving the game).
 void pad_leave(){
-    if (g_scheme && g_scheme_active) {
-        pad::Actions a; g_scheme->leave(a); pad_emit(a); g_scheme_active = false;
-        g_cx = (float)g_scheme->cx(); g_cy = (float)g_scheme->cy();
+    if (g_assist && g_assist_active) {
+        pad::Actions a; g_assist->leave(a); aim_emit(a); g_assist_active = false;
+        g_cx = (float)g_assist->cx(); g_cy = (float)g_assist->cy();
     }
-    overlay_publish(OverlayPub{});
+    if (g_aim_lmb) { g_aim_lmb = false; lmb_update(); }
+    overlay_set(OverlayPub{});
 }
 // LEVEL TYPES, not level numbers (see padst::Snapshot::levelType). 1 and 12
 // are confirmed on console: Act 1 Town and Act 2 Town. 20/26/29 are the Act
-// 3/4/5 towns per LvlTypes.txt and are still unconfirmed here — the padlog
-// prints the type on every change, so one trip through Kurast settles them.
+// 3/4/5 towns per LvlTypes.txt and are still unconfirmed on console.
 // 0 means unreadable, and is treated as town on purpose: mistaking a dungeon
 // for a town only costs the aim assist, while the reverse turns every
 // shopkeeper into a target.
@@ -2011,6 +2023,7 @@ bool parse_act(const char* v, Act* out){
     static const E T[] = {
         {"lclick",{A_LMB,0}},{"rclick",{A_RMB,0}},{"none",{A_NONE,0}},
         {"items",{A_ITEMS,0}},{"item_assist",{A_ITEMS,0}},{"assist",{A_ITEMS,0}},
+        {"aim",{A_AIM,0}},{"aim_assist",{A_AIM,0}},
         {"alt",{A_KEY,0x12}},{"shift",{A_KEY,0x10}},{"tab",{A_KEY,0x09}},{"automap",{A_KEY,0x09}},
         {"esc",{A_KEY,0x1B}},{"echap",{A_KEY,0x1B}},{"inv",{A_KEY,0x49}},{"perso",{A_KEY,0x43}},
         {"skills",{A_KEY,0x54}},{"quests",{A_KEY,0x51}},{"swap",{A_KEY,0x57}},{"space",{A_KEY,0x20}},
@@ -2022,15 +2035,7 @@ bool parse_act(const char* v, Act* out){
     if (!strncasecmp(v,"vk:",3)) { *out={A_KEY,(int)strtol(v+3,nullptr,0)}; return true; }
     return false;
 }
-uint32_t name_bit(const char* n){
-    struct E { const char* n; uint32_t b; };
-    static const E N[] = { {"cross",B_CROSS},{"croix",B_CROSS},{"circle",B_CIR},{"rond",B_CIR},
-        {"square",B_SQR},{"carre",B_SQR},{"triangle",B_TRI},
-        {"up",B_UP},{"down",B_DOWN},{"left",B_LEFT},{"right",B_RIGHT},
-        {"start",B_START},{"select",B_SELECT} };
-    for (const E& x : N) if (!strcasecmp(n,x.n)) return x.b;
-    return 0;
-}
+uint32_t name_bit(const char* n){ return ctl::button_bit(n); }
 void load_controls_txt(){
     FILE* f = fopen("ux0:data/d2vita/controls.txt","r");
     if (!f) {
@@ -2055,6 +2060,7 @@ void load_controls_txt(){
         } else {
             d2vita_progress("input: mapping par defaut");
         }
+        g_aim_bound = padst::on();
         return;
     }
     // 1024, not 96: an input script (D2SCRIPT) can run several hundred
@@ -2089,27 +2095,12 @@ void load_controls_txt(){
         else if (!strcasecmp(k,"sens"))     { g_sens=(float)atof(v); n++; continue; }
         else if (!strcasecmp(k,"deadzone")) { g_dz=(float)atof(v); n++; continue; }
         else if (!strcasecmp(k,"anchor_y")) { g_anchor_y_pm=atoi(v); n++; continue; }
-        else if (!strcasecmp(k,"scheme")) { g_scheme_aim = strcasecmp(v,"mouse")!=0; n++; continue; }
-        else if (!strcasecmp(k,"aim")) { g_padcfg.aim = atoi(v)!=0; n++; continue; }
         else if (!strcasecmp(k,"orbit_min")){ g_padcfg.orbitMin=atoi(v); n++; continue; }
         else if (!strcasecmp(k,"orbit_max")){ g_padcfg.orbitMax=atoi(v); n++; continue; }
-        else if (!strcasecmp(k,"range_min")){ g_padcfg.rangeMin=atoi(v); n++; continue; }
-        else if (!strcasecmp(k,"range_max")){ g_padcfg.rangeMax=atoi(v); n++; continue; }
         else if (!strcasecmp(k,"cone")) { g_padcfg.coneDeg=(float)atof(v); n++; continue; }
         else if (!strcasecmp(k,"hover_h")) { g_padcfg.hoverH=atoi(v); n++; continue; }
         else if (!strcasecmp(k,"hud_h")) { g_padcfg.hudH=atoi(v); n++; continue; }
         else if (!strcasecmp(k,"reach")) { g_padcfg.reach=atoi(v); n++; continue; }
-        // slot1..slot7 = hostile | ground | corpse -- what that skill slot
-        // aims at. Ground so teleport lands where you point instead of on the
-        // monster; corpse so the necromancer's corpse skills see the dead,
-        // which the hostile filter drops by construction.
-        else if (!strncasecmp(k,"slot",4) && k[4]>='1' && k[4]<='7' && !k[5]) {
-            const int idx = k[4]-'1';
-            if      (!strcasecmp(v,"ground")) g_padcfg.slotKind[idx]=pad::T_GROUND;
-            else if (!strcasecmp(v,"corpse")) g_padcfg.slotKind[idx]=pad::T_CORPSE;
-            else                              g_padcfg.slotKind[idx]=pad::T_HOSTILE;
-            n++; continue;
-        }
         else if (!strcasecmp(k,"l"))        { if(parse_act(v,&g_l_act)) n++; else warn("action inconnue"); continue; }
         else if (!strcasecmp(k,"r"))        { if(parse_act(v,&g_r_act)) n++; else warn("action inconnue"); continue; }
         else if (!strcasecmp(k,"select"))   { if(parse_act(v,&g_select_act)) n++; else warn("action inconnue"); continue; }
@@ -2132,6 +2123,12 @@ void load_controls_txt(){
     }
     fclose(f);
     g_padcfg.deadzone = g_dz; g_padcfg.sens = g_sens;
+    {
+        auto isAim=[](const Act& a){ return a.kind==A_AIM; };
+        bool any = isAim(g_l_act) || isAim(g_r_act) || isAim(g_select_act);
+        for (const BtnMap& m : g_btn) if (isAim(m.base)||isAim(m.layer)||isAim(m.llayer)) any = true;
+        g_aim_bound = any && padst::on();
+    }
     char m[96];
     if (bad>0) snprintf(m,sizeof m,"input: controls.txt applique (%d entrees, %d ignorees)",n,bad);
     else       snprintf(m,sizeof m,"input: controls.txt applique (%d entrees)",n);
@@ -2144,6 +2141,7 @@ const char* act_label(const Act& a) {
     if (a.kind == A_LMB)  return "Left click";
     if (a.kind == A_RMB)  return "Right click";
     if (a.kind == A_ITEMS) return "Item assist (D-pad/Cross)";
+    if (a.kind == A_AIM)  return "Aim assist (hold)";
     switch (a.vk) {
         case 0x52: return "R (walk/run)";
         case 0x10: return "Shift";
@@ -2209,7 +2207,7 @@ int format_controls_help(char out[][64], int max) {
     return n;
 }
 void lmb_update(){
-    bool want = g_lmb_stick || g_lmb_btn || g_ia_lmb;
+    bool want = g_lmb_stick || g_lmb_btn || g_ia_lmb || g_aim_lmb || g_aim_menu_lmb;
     if (want && !g_lmb_sent){ d2vita_inject("ldown",(int)g_cx,(int)g_cy); g_lmb_sent=true; }
     else if (!want && g_lmb_sent){ d2vita_inject("lup",(int)g_cx,(int)g_cy); g_lmb_sent=false; }
 }
@@ -2217,6 +2215,7 @@ void do_press(const Act& a){
     if      (a.kind==A_LMB){ g_lmb_btn=true; lmb_update(); }
     else if (a.kind==A_RMB){ if(!g_rmb_sent){ d2vita_inject("rdown",(int)g_cx,(int)g_cy); g_rmb_sent=true; } }
     else if (a.kind==A_KEY)  d2vita_inject("keydown",a.vk,0);
+    else if (a.kind==A_AIM)  ++g_aim_refs;
     else if (a.kind==A_ITEMS){
         if (g_ia_refs++==0){
             d2vita_inject("keydown",0x12,0);
@@ -2228,6 +2227,7 @@ void do_release(const Act& a){
     if      (a.kind==A_LMB){ g_lmb_btn=false; lmb_update(); }
     else if (a.kind==A_RMB){ if(g_rmb_sent){ d2vita_inject("rup",(int)g_cx,(int)g_cy); g_rmb_sent=false; } }
     else if (a.kind==A_KEY)  d2vita_inject("keyup",a.vk,0);
+    else if (a.kind==A_AIM){ if (g_aim_refs>0) --g_aim_refs; }
     else if (a.kind==A_ITEMS){
         if (g_ia_refs>0 && --g_ia_refs==0){
             d2vita_inject("keyup",0x12,0);
@@ -2262,12 +2262,12 @@ int ia_read(d2rt::Cpu* cpu, d2ia::Label* out, d2ia::Hover* h){
 }
 // Front touch: absolute cursor; a brief still tap = full left click.
 // allowMove=false: the cursor position is tracked but no move is injected
-// (the aim scheme owns the cursor while a button is held).
+// (the aim assist owns the cursor while it holds an interaction).
 void touch_tick(bool allowMove, bool* moved){
     SceTouchData td; memset(&td,0,sizeof td);
     if (sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1)>=0){
         if (td.reportNum>0){
-            int tx=td.report[0].x*g_game_w/1920, ty=td.report[0].y*g_game_h/1088;
+            int tx=0, ty=0; pad_to_game(td.report[0].x, td.report[0].y, &tx, &ty);
             if (g_t_at<0){ g_t_at=g_itick; g_t_x0=tx; g_t_y0=ty; g_t_moved=false; }
             if (std::abs(tx-g_t_x0)>10||std::abs(ty-g_t_y0)>10) g_t_moved=true;
             g_t_x=tx; g_t_y=ty;
@@ -2278,40 +2278,37 @@ void touch_tick(bool allowMove, bool* moved){
         }
     }
 }
-// Scheme v2 tick. Returns true when the scheme handled the tick (in game);
-// false = out of game, the legacy path runs (menus, character select).
-bool aim_tick(const SceCtrlData& cd, uint32_t b){
+// Aim assist tick, run only when controls.txt binds `aim`. Returns true when
+// the assist owns the sticks this tick (in game); false = out of game, the
+// plain stick handling runs (menus, character select). *walking: the left
+// stick is walking; *curMoved: the assist moved the cursor this tick.
+bool aim_tick(const SceCtrlData& cd, bool aimHeld, bool* walking, bool* curMoved, pad::Target* tgt){
+    *walking = false; *curMoved = false; *tgt = pad::Target{};
     padst::Snapshot s;
     if (!padst::read(s)) return false;
     if (s.frame == g_pad_lastFrame) { if (g_pad_stale < 1000) ++g_pad_stale; }
     else { g_pad_stale = 0; g_pad_lastFrame = s.frame; }
     const bool inGame = s.inGame && g_pad_stale < 20;          // camera hook silent ~0.7 s = not in game
     if (!inGame) { pad_leave(); return false; }
-    if (!g_scheme) g_scheme = new pad::Scheme(g_padcfg);
-    g_scheme_active = true;
+    if (!g_assist) g_assist = new pad::Assist(g_padcfg);
+    g_assist_active = true;
 
     pad::View v; v.w = g_game_w; v.h = g_game_h;
     v.playerFx = s.playerFx; v.playerFy = s.playerFy; v.viewX = s.viewX; v.viewY = s.viewY;
     pad::Ctx x; x.inGame = true;
-    static const int panels[] = { 1, 2, 4, 8, 9, 0x0C, 0x14, 0x19, 0x1A, 0x21, 0x24 };
+    static const int panels[] = { 1, 2, 4, 8, 9, 0x0C, 0x0E, 0x14, 0x19, 0x1A, 0x21, 0x24 };
     for (int p : panels) if (s.uiVars[p]) x.panelOpen = true;
-    x.skillTree = s.uiVars[4] != 0;
     x.selValid = s.selValid; x.selId = s.selId; x.selType = s.selType;
     const bool town = pad_is_town(s.levelType);
 
     static pad::Unit units[padst::MAX_UNITS]; int n = 0;
-    // Raw UnitAny+0xC4 kept alongside, for the diagnostic only: `units` is
-    // filtered and compacted, so its indices do NOT line up with s.units.
-    static uint32_t rawFlags[padst::MAX_UNITS];
-    static const padst::Unit* rawUnit[padst::MAX_UNITS];
     for (int i = 0; i < s.nUnits && n < padst::MAX_UNITS; i++) {
         const padst::Unit& q = s.units[i];
         // Never box/target ourselves -- EXCEPT once we are a corpse. Getting
         // our gear back is the whole point, and we do not know yet whether
         // the body reuses the player's unit id or gets one of its own, so
         // handle both: skip the LIVING player only. Modes 0/12/17 are the
-        // death and dead animations; the padlog prints the mode of every
-        // type-0 unit it sees so the real one can be confirmed.
+        // death and dead animations.
         const bool corpseMode = (q.mode == 0 || q.mode == 12 || q.mode == 17);
         if (q.type == 0 && q.id == s.playerId && !corpseMode) continue;
         if (q.type == 3 || q.type == 5) continue;                     // missiles, tiles
@@ -2331,10 +2328,6 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
             // being wrong about a monster costs the whole fight.
             o.interact = alive && town && (q.flags & 0x00200002u) == 0x00000002u;
             o.selectable = o.interact;
-            // A corpse is a target in its own right (corpse explosion,
-            // revive, raise skeleton). OUR OWN summons' corpses count too --
-            // the game lets you explode those as readily as any other.
-            o.corpse   = !alive && !town;
         } else if (q.type == 0) {
             // A body on the ground. Gated on the same targetable bit as
             // everything else, so a living player standing next to us in a
@@ -2355,136 +2348,21 @@ bool aim_tick(const SceCtrlData& cd, uint32_t b){
             o.interact   = true;                       // reachable by pointing at it
             o.selectable = (q.flags & 0x00200002u) == 0x00000002u;   // offered by proximity
         }
-        else if (q.type == 4) { o.interact = true; o.selectable = true; }   // items: browsed with Alt
-        rawFlags[n] = q.flags; rawUnit[n] = &q;
-        if (q.type == 4) {
-            // Exact label rect, keyed by unit id -- no proximity, no geometry.
-            for (int j = 0; j < s.nLabels; j++) {
-                if (s.labels[j].unitId != q.id) continue;
-                const padst::Label& L = s.labels[j];
-                o.hasLabel = true;
-                o.lx = (L.x1 + L.x2) / 2; o.ly = (L.y1 + L.y2) / 2;
-                o.lw = L.x2 - L.x1;       o.lh = L.y2 - L.y1;
-                break;
-            }
-        }
+        else if (q.type == 4) { o.interact = true; o.selectable = true; }   // ground items
         ++n;
     }
     pad::Ctl c;
     c.lx = (cd.lx - 128) / 128.f; c.ly = (cd.ly - 128) / 128.f;
     c.rx = (cd.rx - 128) / 128.f; c.ry = (cd.ry - 128) / 128.f;
-    c.buttons = b & ~(uint32_t)pad::B_SELECT;                          // Select = radial menu, handled before us
+    c.aim = aimHeld;
 
-    pad::Actions a; g_scheme->tick(c, x, v, units, n, a); pad_emit(a);
-    g_cx = (float)g_scheme->cx(); g_cy = (float)g_scheme->cy();
-    const pad::Target t = g_scheme->target();
-    const pad::Target lt = g_scheme->lootCursor();
-    overlay_publish(OverlayPub{ t.has, (int)t.verified, t.sx, t.sy,
-                                lt.has, lt.sx, lt.sy, lt.w, lt.h });
+    pad::Actions a; g_assist->tick(c, x, v, units, n, a);
+    aim_emit(a);
+    *curMoved = a.n > 0;
+    g_cx = (float)g_assist->cx(); g_cy = (float)g_assist->cy();
+    *tgt = g_assist->target();
+    *walking = g_assist->walk().pushed;
 
-    bool moved = false;
-    touch_tick(!g_scheme->cursorOwned(), &moved);
-    if (moved) { d2vita_inject("move", (int)g_cx, (int)g_cy); g_scheme->setCursor((int)g_cx, (int)g_cy); }
-
-    if (g_padlog) {                                                    // capped diagnostics (boot_progress.txt)
-        // Kept because each one reproduces a class of bug we can expect again.
-        // The investigation-specific dumps that used to live here are gone with
-        // the questions they answered: the player's fine position (pPath+0/+4),
-        // the level number (Level+0x1C0), and the ground-label geometry, which
-        // is no longer computed at all -- the game's own table is read instead.
-        static int lines = 0; static uint32_t lastTgt = 0; static uint32_t lastUi[38] = {0};
-        static uint32_t lastLvl = 0xffffffffu, lastLvlPtr = 0xffffffffu;
-        char m[160];
-        if (lines < 2000) {
-            // Whether we think we are in town decides whether every NPC is a
-            // TARGET or something to talk to, so a level number we misread
-            // turns a town inside out. One line per level change answers it.
-            if (s.levelType != lastLvl || s.levelPtr != lastLvlPtr) {
-                lastLvl = s.levelType; lastLvlPtr = s.levelPtr;
-                int nh = 0, ni = 0; for (int i = 0; i < n; i++) { if (units[i].hostile) ++nh; if (units[i].interact) ++ni; }
-                snprintf(m, sizeof m, "pad: type_niveau=%u lvptr=%08x ville=%d unites=%d hostiles=%d interactifs=%d",
-                         s.levelType, s.levelPtr, (int)town, n, nh, ni);
-                d2vita_progress(m); ++lines; }
-            // UiVar indices are magic numbers in panels[]: this is the only way
-            // to find the one behind "panel X is not detected".
-            for (int i = 0; i < 38 && lines < 2000; i++) if (s.uiVars[i] != lastUi[i]) { lastUi[i] = s.uiVars[i];
-                snprintf(m, sizeof m, "pad: uivar[%d]=%u", i, s.uiVars[i]); d2vita_progress(m); ++lines; }
-            // Which rule Cross applied, every time it changes. The branch is
-            // what turns "we are not hitting the nearest mob" into a fact.
-            {
-                const pad::Scheme::Pick pk = g_scheme->lastPick();
-                static uint32_t lastPickId = 0xffffffffu; static int lastBranch = -2;
-                if ((pk.id != lastPickId || pk.branch != lastBranch) && lines < 2000) {
-                    lastPickId = pk.id; lastBranch = pk.branch;
-                    static const char* kWhy[6] = { "cadavre", "sous_curseur", "cone", "objet_proche", "hostile_proche", "rien" };
-                    snprintf(m, sizeof m, "pad: croix -> id=%u type=%u dist=%d via=%s",
-                             pk.id, pk.type, pk.dist, kWhy[pk.branch < 0 ? 5 : pk.branch]);
-                    d2vita_progress(m); ++lines;
-                }
-            }
-            // One line a second while the left stick is pushed: did the walk
-            // click go out at all, and did it land on a monster? A left click
-            // on a monster is ATTACK, not move, which is the leading theory
-            // for "stuck in a group" -- but it is a theory, so measure it.
-            {
-                const pad::Scheme::Walk wk = g_scheme->walk();
-                static uint64_t lastWalkLog = 0;
-                const uint64_t now = d2vita_now_us();
-                if (wk.pushed && now - lastWalkLog > 1000000ull && lines < 2000) {
-                    lastWalkLog = now;
-                    snprintf(m, sizeof m, "pad: marche ferme=%d clic=%d sur_unite=%d pt=(%d,%d) unites=%d",
-                             (int)wk.gated, (int)wk.clicked, (int)wk.onUnit, wk.px, wk.py, wk.nUnits);
-                    d2vita_progress(m); ++lines;
-                }
-            }
-            // Every distinct (mode) a type-0 unit is seen in: which one a
-            // player corpse actually uses, and whether it keeps the player's
-            // unit id, is the thing that decides whether Cross can ever
-            // reach it.
-            {
-                static uint32_t seenP[16]; static int nSeenP = 0;
-                for (int i = 0; i < s.nUnits && lines < 2000; i++) {
-                    if (s.units[i].type != 0) continue;
-                    const uint32_t key = (s.units[i].mode << 1) | (s.units[i].id == s.playerId ? 1u : 0u);
-                    bool known = false;
-                    for (int k = 0; k < nSeenP; k++) if (seenP[k] == key) { known = true; break; }
-                    if (known || nSeenP >= 16) continue;
-                    seenP[nSeenP++] = key;
-                    snprintf(m, sizeof m, "pad: joueur id=%u %s mode=%u drapeaux=%08x ciblable=%d",
-                             s.units[i].id, s.units[i].id == s.playerId ? "MOI" : "autre",
-                             s.units[i].mode, s.units[i].flags,
-                             (int)((s.units[i].flags & 0x00200002u) == 2u));
-                    d2vita_progress(m); ++lines;
-                }
-            }
-            // One line the first time each kind of unit is seen, so a console
-            // run says outright whether the targetable bit tracks what the
-            // game actually lets the cursor hover: a chest should read 1 and
-            // a torch 0, with the same class reading the same way every time.
-            {
-                static uint32_t seen[48]; static int nSeen = 0;
-                for (int i = 0; i < n && lines < 2000; i++) {
-                    const uint32_t key = (units[i].type << 16) | (units[i].cls & 0xffffu);
-                    bool known = false;
-                    for (int k = 0; k < nSeen; k++) if (seen[k] == key) { known = true; break; }
-                    if (known || nSeen >= 48) continue;
-                    seen[nSeen++] = key;
-                    snprintf(m, sizeof m, "pad: vu type=%u cls=%u drapeaux=%08x ciblable=%d interactif=%d nom=%s accord=%d",
-                             units[i].type, units[i].cls, rawFlags[i],
-                             (int)((rawFlags[i] & 0x00200002u) == 2u), (int)units[i].interact,
-                             units[i].type == 2 ? rawUnit[i]->objName : "-",
-                             units[i].type == 2 ? (int)rawUnit[i]->txtAgree : -1);
-                    d2vita_progress(m); ++lines;
-                }
-            }
-            // The only window onto the HoverTable's learn/verify loop.
-            if (t.id != lastTgt) { lastTgt = t.id;
-                int ti = -1; for (int i = 0; i < n; i++) if (units[i].id == t.id) ti = i;
-                snprintf(m, sizeof m, "pad: cible id=%u type=%u cls=%u ecran=(%d,%d) verif=%d sel=(%u,%u,%u)", t.id,
-                         ti >= 0 ? units[ti].type : 0u, ti >= 0 ? units[ti].cls : 0u, t.sx, t.sy, (int)t.verified, s.selValid, s.selId, s.selType);
-                d2vita_progress(m); ++lines; }
-        }
-    }
     return true;
 }
 // Ouverture du clavier (automatique ou R+Triangle), D2_KBSIMPLE lu une fois.
@@ -2500,11 +2378,8 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
         sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
         sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
         load_controls_txt();
-        if (const char* e = getenv("D2_PAD")) g_scheme_aim = (*e && *e != '0');     // env wins over controls.txt
-        if (!padst::on()) g_scheme_aim = false;                                         // hooks unarmed: nothing to read
         g_padcfg.deadzone = g_dz; g_padcfg.sens = g_sens;
-        g_padlog = getenv("D2_PADLOG") ? 1 : 0;
-        d2vita_progress(g_scheme_aim ? "input: schema v2 (visee assistee) actif" : "input: schema souris (legacy)");
+        d2vita_progress(g_aim_bound ? "input: aim assist actif (sticks en mode vise)" : "input: clic simple (aucune action aim liee)");
         g_cx=g_game_w*0.5f; g_cy=g_game_h*0.5f;
         // Tick rate — D2_INPUTHZ, default 30.
         // Why it's capped: this tick makes TWO syscalls (sceCtrlPeek +
@@ -2566,9 +2441,7 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
     // marker too, whether or not anything was actually wrong. A marker that
     // fires on its own is no better than no marker.
     // Intercepted outright, so no lost potion and no spurious marker.
-    // L + LEFT, not L + Up: Up is the weapon swap now. Left is free again
-    // since the right click moved to L + Down.
-    if ((b&B_LEFT) && !(was&B_LEFT) && (b&B_L) && lagmark_on()) {
+    if ((b&B_UP) && !(was&B_UP) && (b&B_L) && lagmark_on()) {
         static uint64_t lastMark = 0; static unsigned nMark = 0;
         const uint64_t now = d2vita_now_us();
         if (!lastMark || now - lastMark > 1000000ull) {
@@ -2581,24 +2454,6 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
             d2vita_progress(m);
         }
         return;                     // consomme : ni potion, ni autre effet
-    }
-    // ---- L + BAS : marche/course (toggle) ----------------------------------
-    // VK 0x52 ('R') est deja la cible de l'entree "run" du parseur controls.txt
-    // (parse_act ci-dessous) : meme touche D2 native, juste assignee par defaut
-    // ici. Tir simple (tap), pas maintenu : c'est un toggle d'etat cote jeu.
-    // Bas seul = potion 2 (voir g_btn/D-pad plus bas) : meme raison qu'au-dessus,
-    // on intercepte sur le front descendant et on consomme pour ne pas boire.
-    // !(b&B_R) : R+L maintenus = mode Alt, ou le D-pad promene le curseur de
-    // butin d'un objet a l'autre. Sans ce test, R+L+Bas basculait la course et
-    // consommait l'appui : la navigation vers le bas n'atteignait jamais
-    // aim_tick — or c'est justement l'axe qui compte, deux objets sur la meme
-    // tuile empilant leurs etiquettes verticalement.
-    // Schema v2 : c'est une PRESSION BREVE sur L seul qui bascule la course
-    // (pad_core, kTapTicks), L maintenu valant Maj « sur place ». Ce raccourci
-    // ne sert donc plus qu'au schema souris (legacy).
-    if (!g_scheme_aim && (b&B_DOWN) && !(was&B_DOWN) && (b&B_L) && !(b&B_R)) {
-        d2vita_inject("key", 0x52, 0);
-        return;                     // consomme : pas de potion 2 non plus
     }
     const bool layer=(b&B_R)!=0;
     // l+ combos only engage when R isn't ALSO held — R keeps first refusal
@@ -2627,18 +2482,14 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
     // open, Triangle (without R) reverts to its keyboard-internal role
     // (toggle echo masking, see the g_kb.open block below) — closing stays on
     // Select.
-    // Schema v2 : L + Droite (R+Triangle y est la compétence 7). Legacy :
-    // R+Triangle, inchange. Dans les deux cas on consomme l'appui, sinon la
-    // Droite partirait aussi en potion 4 de ceinture.
-    const bool kb_open_edge = g_scheme_aim
-        ? ((b&B_RIGHT) && !(was&B_RIGHT) && (b&B_L) && !(b&B_R))
-        : ((b&B_TRI)   && !(was&B_TRI)   && layer);
+    const bool kb_open_edge = (b&B_TRI)&&!(was&B_TRI)&&layer;
     if (kb_open_edge && !g_kb.open){
-        pad_leave();
+        g_aim_refs=0; pad_leave();
         kb_open_now();
         return;
     }
     if (g_kb.open){
+        g_aim_refs=0; pad_leave();                              // release the assist's click, if any
         g_lmb_stick=false; g_lmb_btn=false; lmb_update();       // release any held click
         auto edge=[&](uint32_t bit){ return (b&bit)&&!(was&bit); };
         // NEVER LOG THE TYPED CHARACTER, HERE OR ANYWHERE ELSE: this keyboard
@@ -2693,7 +2544,7 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
             // Le menu n'existe QUE sur le GPU. S'il n'est pas armé (.gxp
             // absent, atlas non alloué), ne pas l'ouvrir : un menu invisible
             // qui avale quand même les entrées serait pire que pas de menu.
-            else if (d2gxm_ui_active()) { g_sel_mode=SEL_RADIAL; pad_leave(); radial_menu::begin(g_rm); }
+            else if (d2gxm_ui_active()) { g_sel_mode=SEL_RADIAL; g_aim_refs=0; pad_leave(); radial_menu::begin(g_rm); }
         }
         if (g_sel_mode==SEL_RADIAL) {
             g_lmb_stick=false; g_lmb_btn=false; lmb_update();      // release any click in progress
@@ -2712,10 +2563,6 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
         }
         if (g_sel_mode==SEL_RADIAL) return;   // menu open: nothing else passes through to the game
     }
-    // Scheme v2 owns everything below while in game; out of game the legacy
-    // scheme (menus, character select, autopilot hand-over) runs unchanged.
-    if (g_scheme_aim && aim_tick(cd, b)) return;
-
     // ---- Controls-help overlay (title screen only) -------------------------
     // Gated by d2_title_screen_active(cpu), recomputed at ~1/4 tick rate:
     // this signal doesn't need every-frame freshness, and cpu->read() is a
@@ -2859,37 +2706,60 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
         else if (!now&&before){ do_release(g_engaged[i]); g_engaged[i]={A_NONE,0}; }
     }
 
-    // Left stick: DIRECT MOVEMENT (orbit + held click)
-    float lx=(cd.lx-128)/128.f, ly=(cd.ly-128)/128.f;
-    float lm=std::sqrt(lx*lx+ly*ly);
+    // Sticks. With `aim` bound (and in game) the assist owns them: left =
+    // walk only, right = free cursor, the aim button acts on the best target.
+    // Otherwise the plain scheme: left = direct movement (orbit + held click),
+    // right = free mouse with no click.
+    bool aim_walking=false, aim_cur=false; pad::Target aim_tgt;
+    const bool aim_live = g_aim_bound && aim_tick(cd, g_aim_refs>0, &aim_walking, &aim_cur, &aim_tgt);
     static bool dm=false;
-    if (!dm && lm>g_dz+0.05f) dm=true; else if (dm && lm<g_dz) dm=false;
-    if (dm){
-        float r=g_orbit*(g_game_h/600.f);
-        g_cx = g_game_w*0.5f + lx*r;
-        g_cy = g_game_h*(g_anchor_y_pm/1000.f) + ly*r;
-        moved=true;
-        g_lmb_stick=true;
-    } else g_lmb_stick=false;
+    if (aim_live){
+        dm=false; g_lmb_stick=false;
+    } else {
+        float lx=(cd.lx-128)/128.f, ly=(cd.ly-128)/128.f;
+        float lm=std::sqrt(lx*lx+ly*ly);
+        if (!dm && lm>g_dz+0.05f) dm=true; else if (dm && lm<g_dz) dm=false;
+        if (dm){
+            float r=g_orbit*(g_game_h/600.f);
+            g_cx = g_game_w*0.5f + lx*r;
+            g_cy = g_game_h*(g_anchor_y_pm/1000.f) + ly*r;
+            moved=true;
+            g_lmb_stick=true;
+        } else g_lmb_stick=false;
 
-    // Right stick: free mouse, NO click (inactive during direct movement)
-    if (!dm){
-        float rx=(cd.rx-128)/128.f, ry=(cd.ry-128)/128.f;
-        if (std::fabs(rx)>g_dz || std::fabs(ry)>g_dz){
-            float sc=g_sens*(g_game_w/800.f);
-            g_cx += rx*std::fabs(rx)*sc; g_cy += ry*std::fabs(ry)*sc; moved=true; }
+        // Right stick: free mouse, NO click (inactive during direct movement)
+        if (!dm){
+            float rx=(cd.rx-128)/128.f, ry=(cd.ry-128)/128.f;
+            if (std::fabs(rx)>g_dz || std::fabs(ry)>g_dz){
+                float sc=g_sens*(g_game_w/800.f);
+                g_cx += rx*std::fabs(rx)*sc; g_cy += ry*std::fabs(ry)*sc; moved=true; }
+        }
     }
 
-    touch_tick(true, &moved);
+    // Out of game there is no assist: the aim button is a plain left click, so
+    // menus and character select need no separate L.
+    { const bool menuClick = g_aim_bound && !aim_live && g_aim_refs>0;
+      if (menuClick != g_aim_menu_lmb){ g_aim_menu_lmb = menuClick; lmb_update(); } }
+
+    // The assist keeps the cursor while it holds an interaction; the touch
+    // screen only moves it otherwise, and what the finger sets becomes the
+    // spot the assist hands back to.
+    { bool tmoved=false;
+      touch_tick(aim_live ? !g_assist->cursorOwned() : true, &tmoved);
+      if (tmoved){ moved=true; if (aim_live) g_assist->setCursor((int)g_cx,(int)g_cy); } }
 
     if (!(b&B_CROSS)) g_ia_cross_owned=false;
+    const bool walking = aim_live ? aim_walking : dm;
     if (g_ia_refs>0){
-        if (dm){ g_ia.reset(0); g_ia_lmb=false; }            // walking with the stick: drop any pick-up
+        if (walking){ g_ia.reset(0); g_ia_lmb=false; }       // walking with the stick: drop any pick-up
         else {
-            d2ia::In in{ia_l, ia_n, ia_h, ia_dir, ia_confirm, (b&B_CROSS)&&g_ia_cross_owned, moved,
+            d2ia::In in{ia_l, ia_n, ia_h, ia_dir, ia_confirm, (b&B_CROSS)&&g_ia_cross_owned, moved||aim_cur,
                         (int)g_cx, (int)g_cy, g_game_w/2, g_game_h*g_anchor_y_pm/1000};
             const d2ia::Out o=g_ia.tick(in);
-            if (o.move){ g_cx=(float)o.mx; g_cy=(float)o.my; moved=true; }
+            if (o.move && !(aim_live && g_assist->interacting())){
+                g_cx=(float)o.mx; g_cy=(float)o.my; moved=true;
+                if (aim_live) g_assist->setCursor(o.mx,o.my);
+            }
             g_ia_lmb=o.lmb;
         }
     }
@@ -2898,6 +2768,23 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
     if (g_cy<0)g_cy=0; if (g_cy>g_game_h-1)g_cy=(float)(g_game_h-1);
     if (moved) d2vita_inject("move",(int)g_cx,(int)g_cy);
     lmb_update();
+
+    // Overlay: a diamond on the aim target, cyan corner brackets on the ground
+    // item the item assist has focused (the rect the game itself laid out).
+    {
+        OverlayPub ov{};
+        if (aim_live && aim_tgt.has){
+            ov.retHas=1; ov.retVer=aim_tgt.verified?1:0; ov.retX=aim_tgt.sx; ov.retY=aim_tgt.sy;
+        }
+        if (g_ia_refs>0 && !walking){
+            const uint32_t f=g_ia.focus();
+            if (f) for (int i=0;i<ia_n;i++) if (ia_l[i].id==f){
+                ov.lootHas=1; ov.lootX=(ia_l[i].x1+ia_l[i].x2)/2; ov.lootY=(ia_l[i].y1+ia_l[i].y2)/2;
+                ov.lootW=ia_l[i].x2-ia_l[i].x1; ov.lootH=ia_l[i].y2-ia_l[i].y1;
+                break; }
+        }
+        overlay_set(ov);
+    }
 }
 
 

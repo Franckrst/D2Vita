@@ -22,8 +22,15 @@ constexpr int BAND_X0 = 0, BAND_X1 = 117, BAND_Y0 = 0, BAND_Y1 = 544;
 // opened) — one named constant so the two consumers can't drift apart.
 constexpr int DEFAULT_ROW_PX = 20;
 
+// The drawn "Controls" tab, and the touch zone around it (a finger is far
+// bigger than the 16 px tab). The tap must land here, not anywhere in the band.
+constexpr int ICON_X0 = BAND_X0 + 8, ICON_X1 = BAND_X1 - 8;
+constexpr int ICON_Y0 = BAND_Y1 - 24, ICON_Y1 = BAND_Y1 - 8;
+constexpr int ICON_HIT_PAD = 8;
+
 inline bool icon_hit(int x, int y) {
-    return x >= BAND_X0 && x < BAND_X1 && y >= BAND_Y0 && y < BAND_Y1;
+    return x >= ICON_X0 - ICON_HIT_PAD && x < ICON_X1 + ICON_HIT_PAD &&
+           y >= ICON_Y0 - ICON_HIT_PAD && y < ICON_Y1 + ICON_HIT_PAD;
 }
 
 struct State {
@@ -92,7 +99,7 @@ inline void rect(uint32_t* fb, int fw, int fh, int x0, int y0, int x1, int y1, u
 inline void draw(const State& s, uint32_t* fb, int fw, int fh, const char* const* lines) {
     using namespace draw_detail;
     if (!s.open) {
-        rect(fb, fw, fh, BAND_X0 + 8, BAND_Y1 - 24, BAND_X1 - 8, BAND_Y1 - 8, rgb(40, 40, 40));
+        rect(fb, fw, fh, ICON_X0, ICON_Y0, ICON_X1, ICON_Y1, rgb(40, 40, 40));
         d2kb::draw_detail::text(fb, fw, fh, "Controls", BAND_X0 + 12, BAND_Y1 - 20, 1, rgb(220, 220, 220));
         return;
     }

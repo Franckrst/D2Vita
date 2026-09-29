@@ -1,6 +1,7 @@
 // tests/pad/pad_core_test.cpp — desktop tests for src/platform/pad_core.*
 // Plain asserts, no framework: `./build/pad_core_test` exits 0 when green.
 #include "platform/pad_core.h"
+#include "platform/controls_scan.h"
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -134,100 +135,6 @@ static void test_orbit() {
     CHECK(py <= 600 - cfg.hudH - 1);
 }
 
-static void test_ground_point() {
-    pad::View v = mkView(); pad::Config cfg; pad::Ctl c;
-    int px, py;
-    c.rx = 1.f; c.ry = 0.f;                                               // full right -> rangeMax subtiles
-    pad::ground_point(v, c, cfg, 0.f, 1.f, &px, &py);
-    CHECK(py == 300 && px > 400);
-    const int farX = px;
-    c.rx = 0.5f;                                                          // half tilt -> closer
-    pad::ground_point(v, c, cfg, 0.f, 1.f, &px, &py);
-    CHECK(px > 400 && px < farX);
-    c.rx = 0.f; c.ry = 0.f;                                               // idle -> fallback direction (down), rangeMin
-    pad::ground_point(v, c, cfg, 0.f, 1.f, &px, &py);
-    // straight down on screen = world diagonal: ~11.3 px per subtile
-    CHECK(px == 400 && py > 300 && py < 300 + 12 * cfg.rangeMin + 2);
-}
-
-static pad::Unit mkItem(uint32_t id, int sx, int sy) {
-    pad::Unit u; u.id = id; u.type = 4; u.sx = sx; u.sy = sy; u.interact = true; return u;
-}
-
-static void test_nav_direction() {
-    // "plus" layout centered on Z (400,300): one item per cardinal direction,
-    // all at distance 100 so no direction's pick is ambiguous with another.
-    pad::Unit u[6] = {
-        mkItem(20, 400, 300),   // Z: the cursor start
-        mkItem(21, 500, 300),   // right of Z, dist 100
-        mkItem(23, 300, 300),   // left of Z, dist 100
-        mkItem(24, 400, 200),   // above Z, dist 100
-        mkItem(25, 400, 400),   // below Z, dist 100
-    };
-    CHECK(pad::nav_direction(u, 5, 0, pad::D_RIGHT) == 1);
-    CHECK(pad::nav_direction(u, 5, 0, pad::D_LEFT)  == 2);
-    CHECK(pad::nav_direction(u, 5, 0, pad::D_UP)    == 3);
-    CHECK(pad::nav_direction(u, 5, 0, pad::D_DOWN)  == 4);
-
-    // no candidate in a direction: cursor does not move (returns -1)
-    pad::Unit only[2] = { mkItem(30, 400, 300), mkItem(31, 500, 300) };
-    CHECK(pad::nav_direction(only, 2, 0, pad::D_LEFT) == -1);
-    CHECK(pad::nav_direction(only, 2, 0, pad::D_UP)   == -1);
-    CHECK(pad::nav_direction(only, 1, 0, pad::D_RIGHT) == -1);   // single item: no candidates at all
-
-    // non-item units are never candidates, even when nearer than the real item
-    pad::Unit withMon[3] = { mkItem(40, 400, 300), mkItem(41, 500, 300) };
-    withMon[2] = mkItem(42, 450, 300); withMon[2].type = 1; withMon[2].hostile = true;
-    CHECK(pad::nav_direction(withMon, 3, 0, pad::D_RIGHT) == 1);   // finds item 41, not the closer monster
-
-    // a target at exactly 45 degrees qualifies for BOTH adjacent directions
-    // (both tests use an inclusive >=), with nothing else around to compete
-    pad::Unit diag[2] = { mkItem(50, 400, 300), mkItem(51, 500, 400) };
-    CHECK(pad::nav_direction(diag, 2, 0, pad::D_RIGHT) == 1);
-    CHECK(pad::nav_direction(diag, 2, 0, pad::D_DOWN)  == 1);
-
-    // tie in distance: lower id wins, regardless of array order
-    pad::Unit tie[3] = { mkItem(60, 400, 300), mkItem(41, 500, 250), mkItem(40, 500, 350) };
-    CHECK(pad::nav_direction(tie, 3, 0, pad::D_RIGHT) == 2);   // index 2 = id 40, the lower id
-
-    // two items on the SAME ground tile (identical sx,sy): without a label
-    // position neither dx nor dy is ever nonzero, so no direction is
-    // "dominant" and the D-pad can never reach the second one at all.
-    pad::Unit sameTile[2] = { mkItem(70, 400, 300), mkItem(71, 400, 300) };
-    CHECK(pad::nav_direction(sameTile, 2, 0, pad::D_UP)   == -1);
-    CHECK(pad::nav_direction(sameTile, 2, 0, pad::D_DOWN) == -1);
-
-    // the game draws their Alt labels stacked (same x, one above the other):
-    // once hasLabel/lx/ly are set, navigation follows the labels, not the
-    // shared tile — reachable both ways, symmetric with each as the origin.
-    pad::Unit labelled[2] = { mkItem(70, 400, 300), mkItem(71, 400, 300) };
-    labelled[0].hasLabel = true; labelled[0].lx = 400; labelled[0].ly = 260;   // name line (topmost)
-    labelled[1].hasLabel = true; labelled[1].lx = 400; labelled[1].ly = 280;   // affix line, below it
-    CHECK(pad::nav_direction(labelled, 2, 0, pad::D_DOWN) == 1);
-    CHECK(pad::nav_direction(labelled, 2, 1, pad::D_UP)   == 0);
-}
-
-static void test_nearest_item() {
-    pad::View v = mkView();   // player projects to (400,300)
-    pad::Unit u[3] = { mkItem(70, 450, 350), mkItem(71, 400, 250) };
-    // dist(70) = sqrt(50^2+50^2) ~= 70.7 ; dist(71) = 50 -> 71 is nearest
-    CHECK(pad::nearest_item(u, 2, v) == 1);
-
-    // no cap: an item far outside L's 220px catchment is still found when it's
-    // the only one present
-    pad::Unit far[1] = { mkItem(72, 400, 900) };
-    CHECK(pad::nearest_item(far, 1, v) == 0);
-
-    // non-item units are ignored
-    pad::Unit withMon[2]; withMon[0] = mkItem(73, 500, 500);
-    withMon[1].id = 74; withMon[1].type = 1; withMon[1].sx = 401; withMon[1].sy = 301;
-    CHECK(pad::nearest_item(withMon, 2, v) == 0);
-
-    // no items at all
-    pad::Unit mon[1]; mon[0].id = 75; mon[0].type = 1; mon[0].sx = 400; mon[0].sy = 300;
-    CHECK(pad::nearest_item(mon, 1, v) == -1);
-    CHECK(pad::nearest_item(nullptr, 0, v) == -1);
-}
 
 static bool hasAct(const pad::Actions& a, pad::ActKind k, int x = -1, int y = -1) {
     for (int i = 0; i < a.n; ++i) if (a.v[i].k == k && (x < 0 || a.v[i].a == x) && (y < 0 || a.v[i].b == y)) return true;
@@ -238,50 +145,8 @@ static int actIndex(const pad::Actions& a, pad::ActKind k) {
     return -1;
 }
 
-static void test_scheme_cast() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true;
-    pad::Unit u[1] = { mkMon(5, 500, 300) };
-    pad::Ctl c; pad::Actions a;
-    s.tick(c, x, v, u, 1, a);                                   // settle, nothing pressed
-    CHECK(a.n == 0);
-    CHECK(s.target().has && s.target().id == 5 && !s.target().verified);
-    // press Circle: F1, cursor on the target (28 px above its feet), right button down
-    c.buttons = pad::B_CIR; a = pad::Actions{};
-    s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_KEY, 0x70));
-    CHECK(hasAct(a, pad::A_MOVE, 500, 272));
-    CHECK(hasAct(a, pad::A_RDOWN, 500, 272));
-    CHECK(actIndex(a, pad::A_KEY) < actIndex(a, pad::A_RDOWN));
-    CHECK(s.casting() && s.cursorOwned());
-    // held, game does not hover it yet: second attempt height (14)
-    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_MOVE, 500, 286));
-    // now the game hovers it: verified, learned
-    x.selValid = 1; x.selId = 5; x.selType = 1;
-    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(s.target().verified);
-    // release: right button up, no more cast
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_RUP) && !s.casting());
-    // next cast of the same class starts at the learned height (14)
-    c.buttons = pad::B_CIR; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_MOVE, 500, 286));
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    // R + Triangle = slot 7 (F7), the highest the pad reaches now that Cross
-    // is the action button
-    c.buttons = pad::B_R | pad::B_TRI; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_KEY, 0x76));
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_RUP));
-    // no hostile: ground cast along the fallback direction
-    c.buttons = pad::B_SQR; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEY, 0x71) && hasAct(a, pad::A_RDOWN));
-    CHECK(!s.target().has);
-}
-
 static void test_scheme_move() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true;
     pad::Ctl c; pad::Actions a;
     c.lx = 1.f; s.tick(c, x, v, nullptr, 0, a);
@@ -293,151 +158,38 @@ static void test_scheme_move() {
     CHECK(hasAct(a, pad::A_LUP));
     CHECK(hasAct(a, pad::A_CLICK, 400, 306));
     CHECK(actIndex(a, pad::A_LUP) < actIndex(a, pad::A_CLICK));
-    // moving then casting: the left button is released for the cast, re-pressed after
-    pad::Unit u[1] = { mkMon(5, 500, 300) };
+    // walking, then pressing aim: the walk click is lifted for the interaction,
+    // and walking resumes in the same tick the button is released
+    pad::Unit u[1] = { mkMon(5, 700, 300) };
     c.lx = 1.f; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
     CHECK(hasAct(a, pad::A_LDOWN));
-    c.buttons = pad::B_CIR; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(actIndex(a, pad::A_LUP) >= 0 && actIndex(a, pad::A_LUP) < actIndex(a, pad::A_RDOWN));
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    // spec 5.1 "reprend au relachement": release ends the cast AND resumes movement
-    // in the same tick (worldTick runs the cast section before the left-stick one).
-    CHECK(hasAct(a, pad::A_RUP) && hasAct(a, pad::A_LDOWN));
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_LUP) && s.interacting());
+    c.aim = false; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_LDOWN) && !s.interacting());
     a = pad::Actions{}; s.tick(c, x, v, u, 1, a);              // stick still pushed, point unchanged: steady state
     CHECK(a.n == 0);
 }
 
-static void test_scheme_interact_and_keys() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+static void test_aim_interact() {
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true;
     pad::Unit u[2] = { mkMon(5, 500, 300) };
     u[1].id = 8; u[1].type = 2; u[1].cls = 7; u[1].sx = 430; u[1].sy = 310; u[1].interact = true;
     pad::Ctl c; pad::Actions a;
-    c.buttons = pad::B_CROSS; s.tick(c, x, v, u, 2, a);              // cursor idle: the chest wins over the monster
+    c.aim = true; s.tick(c, x, v, u, 2, a);              // cursor idle: the chest wins over the monster
     CHECK(hasAct(a, pad::A_MOVE, 430, 290) && !hasAct(a, pad::A_LDOWN));   // move first, press next tick
     x.selValid = 1; x.selId = 8; x.selType = 2;
     a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     CHECK(hasAct(a, pad::A_LDOWN, 430, 290));
     x.selValid = 0; x.selId = 0; x.selType = 0;
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    c.aim = false; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     CHECK(hasAct(a, pad::A_LUP));
-    // Cross with nothing around and no target: no click at all
-    a = pad::Actions{}; c.buttons = pad::B_CROSS; s.tick(c, x, v, nullptr, 0, a);
+    // aim with nothing around and no target: no click at all
+    a = pad::Actions{}; c.aim = true; s.tick(c, x, v, nullptr, 0, a);
     CHECK(a.n == 0);
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    c.aim = false; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
     CHECK(a.n == 0);
-    // R then L = Alt held ; released with either
-    c.buttons = pad::B_R; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYDOWN, 0x12) && !hasAct(a, pad::A_LDOWN));
-    c.buttons = pad::B_L; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYUP, 0x12));
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    // D-pad up = potion 1 ; R + D-pad left = Shift + potion 2 (merc)
-    c.buttons = pad::B_UP; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYDOWN, 0x31));
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYUP, 0x31));
-    c.buttons = pad::B_R | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYDOWN, 0x10) && hasAct(a, pad::A_KEYDOWN, 0x32));
-    c.buttons = pad::B_R; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYUP, 0x32) && hasAct(a, pad::A_KEYUP, 0x10));
-    // Start = Escape, with or without R (the weapon swap moved to L + Up)
-    c.buttons = pad::B_R | pad::B_START; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYDOWN, 0x1B) && !hasAct(a, pad::A_KEYDOWN, 0x57));
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYUP, 0x1B));
-    c.buttons = pad::B_START; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYDOWN, 0x1B));
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYUP, 0x1B));
-}
-
-static void test_scheme_loot_browse() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true;
-    pad::Unit u[3];
-    u[0] = mkItem(50, 480, 300);                                 // dist 80 from player (400,300): nearest
-    u[1] = mkItem(51, 300, 300);                                 // dist 100: farther, to the LEFT of u[0]
-    u[2].id = 52; u[2].type = 1; u[2].sx = 470; u[2].sy = 300; u[2].hostile = true;
-    // ^ monster: closer to u[1] (dist 170) than u[0] is (dist 180) -- must never be selected
-    pad::Ctl c; pad::Actions a;
-
-    // R then L: Alt activates; cursor defaults to the item nearest the player
-    c.buttons = pad::B_R; s.tick(c, x, v, u, 3, a);
-    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
-    CHECK(hasAct(a, pad::A_KEYDOWN, 0x12));
-    CHECK(s.lootCursor().has && s.lootCursor().id == 50);
-    CHECK(!s.target().has);   // hostile-target diamond suppressed while browsing loot
-
-    // D-pad left: moves to item 51; does NOT also drink a belt potion
-    c.buttons = pad::B_R | pad::B_L | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
-    CHECK(s.lootCursor().id == 51);
-    CHECK(!hasAct(a, pad::A_KEYDOWN, 0x32));
-    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
-
-    // D-pad right: back to item 50 -- the closer monster must never win
-    c.buttons = pad::B_R | pad::B_L | pad::B_RIGHT; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
-    CHECK(s.lootCursor().id == 50);
-    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
-
-    // left stick pushed during Alt: no movement click, character stays put (spec 3.6)
-    c.buttons = pad::B_R | pad::B_L; c.lx = 1.f; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
-    CHECK(!hasAct(a, pad::A_LDOWN) && !s.cursorOwned());
-    c.lx = 0.f;
-
-    // right stick pushed during Alt: browsing owns the cursor, the stick does
-    // not move it (spec 3.6)
-    const int bx = s.cx(), by = s.cy();
-    c.buttons = pad::B_R | pad::B_L; c.rx = 1.f; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
-    CHECK(s.cx() == bx && s.cy() == by);
-    c.rx = 0.f;
-
-    // Croix: MOVES onto the item, and deliberately does NOT press yet. Clicking
-    // in the same breath made the game act on whatever it hovered last, which
-    // it reads as "walk there" -- console 20/09: the label lit up and the
-    // character walked off without picking anything up.
-    c.buttons = pad::B_R | pad::B_L | pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
-    CHECK(hasAct(a, pad::A_MOVE, 480, 294) && !hasAct(a, pad::A_LDOWN));
-    CHECK(!s.casting());                                          // did NOT also start a cast (any slot)
-
-    // next tick, the game reports it hovers item 50: NOW the button goes down
-    x.selValid = 1; x.selId = 50; x.selType = 4;
-    c.buttons = pad::B_R | pad::B_L | pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
-    CHECK(hasAct(a, pad::A_LDOWN, 480, 294));
-    x.selValid = 0; x.selId = 0; x.selType = 0;
-
-    // D-pad is locked out while the pickup is held
-    c.buttons = pad::B_R | pad::B_L | pad::B_CROSS | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
-    CHECK(s.lootCursor().id == 50);
-
-    // the picked-up item vanishes from the unit list (normal case: it was just
-    // grabbed) while Croix is still held -- the reported cursor must NOT drift
-    // to a different item; the reacquire-fallback must stay locked out by
-    // !interact_ until Croix is released
-    pad::Unit withoutPickedItem[2] = { u[1], u[2] };   // item 50 gone, item 51 + the monster remain
-    c.buttons = pad::B_R | pad::B_L | pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, withoutPickedItem, 2, a);
-    CHECK(!s.lootCursor().has);                        // gone from view -- critically NOT drifted to item 51
-
-    // release Croix: LUP, browsing resumes
-    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
-    CHECK(hasAct(a, pad::A_LUP));
-
-    // move to item 51 before Alt ends, so re-entry below can prove it re-derives the
-    // nearest item rather than resuming this stale selection
-    c.buttons = pad::B_R | pad::B_L | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
-    CHECK(s.lootCursor().id == 51);
-    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
-
-    // release L (R still held): Alt ends, selection forgotten
-    c.buttons = pad::B_R; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
-    CHECK(hasAct(a, pad::A_KEYUP, 0x12));
-    CHECK(!s.lootCursor().has);
-
-    // re-entering Alt after it fully ended re-derives nearest-to-player (50), rather
-    // than resuming the stale selection (51) from before Alt ended
-    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 3, a);
-    CHECK(s.lootCursor().id == 50);
 }
 
 // Every A_LDOWN must have a lift on EVERY exit, not just the button's own
@@ -446,15 +198,14 @@ static void test_scheme_loot_browse() {
 // every later cursor move is a drag.
 static void test_left_button_always_released() {
     pad::View v = mkView();
-    pad::Unit u[1] = { mkItem(50, 400, 300) };
     pad::Unit chest[1]; chest[0].id = 51; chest[0].type = 2; chest[0].cls = 7;
     chest[0].sx = 400; chest[0].sy = 300; chest[0].interact = true;
     auto countUp = [](const pad::Actions& a) {
         int k = 0; for (int i = 0; i < a.n; ++i) if (a.v[i].k == pad::A_LUP) ++k; return k; };
 
     // A: a Cross interaction pressed and held, then a panel opens
-    { pad::Config cfg; pad::Scheme s(cfg); pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-      c.buttons = pad::B_CROSS; s.tick(c, x, v, chest, 1, a);
+    { pad::Config cfg; pad::Assist s(cfg); pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+      c.aim = true; s.tick(c, x, v, chest, 1, a);
       x.selValid = 1; x.selId = 51; x.selType = 2;
       a = pad::Actions{}; s.tick(c, x, v, chest, 1, a);
       CHECK(hasAct(a, pad::A_LDOWN));
@@ -462,77 +213,13 @@ static void test_left_button_always_released() {
       CHECK(countUp(a) == 1); }
 
     // B: a Cross interaction pressed and held, then the game is left
-    { pad::Config cfg; pad::Scheme s(cfg); pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-      c.buttons = pad::B_CROSS; s.tick(c, x, v, chest, 1, a);
+    { pad::Config cfg; pad::Assist s(cfg); pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+      c.aim = true; s.tick(c, x, v, chest, 1, a);
       x.selValid = 1; x.selId = 51; x.selType = 2;
       a = pad::Actions{}; s.tick(c, x, v, chest, 1, a);
       CHECK(hasAct(a, pad::A_LDOWN));
       a = pad::Actions{}; s.leave(a);
       CHECK(countUp(a) == 1); }
-
-    // C: Alt pickup pressed, then a panel opens
-    { pad::Config cfg; pad::Scheme s(cfg); pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-      c.buttons = pad::B_R; s.tick(c, x, v, u, 1, a);
-      c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-      c.buttons = pad::B_R | pad::B_L | pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-      x.selValid = 1; x.selId = 50; x.selType = 4;
-      a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-      CHECK(hasAct(a, pad::A_LDOWN));
-      x.panelOpen = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-      CHECK(countUp(a) == 1); }
-}
-
-// D2 unit ids are unique per type only: a monster and an item can share one.
-// Matching on the id alone made the loot marker jump onto the monster, and
-// Croix then clicked it -- an attack, never a pick-up.
-static void test_id_collision_across_types() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-    pad::Unit u[2] = { mkMon(50, 300, 250), mkItem(50, 480, 300) };   // same id, monster listed FIRST
-    c.buttons = pad::B_R; s.tick(c, x, v, u, 2, a);
-    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
-    CHECK(s.lootCursor().has && s.lootCursor().sx == 480);
-    a = pad::Actions{}; s.tick(c, x, v, u, 2, a);                     // held: must stay on the ITEM
-    CHECK(s.lootCursor().sx == 480 && s.lootCursor().sy == 300);
-}
-
-// The item disappears before the press (someone else grabbed it, it scrolled
-// off): the delayed press must be cancelled, not fired at the last known spot
-// -- the game would read that as "walk there", which is what the two-step
-// press exists to avoid in the first place.
-static void test_pickup_cancelled_when_item_vanishes() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-    pad::Unit u[1] = { mkItem(50, 480, 300) };
-    c.buttons = pad::B_R; s.tick(c, x, v, u, 1, a);
-    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    c.buttons = pad::B_R | pad::B_L | pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(!hasAct(a, pad::A_LDOWN));                                  // move only, as designed
-    for (int i = 0; i < 8; ++i) {                                     // item gone, well past the 5-tick fallback
-        a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-        CHECK(!hasAct(a, pad::A_LDOWN));
-    }
-}
-
-// A click with no hover at all is a walk order: the character wanders off
-// instead of picking anything up. The press must never fire on the timeout
-// alone -- only once the game reports it hovers an item.
-static void test_pickup_never_presses_without_hover() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-    pad::Unit u[1] = { mkItem(50, 480, 300) };
-    c.buttons = pad::B_R; s.tick(c, x, v, u, 1, a);
-    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    c.buttons = pad::B_R | pad::B_L | pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    for (int i = 0; i < 12; ++i) {                    // the game never reports a hover
-        a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-        CHECK(!hasAct(a, pad::A_LDOWN));
-    }
-    // it hovers a DIFFERENT item (our id went stale): that one is under the
-    // cursor and highlighted, so after the grace ticks the press goes through
-    x.selValid = 1; x.selId = 77; x.selType = 4;
-    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_LDOWN));
 }
 
 // A chest or NPC is hit-tested against the cursor's own position, so the
@@ -542,11 +229,11 @@ static void test_pickup_never_presses_without_hover() {
 // after one tick either way: it is HELD, and the game re-reads the hover on
 // every frame while it is, so it corrects itself as soon as a height lands.
 static void test_interact_height_retry_paces_itself() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[1]; u[0].id = 60; u[0].type = 2; u[0].cls = 7;      // a chest
     u[0].sx = 400; u[0].sy = 300; u[0].interact = true;
-    c.buttons = pad::B_CROSS; s.tick(c, x, v, u, 1, a);
+    c.aim = true; s.tick(c, x, v, u, 1, a);
     CHECK(hasAct(a, pad::A_MOVE, 400, 280) && !hasAct(a, pad::A_LDOWN));   // move first, default height 20
     int moves = 0, downs = 0;
     for (int i = 0; i < 9; ++i) {                                   // still not hovered: keep hunting heights
@@ -568,10 +255,10 @@ static void test_interact_height_retry_paces_itself() {
 // when it confirms the unit and lifting when it loses it -- never issuing the
 // hover-less click, which the game reads as "walk to that point".
 static void test_hold_follows_the_hover() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[1] = { mkMon(70, 460, 300) };
-    c.buttons = pad::B_CROSS; s.tick(c, x, v, u, 1, a);             // no interactable: falls back to the target
+    c.aim = true; s.tick(c, x, v, u, 1, a);             // no interactable: falls back to the target
     x.selValid = 1; x.selId = 70; x.selType = 1;
     a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
     CHECK(hasAct(a, pad::A_LDOWN));
@@ -591,50 +278,36 @@ static void test_hold_follows_the_hover() {
 }
 
 static void test_scheme_panel_and_leave() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true;
     pad::Unit u[1] = { mkMon(5, 500, 300) };
     pad::Ctl c; pad::Actions a;
-    // a cast is held when a panel opens: it is released on the mode change
-    c.buttons = pad::B_CIR; s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_RDOWN));
+    // an interaction is held when a panel opens: released on the mode change
+    c.aim = true; s.tick(c, x, v, u, 1, a);
+    CHECK(s.interacting());
     x.panelOpen = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_RUP) && !s.casting());
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    // panel: Circle = Escape ; Cross = click at the cursor ; Square = Shift held
+    CHECK(!s.interacting());
+    c.aim = false; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    // panel: aim = click at the cursor
     s.setCursor(200, 200);
-    c.buttons = pad::B_CIR; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_KEY, 0x1B));
-    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
     CHECK(hasAct(a, pad::A_LDOWN, 200, 200));
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    c.aim = false; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
     CHECK(hasAct(a, pad::A_LUP, 200, 200));
-    c.buttons = pad::B_SQR; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_KEYDOWN, 0x10));
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_KEYUP, 0x10));
     // left stick moves the free cursor in a panel
     c.lx = 1.f; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
     CHECK(hasAct(a, pad::A_MOVE) && s.cx() > 200);
     c.lx = 0.f;
-    // skill tree: the faces bind, Cross still clicks (see the dedicated test)
-    x.skillTree = true;
-    c.buttons = pad::B_CIR; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_KEY, 0x70) && !hasAct(a, pad::A_LDOWN));
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    c.buttons = pad::B_R | pad::B_CIR; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_KEY, 0x74));
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    // leave() while a Shift is held releases it
-    c.buttons = pad::B_SQR; x.skillTree = false; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    // leave() while the click is held lifts it, once
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
     a = pad::Actions{}; s.leave(a);
-    CHECK(hasAct(a, pad::A_KEYUP, 0x10));
+    CHECK(hasAct(a, pad::A_LUP));
 }
 
 // --- right stick = free cursor, assist fires at the moment of the cast -------
 
 static void test_right_stick_is_a_free_cursor() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true;
     pad::Ctl c; pad::Actions a;
     c.rx = 1.f;                                      // full right
@@ -650,7 +323,7 @@ static void test_free_cursor_reaches_the_hud() {
     // clamp_point keeps ASSISTED points out of the bottom band (the game drops
     // a click resolved there). The cursor the PLAYER drives must still reach
     // the belt and the skill buttons.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true;
     pad::Ctl c; pad::Actions a; c.ry = 1.f;
     for (int i = 0; i < 40; ++i) { a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); }
@@ -661,7 +334,7 @@ static void test_free_cursor_reaches_the_hud() {
 static void test_aim_cone_follows_the_cursor() {
     // The cone direction comes from the player->cursor vector, not from the
     // stick: both sticks stay idle here.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true;
     pad::Unit u[2] = { mkMon(1, 600, 300), mkMon(2, 400, 150) };   // right 200 px, up 150 px
     pad::Ctl c; pad::Actions a;
@@ -673,57 +346,12 @@ static void test_aim_cone_follows_the_cursor() {
     CHECK(s.target().has && s.target().id == 2);
 }
 
-static void test_cast_gives_the_cursor_back() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true;
-    pad::Unit u[1] = { mkMon(5, 600, 300) };
-    pad::Ctl c; pad::Actions a;
-    // 200 px east, 40 px up: 22 degrees off the target in WORLD terms, inside
-    // the cone. (600,200) would be 45 degrees away once y counts double, and
-    // would rightly snap to nothing.
-    s.setCursor(600, 260);                           // where the player parked it
-    s.tick(c, x, v, u, 1, a);
-    c.buttons = pad::B_CIR; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_MOVE, 600, 272));         // snapped onto the target
-    CHECK(hasAct(a, pad::A_RDOWN, 600, 272));
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_RUP));
-    CHECK(hasAct(a, pad::A_MOVE, 600, 260));         // handed straight back
-    CHECK(s.cx() == 600 && s.cy() == 260);
-}
-
-static void test_cast_without_a_target_uses_the_cursor() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true;
-    pad::Ctl c; pad::Actions a;
-    s.setCursor(600, 200);
-    c.buttons = pad::B_CIR;
-    s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEY, 0x70));
-    CHECK(hasAct(a, pad::A_RDOWN, 600, 200));        // exactly where the player pointed
-}
-
-static void test_cast_with_a_parked_cursor_aims_ahead() {
-    // Cursor sitting on the player: there is no direction to read from it, so
-    // a ground cast still goes out along the last walking direction rather
-    // than onto our own feet. Pins behaviour the refactor must preserve.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true;
-    pad::Ctl c; pad::Actions a;
-    c.lx = 1.f; s.tick(c, x, v, nullptr, 0, a);                       // walking right
-    c.lx = 0.f; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    s.setCursor(400, 300);
-    c.buttons = pad::B_CIR; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    int gx, gy; pad::ground_point(v, c, cfg, 1.f, 0.f, &gx, &gy);
-    CHECK(hasAct(a, pad::A_RDOWN, gx, gy));
-}
-
 static void test_the_walk_leaves_the_cursor_alone() {
     // Console, 21/09: "the cursor should stay where it is once the stick is
     // released". Any teleport of the cursor is disorienting, including the
     // well-meant one that tried to restore the previous aim -- the walk's own
     // stop click already parks it on the character, and that is where it stays.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true;
     pad::Ctl c; pad::Actions a;
     s.setCursor(600, 200);
@@ -738,15 +366,15 @@ static void test_repick_follows_where_the_player_now_aims() {
     // While a cast holds, cx_ sits on the TARGET, so reading the cone off it
     // would re-target along a direction the player left long ago. The stick
     // steers userX_/userY_ during the cast: that is what the cone must use.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true;
     pad::Unit right[1] = { mkMon(1, 600, 300) };                 // 200 px to the right
     pad::Unit up[1]    = { mkMon(2, 400, 150) };                 // 150 px straight up
     pad::Ctl c; pad::Actions a;
     s.setCursor(500, 300);                                        // aiming right
     s.tick(c, x, v, right, 1, a);
-    c.buttons = pad::B_CIR; a = pad::Actions{}; s.tick(c, x, v, right, 1, a);
-    CHECK(s.casting() && s.target().id == 1);
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, right, 1, a);
+    CHECK(s.interacting() && s.target().id == 1);
     c.ry = -1.f;                                                  // swing the aim upwards, still holding
     for (int i = 0; i < 20; ++i) { a = pad::Actions{}; s.tick(c, x, v, right, 1, a); }
     a = pad::Actions{}; s.tick(c, x, v, up, 1, a);                // target 1 gone: re-pick
@@ -757,7 +385,7 @@ static void test_panel_cursor_sums_both_sticks_before_rounding() {
     // Both sticks drive the panel cursor. Their steps are summed and rounded
     // once: rounding each stick on its own loses a pixel per axis per tick,
     // which is a drift the player feels over a stash full of items.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; x.panelOpen = true;
     pad::Ctl c; pad::Actions a;
     c.lx = 0.5f; c.rx = 0.5f;                     // 2.5 px each, 5.0 px together
@@ -765,45 +393,18 @@ static void test_panel_cursor_sums_both_sticks_before_rounding() {
     CHECK(s.cx() == 405);
 }
 
-// --- Cross is the context action, skills move onto the other faces ---------
-
-static void test_faces_are_skills_one_to_three() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true;
-    pad::Ctl c; pad::Actions a;
-    const uint32_t face[3] = { pad::B_CIR, pad::B_SQR, pad::B_TRI };
-    for (int i = 0; i < 3; ++i) {
-        c.buttons = face[i]; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-        CHECK(hasAct(a, pad::A_KEY, 0x70 + i));          // F1, F2, F3
-        CHECK(hasAct(a, pad::A_RDOWN));
-        c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    }
-}
-
-static void test_r_faces_are_skills_four_to_seven() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true;
-    pad::Ctl c; pad::Actions a;
-    const uint32_t face[4] = { pad::B_CROSS, pad::B_CIR, pad::B_SQR, pad::B_TRI };
-    for (int i = 0; i < 4; ++i) {
-        c.buttons = pad::B_R | face[i]; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-        CHECK(hasAct(a, pad::A_KEY, 0x73 + i));          // F4..F7
-        c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    }
-}
+// --- the aim button is the context action ---------------------------------
 
 static void test_cross_is_the_context_button() {
-    // Cross no longer casts: it is the one action button. Pointed at a
-    // monster it attacks it, through the same move-then-wait-for-the-hover
-    // path L used to drive.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    // The aim button is the one action button. Pointed at a monster it
+    // attacks it, through the move-then-wait-for-the-hover path.
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true;
     pad::Unit u[1] = { mkMon(5, 600, 300) };
     pad::Ctl c; pad::Actions a;
     s.setCursor(550, 300);                                // pointing at it
     s.tick(c, x, v, u, 1, a);
-    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(!hasAct(a, pad::A_KEY, 0x70) && !hasAct(a, pad::A_RDOWN));   // not a cast
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
     CHECK(hasAct(a, pad::A_MOVE, 600, 272));              // moved onto it
     CHECK(!hasAct(a, pad::A_LDOWN));                      // and waits for the game's hover
     x.selValid = 1; x.selId = 5; x.selType = 1;
@@ -814,147 +415,19 @@ static void test_cross_is_the_context_button() {
 static void test_cross_prefers_a_close_object_when_not_pointing_at_anything() {
     // Cursor idle on the player: no aim to read, so a chest within reach wins
     // over a monster the player never pointed at.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true;
     pad::Unit u[2] = { mkMon(5, 600, 300) };
     u[1].id = 8; u[1].type = 2; u[1].cls = 7; u[1].sx = 430; u[1].sy = 310; u[1].interact = true;
     pad::Ctl c; pad::Actions a;
     s.tick(c, x, v, u, 2, a);
-    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     CHECK(hasAct(a, pad::A_MOVE, 430, 290));              // the chest, not the monster
-}
-
-static void test_skill_tree_cross_clicks_and_r_face_assigns() {
-    // Two different jobs in the skill tree: spend a point on the hovered icon,
-    // and bind it to a button. Cross is the click now, so binding moves behind R.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; x.panelOpen = true; x.skillTree = true;
-    pad::Ctl c; pad::Actions a;
-    c.buttons = pad::B_CROSS; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_LDOWN) && !hasAct(a, pad::A_KEY));      // spends a point
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    // You bind a skill with the very gesture that casts it: Circle = slot 1,
-    // R+Cross = slot 4, R+Triangle = slot 7.
-    c.buttons = pad::B_CIR; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEY, 0x70) && !hasAct(a, pad::A_LDOWN));
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    c.buttons = pad::B_R | pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEY, 0x73) && !hasAct(a, pad::A_LDOWN));
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    c.buttons = pad::B_R | pad::B_TRI; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEY, 0x76));                              // R+Triangle = slot 7
 }
 
 // --- per-slot target kind (point 8) ---------------------------------------
 
-static void test_corpse_slot_targets_the_dead() {
-    // pick_hostile only ever sees LIVE monsters, so corpse skills got no
-    // assist at all and fell back to a blind ground cast -- the whole
-    // necromancer. A slot declared `corpse` flips the filter.
-    pad::Config cfg; cfg.slotKind[0] = pad::T_CORPSE;      // Circle = slot 1
-    pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true;
-    pad::Unit u[2] = { mkMon(1, 450, 300), mkMon(2, 600, 300) };
-    u[1].hostile = false; u[1].corpse = true;              // the corpse, further away
-    pad::Ctl c; pad::Actions a;
-    s.tick(c, x, v, u, 2, a);
-    c.buttons = pad::B_CIR; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
-    CHECK(hasAct(a, pad::A_KEY, 0x70));
-    CHECK(hasAct(a, pad::A_RDOWN, 600, 272));              // the corpse, not the live one
-}
-
-static void test_ground_slot_never_snaps() {
-    // Teleport on a monster puts you on top of it. A slot declared `ground`
-    // lands where the player points, enemy in the cone or not.
-    pad::Config cfg; cfg.slotKind[0] = pad::T_GROUND;
-    pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true;
-    pad::Unit u[1] = { mkMon(5, 500, 300) };
-    pad::Ctl c; pad::Actions a;
-    s.setCursor(600, 200);
-    s.tick(c, x, v, u, 1, a);
-    c.buttons = pad::B_CIR; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
-    CHECK(hasAct(a, pad::A_RDOWN, 600, 200));
-    CHECK(!s.target().has);                                 // and nothing is marked as hit
-}
-
-static void test_pick_hostile_kind_selects_the_predicate() {
-    pad::View v = mkView(); pad::Config cfg;
-    pad::Unit u[2] = { mkMon(1, 450, 300), mkMon(2, 600, 300) };
-    u[1].hostile = false; u[1].corpse = true;
-    CHECK(pad::pick_hostile(u, 2, v, 0.f, 0.f, false, cfg, -1) == 0);
-    CHECK(pad::pick_hostile(u, 2, v, 0.f, 0.f, false, cfg, -1, pad::T_CORPSE) == 1);
-}
-
 // --- L is a modifier now: stand still held, walk/run on a clean tap -------
-
-static void test_l_held_is_stand_still() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-    c.buttons = pad::B_L; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYDOWN, 0x10));                 // Shift: cast/attack without moving
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYUP, 0x10));
-}
-
-static void test_l_tap_toggles_run() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-    c.buttons = pad::B_L; s.tick(c, x, v, nullptr, 0, a);
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEY, 0x52));                     // VK 'R', D2's own run toggle
-}
-
-static void test_l_held_long_does_not_toggle_run() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-    c.buttons = pad::B_L; s.tick(c, x, v, nullptr, 0, a);
-    for (int i = 0; i < 20; ++i) { a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); }
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(!hasAct(a, pad::A_KEY, 0x52));                    // that was a hold, not a tap
-}
-
-static void test_l_used_as_a_modifier_does_not_toggle_run() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-    c.buttons = pad::B_L; s.tick(c, x, v, nullptr, 0, a);
-    c.buttons = pad::B_L | pad::B_CIR; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    c.buttons = pad::B_L; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(!hasAct(a, pad::A_KEY, 0x52));                    // it modified a cast, it was not a tap
-}
-
-static void test_r_then_l_is_alt_not_stand_still() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-    c.buttons = pad::B_R; s.tick(c, x, v, nullptr, 0, a);
-    c.buttons = pad::B_R | pad::B_L; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYDOWN, 0x12) && !hasAct(a, pad::A_KEYDOWN, 0x10));
-}
-
-static void test_shift_survives_two_owners() {
-    // Shift has several owners at once. Releasing one must not lift it out
-    // from under another.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-    int downs = 0, ups = 0;
-    auto tally = [&](const pad::Actions& z) {
-        for (int i = 0; i < z.n; ++i) {
-            if (z.v[i].k == pad::A_KEYDOWN && z.v[i].a == 0x10) ++downs;
-            if (z.v[i].k == pad::A_KEYUP   && z.v[i].a == 0x10) ++ups;
-        } };
-    // Two mercenary potions at once: R + Up and R + Left each need Shift.
-    // (L can no longer be a co-owner in game -- L + R is the Alt layer.)
-    c.buttons = pad::B_R; s.tick(c, x, v, nullptr, 0, a); tally(a);
-    c.buttons = pad::B_R | pad::B_UP; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); tally(a);
-    CHECK(downs == 1 && ups == 0);
-    c.buttons = pad::B_R | pad::B_UP | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); tally(a);
-    CHECK(downs == 1 && ups == 0);                          // second owner, no second press
-    c.buttons = pad::B_R | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); tally(a);
-    CHECK(ups == 0);                                        // Up let go, Left still holds it
-    c.buttons = pad::B_R; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); tally(a);
-    CHECK(ups == 1);
-}
 
 // --- feedback from discussion #16, v3-test1 --------------------------------
 
@@ -987,7 +460,7 @@ static void test_cross_takes_what_is_under_the_cursor() {
     // highlight it with the right stick, press Cross, and the character
     // neither walks to it nor opens it." The chain read the CONE, never the
     // unit actually under the cursor, so any targetable unit beat it.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true;
     pad::Unit u[2] = { mkMon(5, 560, 300) };                 // a hostile, right in the cone
     u[1].id = 9; u[1].type = 2; u[1].cls = 7;                // the stash, under the cursor
@@ -995,7 +468,7 @@ static void test_cross_takes_what_is_under_the_cursor() {
     pad::Ctl c; pad::Actions a;
     s.setCursor(500, 296);                                   // inside the stash's box
     s.tick(c, x, v, u, 2, a);
-    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     CHECK(hasAct(a, pad::A_MOVE, 500, 280));                 // the stash (type 2 hover height 20)
 }
 
@@ -1012,79 +485,30 @@ static void test_a_unit_the_game_never_hovers_is_given_up_on() {
     // but char does not run to them, essentially blocking the attack to an
     // attackable target". We cannot tell a critter apart up front, but we can
     // notice that the game refuses to hover it and stop offering it.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[2] = { mkMon(1, 440, 300), mkMon(2, 520, 300) };   // the critter is nearer
-    c.buttons = pad::B_CROSS; s.tick(c, x, v, u, 2, a);
+    c.aim = true; s.tick(c, x, v, u, 2, a);
     CHECK(s.interacting());
     for (int i = 0; i < 30; ++i) { a = pad::Actions{}; s.tick(c, x, v, u, 2, a); }
     CHECK(!s.interacting());                                  // gave up, never pressed
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    c.aim = false; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     // pressing again must now reach the one behind it
-    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     CHECK(hasAct(a, pad::A_MOVE, 520, 272));
 }
 
 static void test_a_hovered_unit_is_never_given_up_on() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[1] = { mkMon(1, 440, 300) };
-    c.buttons = pad::B_CROSS; s.tick(c, x, v, u, 1, a);
+    c.aim = true; s.tick(c, x, v, u, 1, a);
     x.selValid = 1; x.selId = 1; x.selType = 1;
     for (int i = 0; i < 40; ++i) { a = pad::Actions{}; s.tick(c, x, v, u, 1, a); }
     CHECK(s.interacting());                                   // held on a unit the game confirms
 }
 
-static void test_l_plus_down_is_the_general_right_click() {
-    // A right click that works wherever the cursor is, rather than the single
-    // case of the mercenary portrait. The binding was free without anyone
-    // noticing: L holds Shift, so L + down used to send Shift + '3', which is
-    // "give potion 3 to the mercenary" -- exactly what R + down already does.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-    s.setCursor(120, 80);                                     // the merc portrait, top left
-    c.buttons = pad::B_L; s.tick(c, x, v, nullptr, 0, a);
-    c.buttons = pad::B_L | pad::B_DOWN; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_RDOWN, 120, 80));
-    CHECK(!hasAct(a, pad::A_KEYDOWN, 0x33));                  // and NOT belt potion 3
-    c.buttons = pad::B_L; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_RUP));
-    // down alone is still the belt, and L + left is the belt again
-    c.buttons = pad::B_DOWN; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYDOWN, 0x33));
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    c.buttons = pad::B_L | pad::B_LEFT; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYDOWN, 0x32));
-}
-
-static void test_l_plus_up_swaps_weapons_and_start_is_only_escape() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-    c.buttons = pad::B_L; s.tick(c, x, v, nullptr, 0, a);
-    c.buttons = pad::B_L | pad::B_UP; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEY, 0x57));                       // W: weapon swap
-    CHECK(!hasAct(a, pad::A_KEYDOWN, 0x31));                  // and NOT belt potion 1
-    // R + Start is gone: Start is Escape, layer or not
-    pad::Config cfg2; pad::Scheme s2(cfg2); pad::Ctx x2; x2.inGame = true;
-    pad::Ctl c2; pad::Actions a2;
-    c2.buttons = pad::B_R | pad::B_START; s2.tick(c2, x2, v, nullptr, 0, a2);
-    CHECK(hasAct(a2, pad::A_KEYDOWN, 0x1B) && !hasAct(a2, pad::A_KEYDOWN, 0x57));
-}
-
 // --- second console round, 21/09 ------------------------------------------
-
-static void test_alt_does_not_care_which_shoulder_came_first() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
-    // L first, then R: used to give Shift and no labels at all
-    c.buttons = pad::B_L; s.tick(c, x, v, nullptr, 0, a);
-    c.buttons = pad::B_L | pad::B_R; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYDOWN, 0x12));            // Alt
-    CHECK(hasAct(a, pad::A_KEYUP, 0x10));              // and the stand-still Shift let go
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_KEYUP, 0x12));
-    CHECK(!hasAct(a, pad::A_KEY, 0x52));               // never a run toggle
-}
 
 static void test_scenery_the_game_never_hovers_is_learned_by_class() {
     // Console, 21/09: "X cible encore des torches". Every type-2 object is
@@ -1092,30 +516,30 @@ static void test_scenery_the_game_never_hovers_is_learned_by_class() {
     // hovers one, and scenery of a given class never will -- so learn the
     // CLASS, not the instance, and learn it just by sweeping the cursor over
     // it rather than by wasting a press.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[2];
     u[0].id = 1; u[0].type = 2; u[0].cls = 55; u[0].sx = 500; u[0].sy = 300; u[0].interact = true;  // torch
     u[1].id = 2; u[1].type = 2; u[1].cls = 55; u[1].sx = 560; u[1].sy = 300; u[1].interact = true;  // another torch
     s.setCursor(500, 296);                              // hovering the first one, game says nothing
     for (int i = 0; i < 10; ++i) { a = pad::Actions{}; s.tick(c, x, v, u, 2, a); }
-    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     CHECK(!s.interacting());                            // learned: not a target
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    c.aim = false; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     s.setCursor(560, 296);                              // the OTHER torch of the same class
-    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     CHECK(!s.interacting());                            // no second press wasted
 }
 
 static void test_a_hovered_object_is_never_learned_as_scenery() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[1];
     u[0].id = 1; u[0].type = 2; u[0].cls = 7; u[0].sx = 500; u[0].sy = 300; u[0].interact = true;
     s.setCursor(500, 296);
     x.selValid = 1; x.selId = 1; x.selType = 2;         // the game does hover this chest
     for (int i = 0; i < 20; ++i) { a = pad::Actions{}; s.tick(c, x, v, u, 1, a); }
-    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
     CHECK(s.interacting());
 }
 
@@ -1125,12 +549,12 @@ static void test_left_stick_switches_target_while_cross_is_held() {
     // the previous frame's hover, which is fixed independently. Movement is
     // gated while Cross is held either way, so the left stick is free to mean
     // "that one instead", which is what was asked for.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[2] = { mkMon(1, 500, 300),      // east
                        mkMon(2, 400, 220) };    // north
     s.tick(c, x, v, u, 2, a);
-    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     CHECK(s.interacting() && hasAct(a, pad::A_MOVE, 500, 272));   // the nearer one, east
     c.ly = -1.f;                                                   // swing the stick north
     a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
@@ -1140,12 +564,12 @@ static void test_left_stick_switches_target_while_cross_is_held() {
 
 static void test_right_stick_switches_target_while_cross_is_held() {
     // Target steering, on the stick that is free during an interaction.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[2] = { mkMon(1, 500, 300),      // east
                        mkMon(2, 400, 220) };    // north
     s.tick(c, x, v, u, 2, a);
-    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     CHECK(s.interacting() && hasAct(a, pad::A_MOVE, 500, 272));   // the nearer one, east
     c.ry = -1.f;                                                   // swing the aim north
     for (int i = 0; i < 12; ++i) { a = pad::Actions{}; s.tick(c, x, v, u, 2, a); }
@@ -1157,14 +581,14 @@ static void test_own_corpse_outranks_everything() {
     // target it with X -- that should be an absolute priority". A player
     // corpse is a type-0 unit and the glue set neither interact nor hostile
     // on those, so nothing ever offered it.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[2] = { mkMon(1, 470, 300) };
     u[1].id = 7; u[1].type = 0; u[1].cls = 4; u[1].sx = 620; u[1].sy = 300;   // 220, within reach
     u[1].interact = true; u[1].ownCorpse = true;
     s.setCursor(470, 280);                            // cursor parked ON the monster
     s.tick(c, x, v, u, 2, a);
-    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     CHECK(hasAct(a, pad::A_MOVE, 620, 272));          // the corpse wins anyway
 }
 
@@ -1201,18 +625,18 @@ static void test_scenery_offered_by_proximity_is_written_off_fast() {
     // They cost one press to learn -- make that press short: an object is
     // static, so a few frames without a hover is already the answer, unlike a
     // creature whose sprite has to be hunted for.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[2];
     u[0].id = 1; u[0].type = 2; u[0].cls = 99; u[0].sx = 430; u[0].sy = 300; u[0].interact = true;  // a fire
     u[1].id = 2; u[1].type = 2; u[1].cls = 99; u[1].sx = 460; u[1].sy = 300; u[1].interact = true;  // another
-    c.buttons = pad::B_CROSS; s.tick(c, x, v, u, 2, a);
+    c.aim = true; s.tick(c, x, v, u, 2, a);
     CHECK(s.interacting());
     int ticks = 0;
     while (s.interacting() && ticks < 40) { a = pad::Actions{}; s.tick(c, x, v, u, 2, a); ++ticks; }
     CHECK(ticks <= 12);                                   // written off in well under half a second
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
-    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    c.aim = false; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     CHECK(!s.interacting());                              // and the whole class is gone, both of them
 }
 
@@ -1247,20 +671,20 @@ static void test_a_far_corpse_does_not_outrank_what_is_on_us() {
     // wrong at range: console, 21/09, the corpse won while it was far across
     // the screen and a monster was in our face. It wins within reach, where
     // pressing Cross can only mean "pick my gear back up".
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[2] = { mkMon(1, 440, 300) };                  // 40 in the world
     u[1].id = 7; u[1].type = 0; u[1].cls = 4; u[1].sx = 780; u[1].sy = 300;   // 380 away
     u[1].interact = true; u[1].ownCorpse = true;
     s.tick(c, x, v, u, 2, a);
-    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     CHECK(hasAct(a, pad::A_MOVE, 440, 272));                  // the monster, not the far body
     // brought within reach, it wins again
-    pad::Config cfg2; pad::Scheme s2(cfg2); pad::Ctx x2; x2.inGame = true;
+    pad::Config cfg2; pad::Assist s2(cfg2); pad::Ctx x2; x2.inGame = true;
     pad::Ctl c2; pad::Actions a2;
     u[1].sx = 600;                                            // 200 away, inside reach
     s2.tick(c2, x2, v, u, 2, a2);
-    c2.buttons = pad::B_CROSS; a2 = pad::Actions{}; s2.tick(c2, x2, v, u, 2, a2);
+    c2.aim = true; a2 = pad::Actions{}; s2.tick(c2, x2, v, u, 2, a2);
     CHECK(hasAct(a2, pad::A_MOVE, 600, 272));
 }
 
@@ -1270,21 +694,21 @@ static void test_the_nearest_wins_between_an_object_and_a_monster() {
     // filtering the scenery out, what is left are real doors and chests --
     // and opening one instead of hitting the monster on top of us is not
     // what the button should mean. Compare distances instead.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[2] = { mkMon(1, 430, 300) };                  // monster, 30 in the world
     u[1].id = 8; u[1].type = 2; u[1].cls = 7; u[1].sx = 600; u[1].sy = 300;   // door, 200
     u[1].interact = true;
     s.tick(c, x, v, u, 2, a);
-    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     CHECK(hasAct(a, pad::A_MOVE, 430, 272));                  // the monster is nearer: hit it
     // and the other way round, the door wins
-    pad::Config cfg2; pad::Scheme s2(cfg2); pad::Ctx x2; x2.inGame = true;
+    pad::Config cfg2; pad::Assist s2(cfg2); pad::Ctx x2; x2.inGame = true;
     pad::Ctl c2; pad::Actions a2;
     pad::Unit w[2] = { mkMon(1, 700, 300) };                  // monster, 300
     w[1] = u[1]; w[1].sx = 450;                               // door, 50
     s2.tick(c2, x2, v, w, 2, a2);
-    c2.buttons = pad::B_CROSS; a2 = pad::Actions{}; s2.tick(c2, x2, v, w, 2, a2);
+    c2.aim = true; a2 = pad::Actions{}; s2.tick(c2, x2, v, w, 2, a2);
     CHECK(hasAct(a2, pad::A_MOVE, 450, 280));
 }
 
@@ -1297,7 +721,7 @@ static void test_the_walk_waits_for_the_hover_to_clear() {
     // click to whatever the cursor was over before -- a monster, which D2
     // reads as ATTACK. The pickup and interact paths already wait for this;
     // the walk did not.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[1] = { mkMon(1, 500, 300) };
     x.selValid = 1; x.selId = 1; x.selType = 1;        // the game is hovering a monster
@@ -1310,7 +734,7 @@ static void test_the_walk_waits_for_the_hover_to_clear() {
 }
 
 static void test_the_walk_still_starts_at_once_on_clear_ground() {
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     c.lx = 1.f; s.tick(c, x, v, nullptr, 0, a);         // nothing hovered: no reason to wait
     CHECK(hasAct(a, pad::A_LDOWN));
@@ -1318,7 +742,7 @@ static void test_the_walk_still_starts_at_once_on_clear_ground() {
 
 static void test_the_walk_never_stalls_for_long() {
     // If the hover never clears, walk anyway rather than stand there.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[1] = { mkMon(1, 500, 300) };
     x.selValid = 1; x.selId = 1; x.selType = 1;
@@ -1338,7 +762,7 @@ static void test_the_cursor_overrides_the_targetable_filter() {
     // was applied everywhere. Pointing at something is an explicit statement
     // of intent, so the cursor overrides it -- the filter keeps the PROXIMITY
     // list clean, which is all it was ever needed for.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[1];
     u[0].id = 1; u[0].type = 2; u[0].cls = 7; u[0].sx = 500; u[0].sy = 300;
@@ -1347,7 +771,7 @@ static void test_the_cursor_overrides_the_targetable_filter() {
     CHECK(pad::pick_at(u, 1, 500, 296) == 0);         // but reachable by pointing at it
     s.setCursor(500, 296);
     s.tick(c, x, v, u, 1, a);
-    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
     CHECK(hasAct(a, pad::A_MOVE, 500, 280));
 }
 
@@ -1357,90 +781,78 @@ static void test_cross_clicks_the_hud() {
     // scheme was in world mode and Cross meant "act on the world". Down in
     // the HUD band there is no world to act on, and the only way the cursor
     // got there is the player driving it.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[1] = { mkMon(1, 430, 300) };           // a monster right next to us
     s.setCursor(300, 560);                             // cursor on the HUD
     s.tick(c, x, v, u, 1, a);
-    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
     CHECK(hasAct(a, pad::A_LDOWN, 300, 560));          // a plain click, not an attack
     CHECK(!s.interacting());
-    c.buttons = 0; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    c.aim = false; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
     CHECK(hasAct(a, pad::A_LUP));
 }
 
-static void test_l_is_a_modifier_in_panels_too() {
-    // Console, 21/09: "the Horadric Cube gets selected and pulled up from the
-    // inventory by just clicking L before even hitting D-Pad left". L cannot
-    // be both a click and the modifier that L + direction needs. Cross is the
-    // click in panels; L keeps the modifier job everywhere.
-    pad::Config cfg; pad::Scheme s(cfg); pad::View v = mkView();
-    pad::Ctx x; x.inGame = true; x.panelOpen = true;
-    pad::Ctl c; pad::Actions a;
-    s.setCursor(200, 200);
-    c.buttons = pad::B_L; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(!hasAct(a, pad::A_LDOWN));                   // L picks nothing up any more
-    c.buttons = pad::B_CROSS; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(hasAct(a, pad::A_LDOWN, 200, 200));          // Cross still clicks
+
+static bool scan(const char* s) { return ctl::binds_aim(s, std::strlen(s)); }
+static void test_controls_scan() {
+    CHECK(scan(""));                                   // built-in default: l=aim
+    CHECK(scan("square=items\nr+up=f5\n"));
+    CHECK(scan("cross=aim\n"));
+    CHECK(scan("  Croix = AIM  # comment\n"));
+    CHECK(scan("square=items\r\nr+triangle=aim\r\n"));
+    CHECK(scan("l+down=aim"));
+    CHECK(scan("l=aim\n"));
+    CHECK(scan("r = aim\n"));
+    CHECK(scan("select=aim\n"));
+    CHECK(scan("#l=lclick\n"));                        // a comment changes nothing
+    CHECK(scan("l=lclick # aim\n") == false);          // explicit opt-out
+    CHECK(!scan("l = none\n"));
+    CHECK(!scan("l=lclick\nl+cross=inv\n"));
+    CHECK(scan("l=lclick\ncross=aim\n"));             // another key still binds it
+    CHECK(scan("l=lclick\nl=aim\n"));                 // last l= wins
+    CHECK(!scan("l=aim\nl=lclick\n"));
+    CHECK(scan("l=\n"));                               // empty value: ignored, default stays
+    CHECK(scan("cross=none # aim\n"));
+    CHECK(scan("scheme=aim\n"));
+    CHECK(scan("aim=1\n"));
+    CHECK(scan("r+select=aim\n"));
+    CHECK(scan("bogus=aim\n"));
+    CHECK(ctl::button_bit("Cross") == 0x4000 && ctl::button_bit("rond") == 0x2000);
+    CHECK(ctl::button_bit("nope") == 0);
 }
 
-
 int main() {
+    test_controls_scan();
     test_projection();
     test_clamp_and_box();
     test_pick_hostile();
     test_pick_interact();
     test_hover_table();
     test_orbit();
-    test_ground_point();
-    test_nav_direction();
-    test_nearest_item();
-    test_scheme_cast();
     test_scheme_move();
-    test_scheme_interact_and_keys();
-    test_scheme_loot_browse();
+    test_aim_interact();
     test_left_button_always_released();
-    test_id_collision_across_types();
-    test_pickup_cancelled_when_item_vanishes();
-    test_pickup_never_presses_without_hover();
     test_interact_height_retry_paces_itself();
     test_hold_follows_the_hover();
     test_scheme_panel_and_leave();
     test_right_stick_is_a_free_cursor();
     test_free_cursor_reaches_the_hud();
     test_aim_cone_follows_the_cursor();
-    test_cast_gives_the_cursor_back();
-    test_cast_without_a_target_uses_the_cursor();
-    test_cast_with_a_parked_cursor_aims_ahead();
     test_the_walk_leaves_the_cursor_alone();
     test_the_walk_waits_for_the_hover_to_clear();
     test_the_walk_still_starts_at_once_on_clear_ground();
     test_the_walk_never_stalls_for_long();
     test_repick_follows_where_the_player_now_aims();
     test_panel_cursor_sums_both_sticks_before_rounding();
-    test_faces_are_skills_one_to_three();
-    test_r_faces_are_skills_four_to_seven();
     test_cross_is_the_context_button();
     test_cross_prefers_a_close_object_when_not_pointing_at_anything();
-    test_skill_tree_cross_clicks_and_r_face_assigns();
-    test_corpse_slot_targets_the_dead();
-    test_ground_slot_never_snaps();
-    test_pick_hostile_kind_selects_the_predicate();
-    test_l_held_is_stand_still();
-    test_l_tap_toggles_run();
-    test_l_held_long_does_not_toggle_run();
-    test_l_used_as_a_modifier_does_not_toggle_run();
-    test_r_then_l_is_alt_not_stand_still();
-    test_shift_survives_two_owners();
     test_distance_is_measured_in_the_world_not_on_screen();
     test_interact_reach_is_round_in_the_world();
     test_cross_takes_what_is_under_the_cursor();
     test_pick_at_prefers_the_unit_under_the_cursor();
     test_a_unit_the_game_never_hovers_is_given_up_on();
     test_a_hovered_unit_is_never_given_up_on();
-    test_l_plus_down_is_the_general_right_click();
-    test_l_plus_up_swaps_weapons_and_start_is_only_escape();
-    test_alt_does_not_care_which_shoulder_came_first();
     test_scenery_the_game_never_hovers_is_learned_by_class();
     test_a_hovered_object_is_never_learned_as_scenery();
     test_scenery_offered_by_proximity_is_written_off_fast();
@@ -1452,7 +864,6 @@ int main() {
     test_the_nearest_wins_between_an_object_and_a_monster();
     test_the_cursor_overrides_the_targetable_filter();
     test_cross_clicks_the_hud();
-    test_l_is_a_modifier_in_panels_too();
     test_interact_reach_is_configurable();
     test_offscreen_units_are_not_targets();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);

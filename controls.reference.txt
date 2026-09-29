@@ -17,15 +17,15 @@
 # General tuning
 # ---------------------------------------------------------------------------
 #orbit=70          # direct-movement radius, px (left stick, orbits the cursor)
-#sens=10           # right stick speed (free cursor: menus, panels, aiming)
-#deadzone=0.25     # stick deadzone, 0..1
+#sens=18           # right stick speed (free cursor: menus, panels, aiming)
+#deadzone=0.15     # stick deadzone, 0..1
 #anchor_y=470      # character's vertical screen anchor, per-mille of a 1000-tall canvas
 
 # ---------------------------------------------------------------------------
 # L and R, held alone (they are ALSO the l+/r+ combo layers below —
 # remapping what they do alone never changes that second role)
 # ---------------------------------------------------------------------------
-#l=lclick          # default: left click (held)
+#l=aim             # default: aim assist (held); a plain click in menus. "l=lclick" = legacy scheme, see the aim note below
 #r=rclick          # default: right click (held)
 
 # ---------------------------------------------------------------------------
@@ -35,20 +35,20 @@
 
 # ---------------------------------------------------------------------------
 # Face buttons and D-pad — plain, r+ (R held) and l+ (L held) layers.
-# Only R's layer ships bound out of the box (D-pad -> F1-F4); everything
-# else below is free for the player to assign.
+# R's layer ships D-pad -> F1-F4; L's layer ships inventory, automap and
+# mercenary inventory (below); everything else is free to assign.
 # ---------------------------------------------------------------------------
-#cross=rclick
-#r+cross=f5
-#l+cross=none
+#cross=run
+#r+cross=none
+#l+cross=inv
 
 #circle=shift
 #r+circle=none
-#l+circle=none
+#l+circle=automap
 
-#square=alt         # try "square=items" for item assist (see the note below)
+#square=items       # item assist (see the note below); "square=alt" = plain Alt
 #r+square=none
-#l+square=none
+#l+square=vk:0x4F   # mercenary inventory (O)
 
 #triangle=swap
 #r+triangle=f5    # NOTE: R+Triangle always opens the virtual keyboard first — this line is unreachable as shipped
@@ -83,6 +83,7 @@
 #   lclick  rclick  none
 #   alt  shift  tab / automap  esc / echap
 #   items   — item assist (see below); also spelled item_assist / assist
+#   aim     — aim assist (see below); also spelled aim_assist
 #   inv  perso  skills  quests  swap  space  run  enter
 #   pot1  pot2  pot3  pot4
 #   f1  f2  f3  f4  f5  f6  f7  f8
@@ -93,5 +94,28 @@
 # you hold, the D-pad jumps the cursor from label to label and Cross picks
 # the highlighted item up. With no item on the ground the D-pad and Cross
 # keep their normal bindings. Any button, layer, l=, r= or select= can carry
-# it; "alt" stays a plain Alt. Example:  square=items
+# it; "alt" stays a plain Alt. Default:  square=items
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Aim assist (action "aim"): HOLD the button it is bound to. In game it acts
+# on the best target: your own corpse in reach, else what the cursor sits on,
+# else the enemy in a cone around the cursor, else the nearest chest / door /
+# NPC. It borrows the cursor and hands it back. Bound to L by default (out of
+# game, and in menus, the same button is a plain left click).
+#
+# While "aim" is bound the STICKS run in aim mode in game: left stick = walk
+# only (never attacks), right stick = free cursor. Set "l=lclick" (and bind
+# it nowhere else) for the legacy scheme instead: left stick = direct
+# movement (orbiting cursor + held click), right stick a free mouse. Any
+# button, layer, l=, r= or select= can carry aim. Example:  cross=aim
+# The feeding hooks are only installed while "aim" is bound.
+#
+# Optional tuning (only used while aim is bound):
+#orbit_min=40      # walk-ring radius at a light push, px at 600 lines
+#orbit_max=110     # ... at full push
+#cone=35           # half-angle of the aim cone around the cursor, degrees
+#hover_h=28        # default hover height above a unit's feet, px
+#hud_h=60          # bottom band assisted clicks never enter, px
+#reach=300         # reach for chests/doors/NPCs, world units
 # ---------------------------------------------------------------------------

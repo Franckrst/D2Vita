@@ -7,85 +7,31 @@
     handed back immediately. It stays continuously active for headless
     testing.
 
-## In game ("aim-assist" scheme, default since the manette v2 snapshot)
+## Default controls
+
+The mapping below is what `controls.txt` remaps, and the `R + …` / `L + …`
+layers and the item assist further down apply to it. Since 0.1.18-beta the
+built-in default binds the [`aim` action](#aim-assist) to **L**, so the
+sticks run in aim mode. This default is a beta, shipped to gather community
+feedback. To get the previous scheme back, put `l=lclick` in `controls.txt`
+(with no other `aim` binding): see [Aim assist](#aim-assist).
 
 | Vita input | Diablo II action |
 |---|---|
-| Left stick | **Move only**: the character walks in the stick's direction (radius follows tilt), never attacking, talking or picking anything up by accident; release = hard stop |
-| Right stick | **Free cursor**, as on PC: it clicks nothing by itself, and it reaches the HUD (belt, skill buttons) |
-| Cross | **The action button**: the browsed ground item, else whatever you are pointing at, else a chest / door / portal / NPC within reach, else the nearest enemy |
-| Circle / Square / Triangle | **Skills 1 to 3**. The cast snaps to the enemy inside a ±35° cone around the cursor (nearest one if the cursor sits on the character), then hands the cursor straight back; hold = repeat |
-| R held + faces | Skills 4 to 7 |
-| L held | **Stand still** (Shift): cast and attack without moving |
-| L, short press | Toggle run/walk |
-| L + D-pad → | Virtual keyboard |
-| L + D-pad ↓ | **Right click** at the cursor — wherever it is, whatever is under it |
-| L + D-pad ↑ | **Weapon swap** |
-| R then L (held) | Alt — ground item labels ; D-pad = move the selection cursor from item to item (nearest to the cursor in that direction), Cross = pick up the selected item (cyan marker) |
-| D-pad ↑ / ← / ↓ / → | Belt potions 1 / 2 / 3 / 4 |
-| R + D-pad | Potion to the mercenary |
-| Start | Escape |
-| Select | Radial menu (see below); R + Select: Space |
+| Left stick | **Walk only** in game (never attacks or picks anything up); out of a game, the plain stick behaviour |
+| Right stick | **Free cursor** (aiming, menus, panels, HUD), no click by itself |
 | Touch screen | Absolute cursor; short tap = left click |
-
-A diamond marks the current hostile target (gold once the game confirms the
-hover). Assisted aiming only ever borrows the cursor: a cast moves it onto
-its target and puts it back where you left it on release, and so does the
-stop click that ends a walk. With no enemy in the cone, a skill is cast
-exactly where the cursor points — which is how a ground-targeted skill
-(teleport, meteor…) is aimed. Point the cursor at the character's own feet
-and it goes out along the direction you last walked in instead.
-
-`aim=0` in `controls.txt` turns the snap off and leaves a plain cursor.
-
-**The cursor beats everything.** Whatever it sits on is what Cross acts on,
-ahead of any cone. Distances are measured in the world, not in screen pixels:
-the projection makes one pixel down worth two across, so a unit north of you
-is not the near one it looks. And a unit the game refuses to hover — a
-critter, a vulture still in the air — is dropped after a moment instead of
-capturing every press.
-
-**Assigning a skill to a button**: open the skill tree (radial menu), hover
-the icon, then press the very gesture that will cast it — Circle for slot 1,
-R + Cross for slot 4, and so on. **Cross clicks** there as everywhere else,
-so it is still what spends a point.
-
-**Open panels** (inventory, chest, vendor…): both sticks move the cursor, L
-or Cross click, Triangle = right click, Square held = Shift (fast move),
-Circle closes.
-
-**What a slot aims at.** By default a skill looks for a live enemy. Two
-families need something else, and `controls.txt` says so per slot:
-`ground` never snaps and lands where the cursor points (teleport, meteor,
-blizzard — snapping teleport onto a monster puts you *on* it), and `corpse`
-looks for a dead one instead (corpse explosion, revive, raise skeleton,
-which the live-enemy filter excludes by construction).
-
-Out of a game (menus, character select), the old mouse scheme stays active.
-`scheme=mouse` in `controls.txt` restores it everywhere (0.1.6's mapping:
-L/R = clicks, Cross = walk/run, Circle = Shift, Square = Alt, Triangle = W,
-R + D-pad = F1-F4).
-
-## Mouse scheme (`scheme=mouse`, and outside a game)
-
-This is the scheme that `controls.txt` remaps, the `R + …` / `L + …` layers and
-the item assist below apply to. With the aim-assist scheme above, an in-game
-button press is handled by that scheme first, so those remaps do not reach it.
-
-| Vita input | Diablo II action |
-|---|---|
-| Left stick | **Direct movement** (cursor orbits the character + held left click) |
-| Right stick | Free mouse, no click (aiming, menus, hover) |
-| Touch screen | Absolute cursor; short tap = left click |
-| **L (held)** | **Left click** — remappable, see below (also a combo layer, see below) |
+| **L (held)** | **Aim assist** in game (acts on the best target); a plain **left click** in menus, open panels and out of game — remappable, see below (also a combo layer, see below) |
 | **R (held)** | **Right click** — remappable, see below (also a combo layer, see below) |
 | Cross | R — toggle walk/run |
 | Circle | Shift (held) — attack in place / forced cast |
-| Square (held) | Alt — show items on the ground (or, with `square=items`, [item assist](#item-assist)) |
+| Square (held) | [Item assist](#item-assist) — show ground items, browse, pick up (`square=alt` gives plain Alt back) |
 | Triangle | W — weapon swap |
 | D-pad ↑ / ← / ↓ / → | Belt potions 1 / 2 / 3 / 4 |
 | Start | Esc (menu / close) |
 | **Select** | **Radial menu** — remappable, see below |
+
+Cross alone no longer clicks in menus: **L does**.
 
 L and R being remappable never changes their second role: R still arms
 every `R + …` combo below, and L its own `L + …` combo layer, regardless
@@ -97,6 +43,9 @@ of what pressing either one *alone* currently does.
 |---|---|
 | R + Triangle | **Virtual keyboard** (open; close with Select — it also opens by itself on text fields, see below) |
 | R + D-pad | F1 / F2 / F3 / F4 — quick skills |
+| L + Cross | I — inventory |
+| L + Circle | Tab — automap |
+| L + Square | O — mercenary inventory |
 | R + Select | Space — close all panels (fixed, not remappable) |
 | L + Start | Screenshot (fixed, not remappable) |
 
@@ -104,13 +53,16 @@ R + Triangle, R + Select and L + Start always win: they're checked before
 any `controls.txt` remap, so binding those same combos to something else
 has no effect (the title-screen controls panel, see below, and
 `controls.reference.txt` both call this out). Every other `R + …` slot
-above starts bound; the mirror `L + …` layer starts **entirely free** —
-nothing happens by default, it's there for `controls.txt` to fill in.
+above starts bound; the mirror `L + …` layer starts with three bindings
+(inventory, automap, mercenary inventory) and every other `L + …` slot is
+free for `controls.txt` to fill in. Note that L is also the aim button: the
+`L + …` combos fire the aim action too while L is down (as `l=lclick` clicked
+during L combos before).
 
 ## Item assist
 
-Off by default. Bind the `items` action to any button (`square=items` is
-the natural one — it replaces plain Alt on Square) and **hold** it:
+On Square by default (`square=items`; `square=alt` restores plain Alt).
+Bind the `items` action to any other button if you prefer, and **hold** it:
 
 - the game shows the ground-item name labels, exactly as with Alt;
 - the D-pad jumps the cursor from label to label (the nearest one in the
@@ -129,7 +81,75 @@ buttons `items` can be bound to are the same as for any action: face
 buttons, D-pad, `r+`/`l+` layers, `l=`, `r=`, `select=` (avoid binding it
 to Cross or the D-pad themselves, since it takes those over while held).
 
-Validated on the host only (logic tests); not yet on a console.
+Validated on the host (logic tests); on a console only through the maintainer's
+own play so far.
+
+## Aim assist
+
+On by default, bound to **L** (`l=aim`). It costs frame time: the camera and
+unit hooks that feed it are installed whenever the bindings carry `aim`, and
+their cost is not benchmarked yet. Bind `aim` to another button — for example
+`cross=aim` — and **hold** it. To opt out, put `l=lclick` in `controls.txt`
+(with no other `aim` binding): the hooks are then not installed and the
+sticks go back to the plain scheme below.
+
+While `aim` is bound (the default), the **sticks** run in aim mode, in game:
+
+| Vita input | With `aim` bound |
+|---|---|
+| Left stick | **Move only**: the character walks in the stick's direction (radius follows tilt), never attacking, talking or picking anything up by accident; release = hard stop |
+| Right stick | **Free cursor**, as on PC: it clicks nothing by itself, and it reaches the HUD (belt, skill buttons) |
+| `aim` button (held) | Acts on the best target: your own corpse within reach, else whatever the cursor sits on, else the enemy inside a ±35° cone around the cursor, else the nearest chest / door / portal / NPC (or, outside a town, the nearest enemy) |
+
+Without `aim` bound (opt-out), the sticks keep the earlier plain behaviour
+(left stick = direct movement: the cursor orbits the character with a held
+left click; right stick = free mouse, no click) and L is a plain left click.
+Out of a game (menus, character select) the plain stick behaviour always
+applies, and the `aim` button is a plain **left click** there — which is why
+L now clicks in the menus.
+
+A diamond marks the current hostile target (gold once the game confirms the
+hover). Assisted aiming only ever borrows the cursor: it moves onto the
+target, holds the click once the game reports the hover, and puts the cursor
+back where you left it on release — as does the stop click that ends a walk.
+**The cursor beats everything**: whatever it sits on is what `aim` acts on,
+ahead of any cone. Distances are measured in the world, not in screen pixels,
+and a unit the game refuses to hover — a critter, a vulture still in the air —
+is dropped after a moment instead of capturing every press.
+
+**Open panels** (inventory, chest, vendor, NPC menus, Larzuk's add-socket
+window…): both sticks move the cursor and `aim` is a left click. The list of
+panels is read from the game's UI flags; the add-socket window (index `0x0E`)
+was added in 0.1.18-beta and has only had a first console test.
+
+Everything else — potions, skills, Alt, item assist, the radial menu — stays
+with the ordinary `controls.txt` mapping, and the two combine: the item
+assist's cyan marker shows the focused ground item whether or not `aim` is
+bound.
+
+Tuning keys (all optional, `controls.txt`):
+
+```
+orbit_min=40       # px (at 600 lines), walk-ring radius at a light stick push
+orbit_max=110      # px, full stick
+cone=35            # aim cone half-angle around the cursor, degrees
+hover_h=28         # default hover height above a unit's feet, px
+hud_h=60           # bottom band ASSISTED clicks never enter, px (the cursor
+                   # you drive does go there, or the belt would be unreachable)
+reach=300          # how far `aim` reaches for a chest/door/NPC, world units
+```
+
+**Not carried over from the earlier `scheme=aim` experiment**: skill slots that
+snap their cast onto a target (and the `slot1..7` = hostile/ground/corpse
+choice), dedicated panel-mode face buttons, L held = stand still, and the
+D-pad loot browse with native labels (the item assist replaces it). Those live
+on in the git history and the `manette/pad-core-port` branch. `scheme=` and
+`D2_PAD` no longer exist.
+
+Validation: host logic tests (pad_core), plus the maintainer's hands-on
+checks on a console (NPC menus, touch, title-screen menus). The frame-time
+cost of the hooks is **not** measured, and the default change is not yet
+tested by the community.
 
 ## Radial menu (Select)
 
@@ -153,18 +173,16 @@ This menu replaces the old dedicated shortcuts for each of these actions
 (character, skills, quests, automap, inventory): one gesture for all
 seven, instead of seven combinations to remember. The virtual keyboard is
 deliberately not included: it opens by itself whenever a text field takes
-focus, and otherwise keeps its own dedicated gesture — L + D-pad right under
-the aim scheme (skill 7 there), R + Triangle under the legacy `scheme=mouse`.
+focus, and otherwise keeps its own dedicated gesture — R + Triangle.
 
-## Virtual keyboard (L + D-pad right)
+## Virtual keyboard (R + Triangle)
 
 The keyboard **opens by itself** when a text field takes focus — character
 name, Battle.net account and password, game name and password. Closing stays
 manual (Select or the FERMER key — Start/Enter validates the field but
 leaves the keyboard open), and a closed keyboard does not reopen until
-another field takes focus (or the same one loses and regains it). L + D-pad
-right still opens it at any time under the aim scheme (R + Triangle under
-`scheme=mouse`). `D2_KBAUTO=0` in `ux0:data/d2vita/env.txt` turns
+another field takes focus (or the same one loses and regains it). R + Triangle
+still opens it at any time. `D2_KBAUTO=0` in `ux0:data/d2vita/env.txt` turns
 the automatic opening off. The keyboard draws at 80% opacity by default — the
 character/menu stays faintly visible behind it — adjustable with
 `D2_KBALPHA=0-100` (100 = the old fully opaque look). Below 100, blending is
@@ -189,8 +207,7 @@ is not covered yet (phase 2).
 
 The virtual keyboard's own rendering (font, layout) comes from the generic
 winx86 engine (`src/platform/vita_kb.h`/`vita_kb_font.h`). The trigger is
-d2vita-specific: L + D-pad right under the aim scheme, R + Triangle under
-`scheme=mouse`.
+d2vita-specific: R + Triangle.
 
 ## Controls-help overlay (title screen)
 
@@ -209,39 +226,16 @@ overwrites a file you already have — delete yours and it comes back next
 boot); the walkthrough below covers the same ground.
 
 ```
-scheme=aim        # aim (default, aim-assist) | mouse (full legacy scheme)
-aim=1              # 0 = no automatic target selection (aim scheme only)
-orbit_min=40       # px (at 600 lines), orbit radius at a light stick push
-orbit_max=110      # px, full stick
-range_min=6        # subtiles, ground-cast distance when the cursor is parked on the character
-range_max=20
-cone=35            # aim cone half-angle around the cursor, degrees
-hover_h=28         # default hover height above a unit's feet, px
-hud_h=60           # bottom band ASSISTED clicks never enter, px (the cursor
-                   # you drive does go there, or the belt would be unreachable)
-slot1=hostile      # slot1..slot7: hostile (default) | ground | corpse
-slot3=ground       #   e.g. teleport on slot 3, corpse explosion on slot 5
-slot5=corpse
-deadzone=0.25
-sens=10            # free cursor speed (right stick in game, both sticks in panels)
-```
-
-`D2_PAD=0` (or `1`) in `env.txt` overrides `scheme=` — handy for an A/B test
-without touching `controls.txt`.
-
-The following keys, and the `cross=…`/`r+triangle=…` remaps below, only
-apply to the legacy `scheme=mouse`:
-
-```
 cross=rclick
 r+triangle=f5
-l+circle=perso   # L layer: entirely free by default, yours to fill in
-l=rclick         # L's OWN action, held alone (default: lclick)
+l+circle=perso   # L layer (defaults: l+cross=inv, l+circle=automap, l+square=vk:0x4F)
+l=lclick         # L's OWN action, held alone (default: aim; lclick = opt out of aim assist)
 r=none           # R's OWN action, held alone (default: rclick) — "none" disables it
 select=inv       # Select's OWN action, pressed alone (default: opens the radial menu)
-orbit=70         # direct-movement radius (px)
-sens=10          # right stick speed
-deadzone=0.25
+cross=aim        # any button, layer or l=/r=/select= can carry `aim` (see Aim assist)
+orbit=70         # direct-movement radius (px), plain mode
+sens=18          # right stick speed (default 18)
+deadzone=0.15    # default 0.15
 anchor_y=470     # character's vertical anchor (for a 1000-tall resolution)
 ```
 
@@ -251,7 +245,7 @@ the R layer, `l+` for the L layer — never both on the same line). `l=`,
 `r=` and `select=` are separate top-level keys (no button prefix): they
 set what L, R and Select do *by themselves*, not a combo.
 
-**Actions**: `lclick`, `rclick`, `alt`, `items`, `shift`, `tab`/`automap`,
+**Actions**: `lclick`, `rclick`, `alt`, `items`, `aim`, `shift`, `tab`/`automap`,
 `esc`/`echap`, `inv`, `perso`, `skills`, `quests`, `swap`, `space`, `run`,
 `enter`, `pot1`-`pot4`, `f1`-`f8`, `vk:0xNN` (raw key code), `none`.
 
@@ -264,11 +258,7 @@ the most common case being a `controls.txt` copied from a build with a
 different set of keys than the one actually running.
 
 **Not yet possible**: a single button driving more than one action in
-sequence (e.g. "open the map and start running"), and a left stick that
-moves without ever holding a click. Both turn out to need the same
-per-frame reading of monster/item positions that a full aim-assist
-scheme does — they're not simple additions to this file, see the
-project's open work on an aim-assist controller mode.
+sequence (e.g. "open the map and start running").
 
 ## Diagnostics
 

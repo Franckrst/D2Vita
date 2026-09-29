@@ -6,87 +6,31 @@
     à rien et il conduit jusqu'en jeu ; touche n'importe quoi et la main est
     rendue immédiatement. Il reste actif en continu pour les tests headless.
 
-## En jeu (schéma « visée assistée », défaut depuis la snapshot manette v2)
+## Contrôles par défaut
+
+Le mapping ci-dessous est ce que remappent `controls.txt`, les couches
+`R + …` / `L + …` et l'aide aux objets plus bas. Depuis la 0.1.18-beta, le
+défaut intégré lie l'[action `aim`](#visee-assistee) à **L**, donc les sticks
+sont en mode visée. Ce défaut est une bêta, publiée pour recueillir les
+retours de la communauté. Pour retrouver l'ancien schéma, mettez `l=lclick`
+dans `controls.txt` (sans autre liaison `aim`) : voir [Visée assistée](#visee-assistee).
 
 | Entrée Vita | Action Diablo II |
 |---|---|
-| Stick gauche | **Déplacement seul** : le personnage marche dans la direction du stick (rayon selon l'inclinaison), sans jamais attaquer, parler ni ramasser par accident ; relâcher = arrêt net |
-| Stick droit | **Curseur libre**, comme sur PC : il ne clique rien tout seul, et il atteint le HUD (ceinture, boutons de compétences) |
-| Croix | **Le bouton d'action** : l'objet au sol en cours de parcours, sinon ce que vous visez, sinon un coffre / une porte / un portail / un PNJ à portée, sinon l'ennemi le plus proche |
-| Rond / Carré / Triangle | **Compétences 1 à 3**. Le lancer saute sur l'ennemi dans un cône de ±35° autour du curseur (le plus proche si le curseur est posé sur le personnage), puis rend le curseur aussitôt ; maintenir = répéter |
-| R maintenu + faces | Compétences 4 à 7 |
-| L maintenu | **Sur place** (Maj) : lancer et attaquer sans bouger |
-| L, pression brève | Marche/course (bascule) |
-| L + D-pad → | Clavier virtuel |
-| L + D-pad ↓ | **Clic droit** au curseur — où qu'il soit, quoi qu'il y ait dessous |
-| L + D-pad ↑ | **Échange d'armes** |
-| R puis L (maintenus) | Alt — étiquettes des objets au sol ; D-pad = déplacer le curseur d'objet en objet (vers le plus proche du curseur dans cette direction), Croix = ramasser l'objet sélectionné (repère cyan) |
-| D-pad ↑ / ← / ↓ / → | Potions ceinture 1 / 2 / 3 / 4 |
-| R + D-pad | Potion au mercenaire |
-| Start | Échap |
-| Select | Menu radial (voir plus bas) ; R + Select : Espace |
+| Stick gauche | **Déplacement seul** en jeu (n'attaque ni ne ramasse rien) ; hors partie, comportement simple des sticks |
+| Stick droit | **Curseur libre** (visée, menus, panneaux, HUD), sans clic tout seul |
 | Écran tactile | Curseur absolu ; tap bref = clic gauche |
-
-Un losange marque l'ennemi ciblé (doré dès que le jeu confirme le survol). La
-visée assistée ne fait qu'emprunter le curseur : un lancer le déplace sur sa
-cible et le remet où vous l'aviez laissé au relâchement, et le clic d'arrêt
-qui termine une marche fait de même. Sans ennemi dans le cône, la compétence
-part exactement là où pointe le curseur — c'est ainsi qu'on vise un sort au
-sol (téléport, météore…). Curseur posé sur les pieds du personnage, elle part
-plutôt dans la direction de votre dernier déplacement.
-
-`aim=0` dans `controls.txt` désactive le saut et laisse un curseur simple.
-
-**Le curseur prime sur tout.** Ce qu'il survole est ce sur quoi Croix agit,
-avant n'importe quel cône. Les distances se mesurent dans le monde et non en
-pixels écran : la projection rend un pixel vers le bas deux fois plus « cher »
-qu'un pixel de côté, donc une unité au nord n'est pas la plus proche qu'elle
-paraît. Et une unité que le jeu refuse de survoler — une bestiole, un vautour
-encore en vol — est abandonnée au bout d'un moment au lieu de capturer tous
-les appuis.
-
-**Assigner une compétence à un bouton** : ouvrir l'arbre de compétences
-(menu radial), survoler l'icône, puis faire exactement le geste qui la
-lancera — Rond pour l'emplacement 1, R + Croix pour le 4, etc. **Croix y
-clique** comme partout ailleurs : c'est toujours elle qui dépense un point.
-
-**Panneaux ouverts** (inventaire, coffre, marchand…) : les sticks déplacent le
-curseur, L ou Croix cliquent, Triangle = clic droit, Carré maintenu = Shift
-(déplacement rapide), Rond ferme.
-
-**Ce que vise un emplacement.** Par défaut une compétence cherche un ennemi
-vivant. Deux familles veulent autre chose, et `controls.txt` le dit
-emplacement par emplacement : `ground` ne saute jamais et part là où pointe
-le curseur (téléportation, météore, blizzard — sauter sur le monstre avec
-une téléportation vous met *dessus*), et `corpse` cherche un mort à la place
-(explosion de cadavre, résurrection, relever un squelette, que le filtre
-« ennemi vivant » exclut par construction).
-
-Hors partie (menus, sélection de personnage), l'ancien schéma souris reste
-actif. `scheme=mouse` dans `controls.txt` le rétablit partout (mapping de la
-0.1.6 : L/R = clics, Croix = marche/course, Rond = Shift, Carré = Alt,
-Triangle = W, R + D-pad = F1-F4).
-
-## Schéma souris (`scheme=mouse`, et hors partie)
-
-C'est le schéma que remappent `controls.txt`, les couches `R + …` / `L + …` et
-l'aide aux objets ci-dessous. Avec le schéma de visée assistée ci-dessus, un appui
-en jeu est traité d'abord par ce schéma : ces remappages ne l'atteignent pas.
-
-| Entrée Vita | Action Diablo II |
-|---|---|
-| Stick gauche | **Déplacement direct** (curseur en orbite autour du personnage + clic gauche maintenu) |
-| Stick droit | Souris libre, sans clic (visée, menus, survol) |
-| Écran tactile | Curseur absolu ; tap bref = clic gauche |
-| **L (maintenu)** | **Clic gauche** — remappable, voir plus bas (sert aussi de couche combo, voir plus bas) |
+| **L (maintenu)** | **Visée assistée** en jeu (agit sur la meilleure cible) ; **clic gauche** simple dans les menus, les panneaux ouverts et hors partie — remappable, voir plus bas (sert aussi de couche combo, voir plus bas) |
 | **R (maintenu)** | **Clic droit** — remappable, voir plus bas (sert aussi de couche combo, voir plus bas) |
 | Croix | R — bascule marche/course |
 | Rond | Shift (maintenu) — attaque sur place / cast forcé |
-| Carré (maintenu) | Alt — affiche les objets au sol (ou, avec `square=items`, l'[aide aux objets](#aide-aux-objets)) |
+| Carré (maintenu) | [Aide aux objets](#aide-aux-objets) — affiche les objets au sol, les parcourt, les ramasse (`square=alt` rend l'Alt simple) |
 | Triangle | W — échange d'armes |
 | D-pad ↑ / ← / ↓ / → | Potions ceinture 1 / 2 / 3 / 4 |
 | Start | Échap (menu / fermer) |
 | **Select** | **Menu radial** — remappable, voir plus bas |
+
+Croix seule ne clique plus dans les menus : c'est **L** qui clique.
 
 Remapper L et R ne change jamais leur second rôle : R continue d'armer
 chaque combo « R + … » ci-dessous, et L sa propre couche « L + … »,
@@ -98,6 +42,9 @@ quelle que soit l'action assignée à l'appui seul.
 |---|---|
 | R + Triangle | **Clavier virtuel** (ouvrir ; fermer avec Select — il s'ouvre aussi de lui-même sur les champs texte, voir plus bas) |
 | R + D-pad | F1 / F2 / F3 / F4 — compétences rapides |
+| L + Croix | I — inventaire |
+| L + Rond | Tab — carte |
+| L + Carré | O — inventaire du mercenaire |
 | R + Select | Espace — fermer tous les panneaux (fixe, non remappable) |
 | L + Start | Capture d'écran (fixe, non remappable) |
 
@@ -106,14 +53,16 @@ vérifiés avant tout remappage de `controls.txt`, donc leur assigner
 autre chose via ce fichier n'a aucun effet (le panneau d'aide à
 l'écran-titre, voir plus bas, et `controls.reference.txt` le rappellent
 tous les deux). Le reste de la couche « R + … » est lié par défaut ; la
-couche miroir « L + … » démarre **entièrement libre** — rien par défaut,
-elle attend d'être remplie via `controls.txt`.
+couche miroir « L + … » démarre avec trois liaisons (inventaire, carte,
+inventaire du mercenaire) et toutes les autres cases « L + … » restent libres
+pour `controls.txt`. Attention : L est aussi le bouton de visée, donc les
+combos « L + … » déclenchent aussi l'action `aim` tant que L est enfoncé
+(comme `l=lclick` cliquait pendant les combos L auparavant).
 
 ## Aide aux objets
 
-Désactivée par défaut. Assigner l'action `items` à n'importe quel bouton
-(`square=items` est le choix naturel — elle remplace l'Alt simple sur
-Carré) et la **maintenir** :
+Sur Carré par défaut (`square=items` ; `square=alt` rend l'Alt simple).
+Assignez l'action `items` à un autre bouton si vous préférez, et **maintenez-la** :
 
 - le jeu affiche les noms des objets au sol, exactement comme avec Alt ;
 - la croix directionnelle saute d'un nom à l'autre (le plus proche dans la
@@ -135,7 +84,77 @@ directionnelle, couches `r+`/`l+`, `l=`, `r=`, `select=` (éviter de
 l'assigner à Croix ou à la croix directionnelle elles-mêmes, qu'elle
 prend en charge tant qu'elle est maintenue).
 
-Validée côté hôte uniquement (tests de logique) ; pas encore sur console.
+Validée côté hôte (tests de logique) ; sur console, seulement par le jeu du
+mainteneur pour l'instant.
+
+## Visée assistée
+
+Activée par défaut, liée à **L** (`l=aim`). Elle coûte du temps d'image : les
+hooks caméra et unités qui l'alimentent sont installés dès que les liaisons
+portent `aim`, et leur coût n'est pas encore mesuré. Liez `aim` à un autre
+bouton — par exemple `cross=aim` — et **maintenez-le**. Pour la désactiver,
+mettez `l=lclick` dans `controls.txt` (sans autre liaison `aim`) : les hooks ne
+sont alors pas installés et les sticks reviennent au schéma simple ci-dessous.
+
+Tant qu'`aim` est lié (le défaut), les **sticks** sont en mode visée, en jeu :
+
+| Entrée Vita | Avec `aim` lié |
+|---|---|
+| Stick gauche | **Déplacement seul** : le personnage marche dans la direction du stick (le rayon suit l'inclinaison), sans jamais attaquer, parler ni ramasser quoi que ce soit par accident ; relâcher = arrêt net |
+| Stick droit | **Curseur libre**, comme sur PC : il ne clique rien tout seul, et il atteint le HUD (ceinture, boutons de compétences) |
+| Bouton `aim` (maintenu) | Agit sur la meilleure cible : votre propre cadavre à portée, sinon ce que survole le curseur, sinon l'ennemi dans un cône de ±35° autour du curseur, sinon le coffre / la porte / le portail / le PNJ le plus proche (ou, hors ville, l'ennemi le plus proche) |
+
+Sans `aim` lié (désactivation), les sticks gardent l'ancien comportement simple
+(stick gauche = déplacement direct : le curseur orbite autour du personnage
+avec un clic gauche maintenu ; stick droit = souris libre, sans clic) et L est
+un simple clic gauche. Hors partie (menus, sélection de personnage), le
+comportement simple des sticks s'applique toujours, et le bouton `aim` y est un
+simple **clic gauche** — c'est pourquoi L clique désormais dans les menus.
+
+Un losange marque la cible hostile courante (doré une fois que le jeu confirme
+le survol). La visée assistée ne fait qu'emprunter le curseur : il se place sur
+la cible, maintient le clic une fois que le jeu signale le survol, puis revient
+là où vous l'aviez laissé au relâchement — comme le clic d'arrêt qui termine
+une marche. **Le curseur prime sur tout** : ce qu'il survole est ce sur quoi
+`aim` agit, avant tout cône. Les distances se mesurent dans le monde, pas en
+pixels d'écran, et une unité que le jeu refuse de survoler — un critter, un
+vautour encore en l'air — est abandonnée au bout d'un moment au lieu de
+capturer chaque appui.
+
+**Panneaux ouverts** (inventaire, coffre, marchand, menus de PNJ, fenêtre
+d'ajout de socket de Larzuk…) : les deux sticks déplacent le curseur et `aim`
+est un clic gauche. La liste des panneaux vient des drapeaux d'interface du
+jeu ; la fenêtre d'ajout de socket (indice `0x0E`) a été ajoutée en
+0.1.18-beta et n'a eu qu'un premier essai sur console.
+
+Tout le reste — potions, compétences, Alt, aide aux objets, menu radial — reste
+au mapping ordinaire de `controls.txt`, et les deux se combinent : le repère
+cyan de l'aide aux objets montre l'objet au sol ciblé que `aim` soit lié ou non.
+
+Clés de réglage (toutes optionnelles, `controls.txt`) :
+
+```
+orbit_min=40       # px (à 600 lignes), rayon de l'anneau de marche à faible inclinaison
+orbit_max=110      # px, stick à fond
+cone=35            # demi-angle du cône de visée autour du curseur, en degrés
+hover_h=28         # hauteur de survol par défaut au-dessus des pieds d'une unité, px
+hud_h=60           # bande basse où les clics ASSISTÉS n'entrent jamais, px (le curseur
+                   # que vous pilotez, lui, y va, sinon la ceinture serait inatteignable)
+reach=300          # portée de `aim` vers un coffre/une porte/un PNJ, unités du monde
+```
+
+**Non repris de l'ancienne expérience `scheme=aim`** : les emplacements de
+compétence qui accrochent le lancer sur une cible (et le choix
+`slot1..7` = hostile/ground/corpse), les boutons de face dédiés aux panneaux,
+L maintenu = rester sur place, et le parcours du butin à la croix directionnelle
+avec étiquettes natives (l'aide aux objets le remplace). Tout cela vit dans
+l'historique git et la branche `manette/pad-core-port`. `scheme=` et `D2_PAD`
+n'existent plus.
+
+Validation : tests de logique hôte (pad_core), plus les essais du mainteneur sur
+console (menus de PNJ, tactile, menus de l'écran-titre). Le coût en temps
+d'image des hooks n'est **pas** mesuré, et le changement de défaut n'a pas
+encore été testé par la communauté.
 
 ## Menu radial (Select)
 
@@ -159,19 +178,16 @@ Ce menu remplace les anciens raccourcis dédiés à chacune de ces actions
 (personnage, compétences, quêtes, automap, inventaire) : un seul geste pour
 les sept, plutôt que sept combinaisons à mémoriser. Le clavier virtuel n'y
 est volontairement pas inclus : il s'ouvre de lui-même dès qu'un champ texte
-prend le focus, et garde sinon son propre geste dédié — L + D-pad droite sous
-le schéma de visée (compétence 7 là-bas), R + Triangle sous le schéma
-`scheme=mouse` legacy.
+prend le focus, et garde sinon son propre geste dédié — R + Triangle.
 
-## Clavier virtuel (L + D-pad droite)
+## Clavier virtuel (R + Triangle)
 
 Le clavier **s'ouvre de lui-même** quand un champ texte prend le focus — nom
 de personnage, compte et mot de passe Battle.net, nom et mot de passe de
 partie. La fermeture reste manuelle (Select ou la touche FERMER —
 Start/Entrée valide le champ mais laisse le clavier ouvert), et un clavier
 fermé ne se rouvre pas tant qu'un autre champ n'a pas pris le focus (ou que
-le même ne l'a pas perdu puis repris). L + D-pad droite l'ouvre toujours sous
-le schéma de visée (R + Triangle sous `scheme=mouse`). `D2_KBAUTO=0` dans
+le même ne l'a pas perdu puis repris). R + Triangle l'ouvre toujours. `D2_KBAUTO=0` dans
 `ux0:data/d2vita/env.txt` coupe l'ouverture automatique. Le clavier se
 dessine à 80 % d'opacité par défaut —
 le personnage/menu reste visible en filigrane derrière — réglable avec
@@ -197,8 +213,7 @@ pas encore couvert (phase 2).
 
 Le rendu du clavier virtuel lui-même (police, disposition) vient du moteur
 générique winx86 (`src/platform/vita_kb.h`/`vita_kb_font.h`). Le
-déclenchement, lui, est spécifique à d2vita : L + D-pad droite sous le schéma
-de visée, R + Triangle sous `scheme=mouse`.
+déclenchement, lui, est spécifique à d2vita : R + Triangle.
 
 ## Panneau d'aide aux contrôles (écran-titre)
 
@@ -218,39 +233,16 @@ revient au démarrage suivant) ; le tour d'horizon ci-dessous couvre le
 même terrain.
 
 ```
-scheme=aim        # aim (défaut, visée assistée) | mouse (schéma legacy intégral)
-aim=1              # 0 = pas de choix automatique de cible (schéma aim seulement)
-orbit_min=40       # px (à 600 de haut), rayon d'orbite stick à peine poussé
-orbit_max=110      # px, stick à fond
-range_min=6        # sous-tuiles, sort au sol curseur posé sur le personnage
-range_max=20
-cone=35            # demi-angle du cône autour du curseur, degrés
-hover_h=28         # hauteur de survol par défaut, px
-hud_h=60           # bande basse interdite aux clics ASSISTÉS, px (le curseur
-                   # que vous pilotez y va, sinon la ceinture serait hors de portée)
-slot1=hostile      # slot1..slot7 : hostile (défaut) | ground | corpse
-slot3=ground       #   ex. téléportation sur le 3, explosion de cadavre sur le 5
-slot5=corpse
-deadzone=0.25
-sens=10            # vitesse du curseur libre (stick droit en jeu, deux sticks dans les panneaux)
-```
-
-`D2_PAD=0` (ou `1`) dans `env.txt` a priorité sur `scheme=` — pratique pour
-un A/B sans toucher à `controls.txt`.
-
-Les clés suivantes, et les remaps `cross=…`/`r+triangle=…` ci-dessous, ne
-s'appliquent qu'au schéma `scheme=mouse` (legacy) :
-
-```
 cross=rclick
 r+triangle=f5
-l+circle=perso   # couche L : entièrement libre par défaut, à vous de la remplir
-l=rclick         # action de L seul (défaut : lclick)
+l+circle=perso   # couche L (défauts : l+cross=inv, l+circle=automap, l+square=vk:0x4F)
+l=lclick         # action de L seul (défaut : aim ; lclick = désactive la visée assistée)
 r=none           # action de R seul (défaut : rclick) — "none" la désactive
 select=inv       # action de Select seul (défaut : ouvre le menu radial)
-orbit=70         # rayon du déplacement direct (px)
-sens=10          # vitesse du stick droit
-deadzone=0.25
+cross=aim        # tout bouton, couche ou l=/r=/select= peut porter `aim` (voir Visée assistée)
+orbit=70         # rayon du déplacement direct (px), mode simple
+sens=18          # vitesse du stick droit (défaut 18)
+deadzone=0.15    # défaut 0.15
 anchor_y=470     # ancre verticale du personnage (pour une résolution de 1000)
 ```
 
@@ -261,7 +253,7 @@ couche R, `l+` pour la couche L — jamais les deux sur la même ligne).
 préfixe de bouton) : elles fixent ce que L, R et Select font **seuls**,
 pas en combo.
 
-**Actions** : `lclick`, `rclick`, `alt`, `items`, `shift`, `tab`/`automap`,
+**Actions** : `lclick`, `rclick`, `alt`, `items`, `aim`, `shift`, `tab`/`automap`,
 `esc`/`echap`, `inv`, `perso`, `skills`, `quests`, `swap`, `space`, `run`,
 `enter`, `pot1`-`pot4`, `f1`-`f8`, `vk:0xNN` (code de touche brut), `none`.
 
@@ -275,12 +267,7 @@ un build qui ne reconnaît pas exactement les mêmes clés que celui
 réellement lancé.
 
 **Pas encore possible** : un seul bouton déclenchant plusieurs actions à
-la suite (par exemple « ouvrir la carte et courir »), et un stick gauche
-qui déplace sans jamais tenir de clic. Les deux s'avèrent nécessiter la
-même lecture, image par image, des positions des monstres/objets en
-mémoire qu'un schéma d'assist de visée complet — ce ne sont pas de
-simples ajouts à ce fichier, voir le chantier ouvert du mode manette
-assist de visée.
+la suite (par exemple « ouvrir la carte et courir »).
 
 ## Diagnostic
 

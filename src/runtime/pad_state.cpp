@@ -1,5 +1,7 @@
 // src/runtime/pad_state.cpp — see pad_state.h.
 #include "runtime/pad_state.h"
+#include "platform/controls_scan.h"
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -8,14 +10,29 @@ namespace padst {
 static Snapshot g_live, g_stable;
 static bool g_written = false;
 
+// The hooks feeding the aim assist cost frame time, so they are armed only
+// while the bindings carry the `aim` action (L by default, see controls_scan.h).
+// Read once, at hook install -- before the input tick has parsed the file,
+// hence the standalone scan.
 bool on() {
     static int v = -1;
-    if (v < 0) { const char* e = getenv("D2_PAD"); v = (e && *e == '0') ? 0 : 1; }
+    if (v < 0) {
+        v = 1;
+        if (FILE* f = fopen("ux0:data/d2vita/controls.txt", "rb")) {
+            size_t cap = 4096, len = 0;
+            char* buf = (char*)malloc(cap);
+            while (buf) {
+                if (len == cap) { char* nb = (char*)realloc(buf, cap *= 2); if (!nb) { free(buf); buf = nullptr; break; } buf = nb; }
+                size_t r = fread(buf + len, 1, cap - len, f);
+                if (r == 0) break;
+                len += r;
+            }
+            fclose(f);
+            if (buf) { v = ctl::binds_aim(buf, len) ? 1 : 0; free(buf); }
+        }
+    }
     return v != 0;
 }
-
-static uint32_t g_levelPtr = 0;
-void set_level_ptr(uint32_t p) { g_levelPtr = p; }
 
 void frame_begin(uint32_t playerId, int32_t pfx, int32_t pfy, int32_t vx, int32_t vy, uint32_t levelType,
                  uint32_t selValid, uint32_t selId, uint32_t selType, const uint32_t* ui) {
@@ -37,11 +54,9 @@ void frame_begin(uint32_t playerId, int32_t pfx, int32_t pfy, int32_t vx, int32_
         g_stable.playerFx = s_have ? s_pfx : pfx; g_stable.playerFy = s_have ? s_pfy : pfy;
     }
     s_vx = vx; s_vy = vy; s_pfx = pfx; s_pfy = pfy; s_have = true;
-    g_stable.nLabels = g_live.nLabels;
-    if (g_live.nLabels > 0) memcpy(g_stable.labels, g_live.labels, sizeof(Label) * (size_t)g_live.nLabels);
-    g_live.frame += 1; g_stable.frame = g_live.frame; g_live.nUnits = 0; g_live.nLabels = 0;
+    g_live.frame += 1; g_stable.frame = g_live.frame; g_live.nUnits = 0;
     g_stable.inGame = playerId != 0;
-    g_stable.playerId = playerId; g_stable.levelType = levelType; g_stable.levelPtr = g_levelPtr;
+    g_stable.playerId = playerId; g_stable.levelType = levelType;
     g_stable.selValid = selValid; g_stable.selId = selId; g_stable.selType = selType;
     memcpy(g_stable.uiVars, ui, sizeof g_stable.uiVars);
     g_written = true;
@@ -49,13 +64,6 @@ void frame_begin(uint32_t playerId, int32_t pfx, int32_t pfy, int32_t vx, int32_
 
 void add_unit(const Unit& u) {
     if (g_live.nUnits < MAX_UNITS) g_live.units[g_live.nUnits++] = u;
-}
-
-void set_labels(const Label* l, int n) {
-    if (n < 0) n = 0;
-    if (n > MAX_LABELS) n = MAX_LABELS;
-    g_live.nLabels = n;
-    if (n > 0) memcpy(g_live.labels, l, sizeof(Label) * (size_t)n);
 }
 
 bool read(Snapshot& out) {

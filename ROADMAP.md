@@ -265,52 +265,36 @@ the source of truth for the public repository.
 
 ## In progress / open
 
-- [ ] **Item assist (`items` action in `controls.txt`), on `main`**
-      (2026-09-29): hold the bound button (e.g. `square=items`) to show
-      the ground-item labels (Alt, for the game), browse them with the
-      D-pad and pick up with Cross. The label rects and the hover report
-      are read straight from the guest at input-tick time (label table
-      `Game+0x3c54a8`, hover globals `Game+0x3a6a78/8c/94`) — no hook,
-      none of the aim-assist scheme; the pure logic is
+- [ ] **Aim assist and item assist are the built-in default controls
+      (0.1.18-beta, 2026-09-29)**: `l=aim` (hold), `square=items`,
+      `l+cross=inv`, `l+circle=automap`, `l+square=vk:0x4F` (mercenary
+      inventory), `sens=18`, `deadzone=0.15`; Cross alone no longer clicks
+      in menus, L does. `aim` is an ordinary remappable action (any button,
+      layer, `l=`/`r=`/`select=`); `l=lclick` with no other `aim` binding
+      opts out (plain scheme: left stick = orbit + held click, right stick =
+      free mouse, hooks not installed). While bound, the camera/unit hooks
+      are armed (`padst::on()`, `src/platform/controls_scan.h`) and the
+      sticks switch in game: left = walk only, right = free cursor, the
+      `aim` button acts on the best target (own corpse, cursor, aim cone,
+      nearest chest/door/NPC); in open panels (list read from the game's UI
+      flags, incl. NPC menus and, since this release, Larzuk's add-socket
+      window, index `0x0E`) and out of a game it is a plain left click. The
+      item assist (hold the button to show ground labels, D-pad browses,
+      Cross picks up) reads the label table and hover globals straight from
+      the guest at input-tick time (`Game+0x3c54a8`, `Game+0x3a6a78/8c/94`).
+      Pure logic in `src/platform/pad_core.h/.cpp` (`pad::Assist`) and
       `src/platform/item_assist.h`, host-tested by
-      `tools/oracle_item_assist.sh`. `alt` is unchanged, `items` is a new
-      action and nothing is bound to it by default. **Validation: host
-      logic tests and a clean Vita build only — not run on qemu-arm,
-      Vita3K or a console yet**; the guest offsets and label coordinate
-      space (same as the mouse) are inherited from the aim-assist branch's
-      console runs, not re-checked here. Open: default binding decision
-      (Square=items?) waits for Discord feedback.
-- [ ] **Aim-assist controller scheme, opt-in**: `wt/manette-curseur-libre`
-      (5 iterative test builds, `manette-v2-test1` through `-v5-test1` plus
-      `v0.1.11-remapping-beta2..4`) reworks the right stick into a
-      hostile-auto-target assist and adds D-pad browsing of ground-item
-      labels — the two pieces most asked for on GitHub #16 and Discord
-      (chrhaeusler, xkosiorx). Feedback on #16 stopped 2026-09-21 with the
-      free-cursor + assist combination working; not picked back up since.
-      The core logic (`src/platform/pad_core.h/.cpp`,
-      `src/runtime/pad_state.h/.cpp`) is pure, host-tested
-      (`tests/pad/pad_core_test.cpp`, 1460 lines, 295 checks) and reads the
-      game's own ground-item label table (`Game+0x3c54a8`) rather than
-      guessing label positions — see PR #14's description for why that
-      table read was necessary. **Not directly mergeable as-is**: the
-      branch also carries ~2700 unrelated lines (a `glide_ring`/
-      `gx_host.cpp` rewrite, deleted `native_f3_114.cpp`, dropped
-      `tools/bancs/*` scripts) from having diverged from `main` before the
-      0.1.12/0.1.13 perf work landed, and its own `vita_present.cpp`
-      changes replace the whole input tick — which would silently undo the
-      `l=`/`r=`/`select=`/`l+` remap work above rather than sit next to it.
-      2026-09-28: `pad_core`/`pad_state` (plus their test) copied as-is
-      onto branch `manette/pad-core-port` (NOT `main` — this file still
-      describes `main`), verified independently there: compiles clean
-      (`-Wall -Wextra -Werror -fsanitize=address,undefined`), 295/295 pass
-      against current `main`, full VPK build unaffected (neither file is
-      in `rt_boot_srcs.sh`'s explicit source list, so nothing calls them
-      yet — intentionally dead code at this stage). Next step: merge that
-      branch, then write fresh glue in `vita_present.cpp` behind a new
-      opt-in `aim=1` (default off — everyone's current bindings stay
-      exactly as they are), and ship it the same way as the earlier test
-      builds — a downloadable beta for Discord feedback, not a merge to
-      `main` — before it earns real validation.
+      `tests/pad/pad_core_test.cpp` and `tools/oracle_item_assist.sh`.
+      **Validation: host logic tests, plus the maintainer's hands-on play
+      on a console (NPC menus, touch, title-screen menus, first try of the
+      add-socket window). NOT benchmarked for frame time (the hooks now cost
+      it for everyone by default), not run on qemu-arm/Vita3K for this
+      change, and the default is a beta awaiting community feedback on
+      Discord.** Gaps versus the earlier experiment (test builds
+      `manette-v2-test1..v5`, GitHub #16/Discord feedback, last console run
+      2026-09-21): no skill-cast snapping or `slot1..7` ground/corpse
+      choice, no panel-mode face buttons, no L = stand-still; those stay in
+      git history and `manette/pad-core-port`.
 - [ ] **Warden / anti-cheat fidelity**: no structured exception handling at
       all (a guest fault kills the thread), no PEB/LDR, no per-region
       `VirtualProtect` tracking, self `OpenProcess` still denied — detailed

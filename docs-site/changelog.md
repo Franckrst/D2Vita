@@ -4,6 +4,30 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.18-beta — 2026-09-29
+
+- **New default controller scheme — please test it and give feedback on
+  Discord.** **L** is now the aim assist (hold): in game it acts on the
+  best target (your corpse, what the cursor points at, an enemy in a cone,
+  the nearest chest/door/NPC); in menus, open panels and out of a game it
+  is a plain left click. The left stick only walks, the right stick is a
+  free cursor. **Square** is the item assist (ground labels, D-pad to
+  browse, Cross to pick up). **L + Cross** = inventory, **L + Circle** =
+  automap, **L + Square** = mercenary inventory. Stick speed 18, dead zone
+  0.15. Cross alone no longer clicks in menus — L does. To get the previous
+  scheme back, put `l=lclick` in `controls.txt` (with no other `aim`
+  binding). The aim hooks are now installed by default and their frame-time
+  cost is not measured yet.
+- **Larzuk's add-socket window** now accepts the aim click (it used to
+  target the map behind it). First console test only.
+- **Title screen: the "Controls" help button** opens only from its own
+  small tab, no longer from the whole left edge.
+- **Touch offset fixed** in game.
+
+Beta: checked by hand on a console for menus, NPC windows and touch; the
+new defaults are not tested by the community yet. Includes the 0.1.17-beta
+options.
+
 ## v0.1.17-beta — 2026-09-29
 
 - **Two single-player options, both off by default** (add them to
