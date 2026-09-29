@@ -46,7 +46,7 @@
 #r+circle=none
 #l+circle=none
 
-#square=alt
+#square=alt         # try "square=items" for item assist (see the note below)
 #r+square=none
 #l+square=none
 
@@ -82,8 +82,16 @@
 # Action names (case-insensitive):
 #   lclick  rclick  none
 #   alt  shift  tab / automap  esc / echap
+#   items   — item assist (see below); also spelled item_assist / assist
 #   inv  perso  skills  quests  swap  space  run  enter
 #   pot1  pot2  pot3  pot4
 #   f1  f2  f3  f4  f5  f6  f7  f8
 #   vk:0xNN   — raw Windows virtual-key code, hex or decimal
+#
+# Item assist (action "items"): HOLD the button it is bound to. The game
+# shows the ground-item name labels (it is Alt held, for the game) and, while
+# you hold, the D-pad jumps the cursor from label to label and Cross picks
+# the highlighted item up. With no item on the ground the D-pad and Cross
+# keep their normal bindings. Any button, layer, l=, r= or select= can carry
+# it; "alt" stays a plain Alt. Example:  square=items
 # ---------------------------------------------------------------------------

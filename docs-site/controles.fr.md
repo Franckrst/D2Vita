@@ -17,7 +17,7 @@
 | **R (maintenu)** | **Clic droit** — remappable, voir plus bas (sert aussi de couche combo, voir plus bas) |
 | Croix | R — bascule marche/course |
 | Rond | Shift (maintenu) — attaque sur place / cast forcé |
-| Carré (maintenu) | Alt — affiche les objets au sol |
+| Carré (maintenu) | Alt — affiche les objets au sol (ou, avec `square=items`, l'[aide aux objets](#aide-aux-objets)) |
 | Triangle | W — échange d'armes |
 | D-pad ↑ / ← / ↓ / → | Potions ceinture 1 / 2 / 3 / 4 |
 | Start | Échap (menu / fermer) |
@@ -43,6 +43,34 @@ l'écran-titre, voir plus bas, et `controls.reference.txt` le rappellent
 tous les deux). Le reste de la couche « R + … » est lié par défaut ; la
 couche miroir « L + … » démarre **entièrement libre** — rien par défaut,
 elle attend d'être remplie via `controls.txt`.
+
+## Aide aux objets
+
+Désactivée par défaut. Assigner l'action `items` à n'importe quel bouton
+(`square=items` est le choix naturel — elle remplace l'Alt simple sur
+Carré) et la **maintenir** :
+
+- le jeu affiche les noms des objets au sol, exactement comme avec Alt ;
+- la croix directionnelle saute d'un nom à l'autre (le plus proche dans la
+  direction pressée), et l'objet surligné est celui que le jeu lui-même
+  déclare survolé ;
+- Croix ramasse l'objet surligné. Le curseur se place sur le nom, et le
+  clic n'est envoyé qu'une fois que le jeu a signalé l'objet comme survolé :
+  cliquer avant est lu par le jeu comme « aller là-bas » ;
+- sans objet au sol, la croix directionnelle et Croix gardent leurs
+  fonctions habituelles (potions, marche/course) : maintenir le bouton ne
+  fait jamais perdre une potion ;
+- le stick droit déplace toujours le curseur à la main — se poser sur un
+  nom le sélectionne ; le stick gauche (déplacement direct) annule tout
+  ramassage en cours.
+
+`alt` reste disponible comme simple Alt pour qui le préfère. `items`
+s'assigne comme n'importe quelle action : boutons de face, croix
+directionnelle, couches `r+`/`l+`, `l=`, `r=`, `select=` (éviter de
+l'assigner à Croix ou à la croix directionnelle elles-mêmes, qu'elle
+prend en charge tant qu'elle est maintenue).
+
+Validée côté hôte uniquement (tests de logique) ; pas encore sur console.
 
 ## Menu radial (Select)
 
@@ -140,7 +168,7 @@ couche R, `l+` pour la couche L — jamais les deux sur la même ligne).
 préfixe de bouton) : elles fixent ce que L, R et Select font **seuls**,
 pas en combo.
 
-**Actions** : `lclick`, `rclick`, `alt`, `shift`, `tab`/`automap`,
+**Actions** : `lclick`, `rclick`, `alt`, `items`, `shift`, `tab`/`automap`,
 `esc`/`echap`, `inv`, `perso`, `skills`, `quests`, `swap`, `space`, `run`,
 `enter`, `pot1`-`pot4`, `f1`-`f8`, `vk:0xNN` (code de touche brut), `none`.
 

@@ -16,6 +16,7 @@ extern "C" int d2_tlswrap_dump(char*, unsigned);
 #include "platform/vita_kb.h"   // full virtual keyboard (layouts, font, drawing)
 #include "platform/radial_menu.h"   // 7-sector radial menu (hold Select + left stick)
 #include "platform/controls_help.h"   // title-screen controls-help icon/panel
+#include "platform/item_assist.h"     // item assist: ground labels + D-pad browse + Cross pick-up
 #include "runtime/text_focus_probe.h"   // d2vita_text_focus : edit box focalisee (ouverture auto du clavier)
 #include "platform/vita_gxm.h"      // d2gxm_ui_active: le menu part-il sur le GPU ?
 #include "platform/vita_host.h"        // engine: log, cores, sleep (CONSOLE-specific)
@@ -1782,7 +1783,10 @@ void d2vita_watchdog_start(const unsigned long long* pump_count, const int* fram
 extern "C" { __attribute__((weak)) void d2gxm_shot_request(void); }
 extern "C" void d2vita_inject(const char* act, int a, int b);
 namespace {
-enum { A_NONE=0, A_LMB=1, A_RMB=2, A_KEY=3 };
+// A_ITEMS: item assist (held). Shows the ground-item labels by holding Alt
+// for the game, and while held the D-pad browses those labels and Cross
+// picks the focused one up — see platform/item_assist.h.
+enum { A_NONE=0, A_LMB=1, A_RMB=2, A_KEY=3, A_ITEMS=4 };
 struct Act { int kind; int vk; };
 // llayer: the L+ combo, mirroring layer's R+ role. Free (A_NONE) on every
 // entry by default — l+ is purely opt-in via controls.txt, unlike r+ which
@@ -1835,6 +1839,10 @@ Act g_l_engaged = {A_NONE,0}, g_r_engaged = {A_NONE,0};
 Act g_select_act = {A_NONE,0};
 float g_cx=400.f, g_cy=300.f;                    // cursor, GAME coords
 bool  g_lmb_stick=false, g_lmb_btn=false, g_lmb_sent=false, g_rmb_sent=false;
+// Item assist. g_ia_refs counts the held buttons bound to it (l=/r=/select=/
+// any g_btn layer can each carry it); g_ia_lmb is its own held left button,
+// separate from the stick and the L/R clicks so none of them can drop it.
+d2ia::State g_ia; int g_ia_refs=0; bool g_ia_lmb=false, g_ia_cross_owned=false;
 uint32_t g_ctl_prev=0; bool g_ctl_init=false;
 // Orbit radius for direct-movement mode; still adjustable without a rebuild
 // via controls.txt orbit=N.
@@ -1858,6 +1866,7 @@ bool parse_act(const char* v, Act* out){
     struct E { const char* n; Act a; };
     static const E T[] = {
         {"lclick",{A_LMB,0}},{"rclick",{A_RMB,0}},{"none",{A_NONE,0}},
+        {"items",{A_ITEMS,0}},{"item_assist",{A_ITEMS,0}},{"assist",{A_ITEMS,0}},
         {"alt",{A_KEY,0x12}},{"shift",{A_KEY,0x10}},{"tab",{A_KEY,0x09}},{"automap",{A_KEY,0x09}},
         {"esc",{A_KEY,0x1B}},{"echap",{A_KEY,0x1B}},{"inv",{A_KEY,0x49}},{"perso",{A_KEY,0x43}},
         {"skills",{A_KEY,0x54}},{"quests",{A_KEY,0x51}},{"swap",{A_KEY,0x57}},{"space",{A_KEY,0x20}},
@@ -1968,6 +1977,7 @@ const char* act_label(const Act& a) {
     if (a.kind == A_NONE) return "-";
     if (a.kind == A_LMB)  return "Left click";
     if (a.kind == A_RMB)  return "Right click";
+    if (a.kind == A_ITEMS) return "Item assist (D-pad/Cross)";
     switch (a.vk) {
         case 0x52: return "R (walk/run)";
         case 0x10: return "Shift";
@@ -2033,7 +2043,7 @@ int format_controls_help(char out[][64], int max) {
     return n;
 }
 void lmb_update(){
-    bool want = g_lmb_stick || g_lmb_btn;
+    bool want = g_lmb_stick || g_lmb_btn || g_ia_lmb;
     if (want && !g_lmb_sent){ d2vita_inject("ldown",(int)g_cx,(int)g_cy); g_lmb_sent=true; }
     else if (!want && g_lmb_sent){ d2vita_inject("lup",(int)g_cx,(int)g_cy); g_lmb_sent=false; }
 }
@@ -2041,11 +2051,48 @@ void do_press(const Act& a){
     if      (a.kind==A_LMB){ g_lmb_btn=true; lmb_update(); }
     else if (a.kind==A_RMB){ if(!g_rmb_sent){ d2vita_inject("rdown",(int)g_cx,(int)g_cy); g_rmb_sent=true; } }
     else if (a.kind==A_KEY)  d2vita_inject("keydown",a.vk,0);
+    else if (a.kind==A_ITEMS){
+        if (g_ia_refs++==0){
+            d2vita_inject("keydown",0x12,0);
+            g_ia.reset(g_in_hz/8 < 3 ? 3 : g_in_hz/8);
+        }
+    }
 }
 void do_release(const Act& a){
     if      (a.kind==A_LMB){ g_lmb_btn=false; lmb_update(); }
     else if (a.kind==A_RMB){ if(g_rmb_sent){ d2vita_inject("rup",(int)g_cx,(int)g_cy); g_rmb_sent=false; } }
     else if (a.kind==A_KEY)  d2vita_inject("keyup",a.vk,0);
+    else if (a.kind==A_ITEMS){
+        if (g_ia_refs>0 && --g_ia_refs==0){
+            d2vita_inject("keyup",0x12,0);
+            g_ia.reset(0); g_ia_lmb=false; g_ia_cross_owned=false; lmb_update();
+        }
+    }
+}
+// Ground-item labels and the game's own hover report, read straight from the
+// guest (see docs: label table Game+0x3c54a0, hover globals Game+0x3a6a78..).
+// The array holds the previous frame's labels — the game refills it while it
+// draws with Alt held — the same one-frame lag any hover has.
+int ia_read(d2rt::Cpu* cpu, d2ia::Label* out, d2ia::Hover* h){
+    *h = d2ia::Hover{false,0,0};
+    if (!cpu || !g_114 || !g_d2base) return 0;
+    uint32_t sv=0, sid=0, sty=0, cnt=0;
+    cpu->read(g_d2base+0x003a6a94u,&sv,4);
+    cpu->read(g_d2base+0x003a6a78u,&sid,4);
+    cpu->read(g_d2base+0x003a6a8cu,&sty,4);
+    *h = d2ia::Hover{sv!=0, sty, sid};
+    cpu->read(g_d2base+0x003c54a0u,&cnt,4);
+    if (cnt > (uint32_t)d2ia::MAX_LABELS) cnt = d2ia::MAX_LABELS;
+    int n=0;
+    for (uint32_t i=0;i<cnt;i++){
+        uint32_t e[5];
+        if (!cpu->read(g_d2base+0x003c54a8u+i*0x120u,e,sizeof e) || !e[4]) continue;
+        uint32_t id=0;
+        if (!cpu->read(e[4]+0xcu,&id,4)) continue;
+        d2ia::Label L{(int32_t)e[0],(int32_t)e[1],(int32_t)e[2],(int32_t)e[3],id};
+        if (L.x2>L.x1 && L.y2>L.y1) out[n++]=L;
+    }
+    return n;
 }
 // Ouverture du clavier (automatique ou R+Triangle), D2_KBSIMPLE lu une fois.
 void kb_open_now(){
@@ -2360,8 +2407,24 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
     if (!(b&B_R)&&(was&B_R)){ do_release(g_r_engaged); g_r_engaged={A_NONE,0}; }
 
     // Mapped buttons (edges, R/L layer sampled at the moment of press; R wins if both held)
+    // Item assist owns the D-pad and Cross while it has labels to browse; with
+    // none on the ground (or during its warm-up) they keep their normal
+    // bindings, so a held Square never silently eats a potion.
+    d2ia::Label ia_l[d2ia::MAX_LABELS]; int ia_n=0; d2ia::Hover ia_h{false,0,0};
+    unsigned ia_dir=0; bool ia_confirm=false, ia_own=false;
+    if (g_ia_refs>0 && g_ia.warm()){ ia_n=ia_read(cpu,ia_l,&ia_h); ia_own=ia_n>0; }
     for (size_t i=0;i<sizeof g_btn/sizeof*g_btn;i++){
         bool now=(b&g_btn[i].bit)!=0, before=(was&g_btn[i].bit)!=0;
+        if (now&&!before&&ia_own&&(g_btn[i].bit==B_CROSS||g_btn[i].bit==B_UP||g_btn[i].bit==B_LEFT||
+                                   g_btn[i].bit==B_DOWN||g_btn[i].bit==B_RIGHT)){
+            g_engaged[i]={A_NONE,0};
+            if      (g_btn[i].bit==B_CROSS){ ia_confirm=true; g_ia_cross_owned=true; }
+            else if (g_btn[i].bit==B_UP)    ia_dir|=d2ia::DIR_UP;
+            else if (g_btn[i].bit==B_LEFT)  ia_dir|=d2ia::DIR_LEFT;
+            else if (g_btn[i].bit==B_DOWN)  ia_dir|=d2ia::DIR_DOWN;
+            else                            ia_dir|=d2ia::DIR_RIGHT;
+            continue;
+        }
         if (now&&!before){ g_engaged[i]= layer?g_btn[i].layer:l_layer?g_btn[i].llayer:g_btn[i].base; do_press(g_engaged[i]); }
         else if (!now&&before){ do_release(g_engaged[i]); g_engaged[i]={A_NONE,0}; }
     }
@@ -2398,6 +2461,18 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
         } else if (g_t_at>=0){
             if (g_itick-g_t_at<g_tap_ticks && !g_t_moved) d2vita_inject("click",g_t_x,g_t_y);
             g_t_at=-1;
+        }
+    }
+
+    if (!(b&B_CROSS)) g_ia_cross_owned=false;
+    if (g_ia_refs>0){
+        if (dm){ g_ia.reset(0); g_ia_lmb=false; }            // walking with the stick: drop any pick-up
+        else {
+            d2ia::In in{ia_l, ia_n, ia_h, ia_dir, ia_confirm, (b&B_CROSS)&&g_ia_cross_owned, moved,
+                        (int)g_cx, (int)g_cy, g_game_w/2, g_game_h*g_anchor_y_pm/1000};
+            const d2ia::Out o=g_ia.tick(in);
+            if (o.move){ g_cx=(float)o.mx; g_cy=(float)o.my; moved=true; }
+            g_ia_lmb=o.lmb;
         }
     }
 

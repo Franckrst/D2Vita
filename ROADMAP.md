@@ -265,6 +265,21 @@ the source of truth for the public repository.
 
 ## In progress / open
 
+- [ ] **Item assist (`items` action in `controls.txt`), on `main`**
+      (2026-09-29): hold the bound button (e.g. `square=items`) to show
+      the ground-item labels (Alt, for the game), browse them with the
+      D-pad and pick up with Cross. The label rects and the hover report
+      are read straight from the guest at input-tick time (label table
+      `Game+0x3c54a8`, hover globals `Game+0x3a6a78/8c/94`) — no hook,
+      none of the aim-assist scheme; the pure logic is
+      `src/platform/item_assist.h`, host-tested by
+      `tools/oracle_item_assist.sh`. `alt` is unchanged, `items` is a new
+      action and nothing is bound to it by default. **Validation: host
+      logic tests and a clean Vita build only — not run on qemu-arm,
+      Vita3K or a console yet**; the guest offsets and label coordinate
+      space (same as the mouse) are inherited from the aim-assist branch's
+      console runs, not re-checked here. Open: default binding decision
+      (Square=items?) waits for Discord feedback.
 - [ ] **Aim-assist controller scheme, opt-in**: `wt/manette-curseur-libre`
       (5 iterative test builds, `manette-v2-test1` through `-v5-test1` plus
       `v0.1.11-remapping-beta2..4`) reworks the right stick into a

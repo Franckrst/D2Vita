@@ -18,7 +18,7 @@
 | **R (held)** | **Right click** — remappable, see below (also a combo layer, see below) |
 | Cross | R — toggle walk/run |
 | Circle | Shift (held) — attack in place / forced cast |
-| Square (held) | Alt — show items on the ground |
+| Square (held) | Alt — show items on the ground (or, with `square=items`, [item assist](#item-assist)) |
 | Triangle | W — weapon swap |
 | D-pad ↑ / ← / ↓ / → | Belt potions 1 / 2 / 3 / 4 |
 | Start | Esc (menu / close) |
@@ -43,6 +43,30 @@ has no effect (the title-screen controls panel, see below, and
 `controls.reference.txt` both call this out). Every other `R + …` slot
 above starts bound; the mirror `L + …` layer starts **entirely free** —
 nothing happens by default, it's there for `controls.txt` to fill in.
+
+## Item assist
+
+Off by default. Bind the `items` action to any button (`square=items` is
+the natural one — it replaces plain Alt on Square) and **hold** it:
+
+- the game shows the ground-item name labels, exactly as with Alt;
+- the D-pad jumps the cursor from label to label (the nearest one in the
+  direction pressed), so the highlighted item is the one the game itself
+  reports as hovered;
+- Cross picks the highlighted item up. The cursor goes onto the label, and
+  the click is only sent once the game has reported the item as hovered:
+  clicking earlier is read by the game as "walk there";
+- with nothing on the ground, the D-pad and Cross keep their normal
+  bindings (potions, walk/run), so holding the button never eats a potion;
+- the right stick still moves the cursor by hand — landing on a label
+  focuses it; the left stick (direct movement) cancels any pick-up.
+
+`alt` stays available as a plain Alt for anyone who prefers it. The
+buttons `items` can be bound to are the same as for any action: face
+buttons, D-pad, `r+`/`l+` layers, `l=`, `r=`, `select=` (avoid binding it
+to Cross or the D-pad themselves, since it takes those over while held).
+
+Validated on the host only (logic tests); not yet on a console.
 
 ## Radial menu (Select)
 
@@ -138,7 +162,7 @@ the R layer, `l+` for the L layer — never both on the same line). `l=`,
 `r=` and `select=` are separate top-level keys (no button prefix): they
 set what L, R and Select do *by themselves*, not a combo.
 
-**Actions**: `lclick`, `rclick`, `alt`, `shift`, `tab`/`automap`,
+**Actions**: `lclick`, `rclick`, `alt`, `items`, `shift`, `tab`/`automap`,
 `esc`/`echap`, `inv`, `perso`, `skills`, `quests`, `swap`, `space`, `run`,
 `enter`, `pot1`-`pot4`, `f1`-`f8`, `vk:0xNN` (raw key code), `none`.
 
