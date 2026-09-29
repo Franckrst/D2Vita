@@ -4,6 +4,20 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.17-beta — 2026-09-29
+
+- **Two single-player options, both off by default** (add them to
+  `env.txt`):
+  - `D2_RUNEWORDS_LADDER=1`: the 23 ladder-only runewords (Spirit, Insight,
+    Infinity…) can be made in single player.
+  - `D2_RESPEC_UNLIMITED=1`: Akara's "Reset Stat/Skill Points" stays
+    available after use, once you have earned it (Den of Evil).
+  Neither acts in TCP/IP, Open Battle.net or realm games, and no game file
+  is changed. They depart from the unmodified game on purpose, which is
+  why they are opt-in.
+
+Beta: both were checked on a real console. Includes the 0.1.16-beta fixes.
+
 ## v0.1.16-beta — 2026-09-28
 
 - **Multi-row belts no longer flicker.** Hovering or dragging potions in

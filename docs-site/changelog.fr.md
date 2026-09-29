@@ -5,6 +5,22 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.17-beta — 2026-09-29
+
+- **Deux options pour le solo, désactivées par défaut** (à ajouter dans
+  `env.txt`) :
+  - `D2_RUNEWORDS_LADDER=1` : les 23 runewords réservés au ladder (Spirit,
+    Insight, Infinity…) se fabriquent en solo.
+  - `D2_RESPEC_UNLIMITED=1` : la réinitialisation « Reset Stat/Skill
+    Points » d'Akara reste disponible après usage, une fois obtenue (la
+    Tanière du Mal).
+  Aucune n'agit en TCP/IP, Battle.net ouvert ou realm, et aucun fichier du
+  jeu n'est modifié. Elles s'écartent volontairement du jeu d'origine, d'où
+  l'activation manuelle.
+
+Bêta : les deux ont été vérifiées sur une vraie console. Inclut les
+correctifs de la 0.1.16-beta.
+
 ## v0.1.16-beta — 2026-09-28
 
 - **Les ceintures à plusieurs rangs ne clignotent plus.** Survoler ou
