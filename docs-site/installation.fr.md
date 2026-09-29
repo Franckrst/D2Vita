@@ -126,6 +126,20 @@ politique réseau, pas un levier de perf, donc il ne fait pas partie de la
 config ci-dessus — ajoute-le toi-même dans `env.txt` si tu le veux. Détails :
 [Jouer en ligne](en-ligne.md).
 
+`D2_RUNEWORDS_LADDER=1` (désactivé par défaut) permet, en **solo**, de créer
+les 23 runewords que la 1.14d réserve au ladder Battle.net (Spirit, Insight,
+Infinity… — la colonne `server` de `Runes.txt`). Il n'agit qu'en partie
+solo : TCP/IP, Battle.net ouvert et realm gardent la règle du jeu, et aucun
+fichier du jeu n'est modifié.
+
+`D2_RESPEC_UNLIMITED=1` (désactivé par défaut) garde la réinitialisation
+« Reset Stat/Skill Points » d'Akara disponible après usage, en solo
+seulement. La première s'obtient toujours normalement (la Tanière du Mal) ;
+ensuite elle n'est jamais consommée. Un personnage qui l'avait déjà utilisée
+avant l'activation de l'option ne la récupère pas.
+
+Ce sont deux écarts volontaires au jeu non modifié, donc ils restent optionnels.
+
 ### L'image
 
 Rien à régler : une fois en partie, le jeu dessine lui-même au 960×544 de
@@ -137,11 +151,22 @@ menus est en taille fixe, il n'est jamais redessiné en 960×544.
 `D2_HUDFILL=0` empêche le bandeau d'interface de combler les deux trous que
 son art de 800 px laisse sur un écran de 960, et empêche aussi de combler
 avec la pierre du cadre la colonne noire entre deux panneaux ouverts
-(personnage + inventaire ou arbre). `D2_RES_PANNEAUX=centre` centre la
-disposition 800 d'un bloc au lieu de coller les panneaux aux bords (ils se
-touchent alors, avec une bande de pierre de 80 px de chaque côté) ;
+(personnage + inventaire ou arbre). Les panneaux sont centrés par défaut (la disposition 800 comme un seul
+bloc, une bande de pierre de 80 px de chaque côté — plus facile pour
+glisser des objets entre inventaire et coffre que l'ancien ancrage aux
+bords, qui laissait une colonne noire entre les deux).
+`D2_RES_PANNEAUX=bords`/`edges` revient aux panneaux collés aux bords ;
 `D2_RES_PANNEAUX=0` laisse au jeu ses tables d'inventaire et son cadre
 (objets, clics et cadre alors décalés par rapport aux panneaux).
+
+L'option vidéo **Résolution** du jeu garde son sens de zoom : *800×600*
+dessine au 960×544 de l'écran, *640×480* dessine en 848×480 — la hauteur du
+640×480 d'origine, au format de la console — agrandi à l'écran : les
+personnages y sont aussi gros qu'en 640×480 sur PC. La bascule marche en
+pleine partie. `D2_RES640=LxH` force une autre taille pour ce mode,
+`D2_RES640=0` rend le 640×480 d'origine, bordé. En 640×480, les trous du
+bandeau et la colonne entre deux panneaux ouverts sont comblés avec la pierre
+du panneau d'inventaire du jeu.
 
 Le champ de vision élargi qu'offre une résolution native est un avantage en
 jeu : à réserver au solo et aux serveurs privés.

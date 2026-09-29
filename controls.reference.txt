@@ -1,0 +1,97 @@
+# ux0:data/d2vita/controls.txt — reference copy, every key the game reads
+#
+# This file was copied here automatically on first boot (never overwritten
+# after that — delete it and it will be re-seeded from the VPK next boot).
+# Everything below is a comment: nothing is actually remapped by this file
+# as shipped. Uncomment a line and change its value to change that binding;
+# lines the game does not recognise are now reported in boot_progress.txt
+# as "controls.txt ignore ...", instead of silently doing nothing.
+#
+# Full walkthrough: https://franckrst.github.io/D2Vita/controles/
+#
+# One "key=value" per line. Blank lines and lines starting with # are
+# skipped. Whitespace around key/value is NOT trimmed — keep both flush
+# against the '='.
+
+# ---------------------------------------------------------------------------
+# General tuning
+# ---------------------------------------------------------------------------
+#orbit=70          # direct-movement radius, px (left stick, orbits the cursor)
+#sens=10           # right stick speed (free cursor: menus, panels, aiming)
+#deadzone=0.25     # stick deadzone, 0..1
+#anchor_y=470      # character's vertical screen anchor, per-mille of a 1000-tall canvas
+
+# ---------------------------------------------------------------------------
+# L and R, held alone (they are ALSO the l+/r+ combo layers below —
+# remapping what they do alone never changes that second role)
+# ---------------------------------------------------------------------------
+#l=lclick          # default: left click (held)
+#r=rclick          # default: right click (held)
+
+# ---------------------------------------------------------------------------
+# Select, pressed alone (R+Select is always Space, regardless of this)
+# ---------------------------------------------------------------------------
+#select=rclick     # default (this line absent, or "select=none"): opens the radial menu instead
+
+# ---------------------------------------------------------------------------
+# Face buttons and D-pad — plain, r+ (R held) and l+ (L held) layers.
+# Only R's layer ships bound out of the box (D-pad -> F1-F4); everything
+# else below is free for the player to assign.
+# ---------------------------------------------------------------------------
+#cross=rclick
+#r+cross=f5
+#l+cross=none
+
+#circle=shift
+#r+circle=none
+#l+circle=none
+
+#square=alt         # try "square=items" for item assist (see the note below)
+#r+square=none
+#l+square=none
+
+#triangle=swap
+#r+triangle=f5    # NOTE: R+Triangle always opens the virtual keyboard first — this line is unreachable as shipped
+#l+triangle=none
+
+#up=pot1
+#r+up=f1
+#l+up=none
+
+#down=pot3
+#r+down=f3
+#l+down=none
+
+#left=pot2
+#r+left=f2
+#l+left=none
+
+#right=pot4
+#r+right=f4
+#l+right=none
+
+#start=esc
+#r+start=f6
+#l+start=none         # NOTE: L+Start always takes a screenshot first — this line is unreachable as shipped
+
+# ---------------------------------------------------------------------------
+# Button names (case-insensitive): cross/croix, circle/rond, square/carre,
+# triangle, up, down, left, right, start, select. Prefix with "r+" or "l+"
+# for that combo layer (never both on the same line).
+#
+# Action names (case-insensitive):
+#   lclick  rclick  none
+#   alt  shift  tab / automap  esc / echap
+#   items   — item assist (see below); also spelled item_assist / assist
+#   inv  perso  skills  quests  swap  space  run  enter
+#   pot1  pot2  pot3  pot4
+#   f1  f2  f3  f4  f5  f6  f7  f8
+#   vk:0xNN   — raw Windows virtual-key code, hex or decimal
+#
+# Item assist (action "items"): HOLD the button it is bound to. The game
+# shows the ground-item name labels (it is Alt held, for the game) and, while
+# you hold, the D-pad jumps the cursor from label to label and Cross picks
+# the highlighted item up. With no item on the ground the D-pad and Cross
+# keep their normal bindings. Any button, layer, l=, r= or select= can carry
+# it; "alt" stays a plain Alt. Example:  square=items
+# ---------------------------------------------------------------------------

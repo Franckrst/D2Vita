@@ -120,6 +120,20 @@ Battle.net, which is the default. It's a network-policy choice, not a
 performance lever, so it isn't part of the config above — add it to
 `env.txt` yourself if you want it. Details: [Online play](en-ligne.md).
 
+`D2_RUNEWORDS_LADDER=1` (off by default) lets **single-player** games create
+the 23 runewords 1.14d reserves to the Battle.net ladder (Spirit, Insight,
+Infinity… — the `server` column of `Runes.txt`). It only acts in a
+single-player game: TCP/IP, Open Battle.net and realm games keep the game's
+own rule, and no game file is changed.
+
+`D2_RESPEC_UNLIMITED=1` (off by default) keeps Akara's "Reset Stat/Skill
+Points" available after use, in single-player games only. The first reset
+is still earned the normal way (Den of Evil); after that it never gets used
+up. A character that already spent it before the option was turned on does
+not get it back.
+
+Both are deliberate departures from the unmodified game, so they stay opt-in.
+
 ### The picture
 
 Nothing to set: once you're in a game the game itself draws at the screen's
@@ -131,11 +145,22 @@ it is never redrawn at 960×544. `D2_HUDFILL=0` stops the HUD bar from
 filling the two gaps that its 800-wide art leaves on a 960-wide screen,
 and stops the black column between two open panels (character sheet plus
 inventory or skill tree) from being filled with the frame's own stone.
-`D2_RES_PANNEAUX=centre` centres the 800 layout as one block instead of
-keeping the panels at the screen edges (they then touch, with an 80 px
-stone strip on each side); `D2_RES_PANNEAUX=0` leaves the game its own
+Panels are centred by default (the 800 layout as one contiguous block, an
+80 px stone strip on each side — easier to drag items between inventory
+and stash than the old edge anchoring, which left a black column between
+the two). `D2_RES_PANNEAUX=bords`/`edges` goes back to the panels sitting
+at the screen edges instead; `D2_RES_PANNEAUX=0` leaves the game its own
 inventory tables and border frame (items, clicks and frame then sit off
 the panels).
+
+The game's own **Resolution** video option keeps its meaning as a zoom:
+*800×600* draws at the screen's 960×544, *640×480* draws at 848×480 — the
+original 640×480's height, stretched to the console's shape — scaled up to
+fill the screen, so characters look as big as they do at 640×480 on a PC.
+You can switch in the middle of a game. `D2_RES640=WxH` forces another size
+for that mode, `D2_RES640=0` gives back the original bordered 640×480. At
+640×480 the gaps in the HUD bar and the column between two open panels are
+filled with stone taken from the game's own inventory panel.
 
 The wider field of view a native resolution gives is an advantage in play:
 keep it to solo and private servers.

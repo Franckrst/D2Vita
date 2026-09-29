@@ -163,7 +163,13 @@ WX86="$ROOT/third_party/winx86"
 # would overwrite each other under the same archive name).
 WX86_LIBTAG=""
 [ "${D2VPK_PROF:-0}" = "1" ] && WX86_LIBTAG="_prof"
-LIBTAG="$WX86_LIBTAG" EXTRA="$PROF_DEF" TARGET=vita bash "$WX86/build.sh" >/dev/null
+# D2VPK_BLKSAMP=1: MEASUREMENT flavour of the engine — every translated block
+# publishes its x86 address on entry, for D2_TIMESAMP's time-per-block
+# profile (dynarec_arm_pass.c). Costs ~5 ARM instructions per block entry:
+# never shipped. Build it into its own D2VPK_OUT.
+WX86_EXTRA="$PROF_DEF"
+if [ "${D2VPK_BLKSAMP:-0}" = "1" ]; then WX86_LIBTAG="${WX86_LIBTAG}_blksamp"; WX86_EXTRA="$WX86_EXTRA -DD2_BLKSAMP"; fi
+LIBTAG="$WX86_LIBTAG" EXTRA="$WX86_EXTRA" TARGET=vita bash "$WX86/build.sh" >/dev/null
 DYNLIB="$WX86/build-vita/libwinx86_vita${WX86_LIBTAG}.a"
 
 CXX=arm-vita-eabi-g++
@@ -593,7 +599,18 @@ for a in "sce_sys/icon0.png" "sce_sys/livearea/contents/bg.png" \
          "sce_sys/livearea/contents/startup.png" "sce_sys/livearea/contents/template.xml"; do
   [ -f "$ROOT/$a" ] && LIVEAREA_ARGS+=(-a "$ROOT/$a=$a")
 done
-vita-pack-vpk -s "$OUT/param.sfo" -b "$OUT/eboot.bin" "${SHADER_ARGS[@]}" "${GLIDE_ARGS[@]}" "${LIVEAREA_ARGS[@]}" "$OUT/$VPKOUT" >/dev/null
+# controls.reference.txt: a fully-commented sample of every controls.txt
+# key, action and button name the parser (load_controls_txt() in
+# vita_present.cpp) actually recognises. Copied to
+# ux0:data/d2vita/controls.txt on first boot ONLY (a player's existing file
+# is never touched) so remapping starts from real, documented keys instead
+# of a blank page — Discord, 25-28/09: several players either couldn't find
+# the file's syntax or pasted one from an unrelated branch and got silent
+# no-ops. Soft dependency: an older checkout without the file still builds,
+# it just keeps the plain "mapping par defaut" boot line.
+REF_ARGS=()
+[ -f "$ROOT/controls.reference.txt" ] && REF_ARGS+=(-a "$ROOT/controls.reference.txt=controls.reference.txt")
+vita-pack-vpk -s "$OUT/param.sfo" -b "$OUT/eboot.bin" "${SHADER_ARGS[@]}" "${GLIDE_ARGS[@]}" "${LIVEAREA_ARGS[@]}" "${REF_ARGS[@]}" "$OUT/$VPKOUT" >/dev/null
 echo "== built $OUT/$VPKOUT =="
 
 # ---------------------------------------------------------------------------

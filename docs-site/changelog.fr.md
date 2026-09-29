@@ -5,6 +5,157 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.17-beta — 2026-09-29
+
+- **Deux options pour le solo, désactivées par défaut** (à ajouter dans
+  `env.txt`) :
+  - `D2_RUNEWORDS_LADDER=1` : les 23 runewords réservés au ladder (Spirit,
+    Insight, Infinity…) se fabriquent en solo.
+  - `D2_RESPEC_UNLIMITED=1` : la réinitialisation « Reset Stat/Skill
+    Points » d'Akara reste disponible après usage, une fois obtenue (la
+    Tanière du Mal).
+  Aucune n'agit en TCP/IP, Battle.net ouvert ou realm, et aucun fichier du
+  jeu n'est modifié. Elles s'écartent volontairement du jeu d'origine, d'où
+  l'activation manuelle.
+
+Bêta : les deux ont été vérifiées sur une vraie console. Inclut les
+correctifs de la 0.1.16-beta.
+
+## v0.1.16-beta — 2026-09-28
+
+- **Les ceintures à plusieurs rangs ne clignotent plus.** Survoler ou
+  glisser des potions dans une ceinture ouverte de 2 à 4 rangs la faisait
+  clignoter : le jeu recevait deux positions différentes pour la même
+  case. C'est très probablement aussi pourquoi les potions refusaient
+  parfois d'aller dans les rangs du haut — confirmez-le sur Discord.
+- **`controls.txt` : les lignes décommentées du fichier de référence
+  fonctionnent.** Le fichier de référence écrit `#l=lclick   # commentaire` ;
+  décommenter une ligne gardait le commentaire, et la ligne était rejetée
+  (par exemple `l=alt` laissait L en clic gauche). Les commentaires après
+  `#` et les espaces autour de `=` sont désormais ignorés.
+
+Bêta : les deux correctifs ont été vérifiés sur une vraie console.
+Dites-nous sur Discord si quelque chose a régressé par rapport à la 0.1.15.
+
+## v0.1.15-beta — 2026-09-28
+
+- **Les panneaux inventaire, coffre et personnage sont désormais centrés
+  par défaut.** Ils étaient ancrés aux bords de l'écran, avec une large
+  colonne noire entre deux panneaux ouverts ; ils forment maintenant un
+  seul bloc de 800 px de large (le modèle SGD2FreeRes), ce qui facilite le
+  glissement d'objets entre un inventaire et un coffre ouverts.
+  `D2_RES_PANNEAUX=bords` (ou `edges`) dans `env.txt` rétablit l'ancien
+  ancrage aux bords.
+
+Bêta : le calcul d'ancrage lui-même n'a pas changé et avait déjà été
+mesuré sur console avant de devenir le défaut, mais personne n'a encore
+regardé deux panneaux côte à côte ouverts sur cette build précise. Dites-
+nous sur Discord si quelque chose a l'air ou se clique mal.
+
+## v0.1.14-beta — 2026-09-28
+
+- **Onglet « Controls » à l'écran-titre.** Une petite icône dans la bande
+  gauche de l'écran-titre ouvre un panneau plein écran listant tous les
+  bindings réellement en vigueur — défauts + ce que `controls.txt` a
+  changé — défilable au D-pad ou en glissant, fermé par Rond ou Start.
+- **L, R et Select sont désormais remappables**, sans toucher à leur rôle
+  de préfixe de couche combo : `l=`/`r=`/`select=` dans `controls.txt`
+  changent ce que ces boutons font *seuls* (défaut : clic gauche, clic
+  droit, le menu radial). Une nouvelle couche `l+` fait le miroir de la
+  couche `r+` existante et démarre entièrement libre, à remplir par
+  chacun.
+- **Une ligne fautive de `controls.txt` le dit désormais.** Un bouton
+  inconnu, une action inconnue, ou un combo que Select n'a pas étaient
+  auparavant ignorés en silence ; chaque ligne rejetée est maintenant
+  nommée dans `boot_progress.txt`.
+- **Une copie de référence entièrement commentée de `controls.txt`** est
+  embarquée dans le VPK et copiée vers `ux0:data/d2vita/controls.txt` au
+  tout premier démarrage du jeu — elle ne remplace jamais un fichier déjà
+  présent.
+
+Bêta : démarre proprement sur console réelle, mais personne n'a encore
+testé à la main chaque nouveau remap (`l=`, `r=`, `select=`, la couche
+`l+`). Retours bienvenus sur Discord avant que ça devienne la release par
+défaut.
+
+## v0.1.13 — 2026-09-28
+
+- **Fini les à-coups de l'acte V.** Sur la patrouille scriptée de Harrogath
+  (console réelle, 110 s), les images de plus de 60 ms passent de ~25 à 3,
+  et le fps atteint le plafond du jeu lui-même : 24,0 → 25,0 img/s. La cause
+  était chez nous : un limiteur de cadence à 25 Hz, écrit pour le jeu en
+  ligne, tournait aussi en solo (il s'armait dès que `D2NET` était présent,
+  ce que la configuration par défaut fait toujours). Diablo II en solo
+  dessine déjà exactement une image par pas de simulation de 40 ms ; le
+  limiteur attendait un peu plus de 40 ms à chaque image, dérivait contre
+  l'horloge du jeu, et le jeu sautait alors un dessin toutes les quelques
+  secondes. Le limiteur est désormais désactivé par défaut. **En ligne :** il
+  n'y a plus de limiteur non plus — pas encore remesuré en ligne ; si le jeu
+  tourne trop vite dans une partie Battle.net, `D2_ONLINE_CAP=25` dans
+  `env.txt` rétablit l'ancien limiteur.
+- **Moins de calcul par image (~1,6 ms sur le fil de jeu, ~5 % d'une
+  image).** Les appels les plus fréquents du jeu vers le runtime (lectures
+  d'horloge, sections critiques — ~650 par image) sont servis depuis le code
+  traduit au lieu d'en sortir puis d'y revenir ; la DLL Glide ring copie les
+  sommets de la perspective en ligne ; `wsprintfA` n'alloue plus. Charge du
+  cœur principal sur la patrouille : ~77 % → ~74 %. Prouvé identique sous
+  qemu (image identique au pixel sur 4000 images, test de contention des
+  sections critiques) et mesuré sur console en passes entrelacées.
+- **Moins de lectures carte quand du contenu neuf arrive** : un saut lit
+  désormais 32 Kio d'avance au lieu de 8 (~60 % de lectures carte en moins
+  sur la patrouille), sans RAM supplémentaire.
+- **Sol en perspective natif (`D2_F3NATIF=1`) plus rapide**, toujours
+  optionnel : servi en ligne et écrivant ses dessins directement, ~1,25 ms de
+  plus par image sur la patrouille (0 divergence face au code du jeu sur
+  168 503 cellules comparées).
+
+## v0.1.12 — 2026-09-27
+
+- **Le sol en perspective ne clignote plus.** Dans les scènes lourdes en
+  perspective (la porte de Harrogath : ~1,3 Mo d'enregistrements Glide par
+  image), le tampon de rendu ne pouvait pas contenir à la fois l'image en
+  cours d'envoi au GPU sur le second cœur *et* la suivante, et la DLL Glide
+  jetait en silence la fin de chaque image — un morceau de sol, différent à
+  chaque image. Le fil d'envoi rend maintenant la place au fil de sa lecture
+  au lieu d'attendre la fin de l'image. Console, à la porte, perspective
+  ON : 0 enregistrement perdu, 24 img/s (un premier correctif qui envoyait
+  ces images en synchrone supprimait le clignotement mais tombait à 9 img/s).
+- **L'option Résolution du jeu zoome de nouveau.** *800×600* dessine au
+  960×544 natif de la Vita comme avant ; *640×480* dessine désormais en
+  848×480 — la hauteur du 640×480 d'origine, au format de l'écran — agrandi
+  ×1,13 en plein écran : les personnages sont aussi gros qu'en 640×480
+  natif. Avant, choisir 640×480 ne changeait que l'art du bandeau. Le
+  changement en cours de partie marche dans les deux sens (le monde
+  s'arrêtait aux deux tiers de l'écran après un passage en 640).
+  `D2_RES640=LxH` force une autre taille, `D2_RES640=0` rend le 640×480
+  d'origine, bordé. Confirmé sur console.
+- **Trous du bandeau comblés en 640×480 aussi.** Le bandeau 640 et la
+  colonne entre deux panneaux ouverts sont comblés avec la pierre du
+  panneau d'inventaire du jeu, lue dans le dessin que le jeu a déjà chargé,
+  dès le premier affichage de l'interface — pas besoin d'ouvrir un panneau
+  d'abord, et aucun art Blizzard n'est ajouté au paquet. Pas disponible
+  pour les personnages classiques (non Lord of Destruction).
+- **Les trous du bandeau ne reviennent plus avec la perspective OFF**, et la
+  colonne noire entre deux panneaux ouverts (personnage + inventaire) est de
+  nouveau comblée en 960×544 — sa position attendue n'avait pas suivi le
+  centrage vertical des panneaux. Confirmé sur console, perspective ON et
+  OFF.
+- **L'acte V tourne plus vite :** le pilote Glide annonce maintenant deux
+  unités de texture, ce qui lève le plafond de 3 Mio du cache de sprites de
+  D2 — il renvoyait ~50 textures déjà connues par image. Banc de patrouille
+  console : ~20 → ~24 img/s (le plafond du jeu est 25).
+- **Monstres qui clignotaient (Death Maulers) corrigés dans l'atlas de
+  textures :** avec deux unités de texture, l'atlas pouvait se remplir dans
+  les zones sauvages et un téléversement raté laissait l'ancien sprite lié.
+  L'atlas passe à 48 Mio, un téléversement raté laisse la texture non liée
+  plutôt que périmée, et une classe de taille pleine emprunte les pages
+  inutilisées des autres. Vérifié avec l'oracle de textures sous qemu (718
+  dessins à la mauvaise texture → 0) ; confirmation console encore en
+  attente.
+- Le journal de démarrage (`boot_progress.txt`) est maintenant écrit de
+  façon asynchrone : ses rapports périodiques ne bloquent plus le fil de jeu
+  (30 à 107 ms chacun auparavant).
+
 ## v0.1.11-beta7 — 2026-09-24
 
 - **La carte explorée est conservée d'un waypoint à l'autre (et d'une

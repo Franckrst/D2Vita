@@ -228,6 +228,9 @@ const char* d2vita_platform_init() {
     // as the next run starts (a core dump doesn't include the guest stack).
     // The previous run's log is kept as _prev.txt — just a rename at boot,
     // and it removes any need to wait before relaunching after a crash.
+    // The log keeps its descriptor open between lines: drop it first, or the
+    // lines that follow would land in the renamed _prev file.
+    wx86_vita_progress_close();
     sceIoRemove(D2VITA_PROGRESS_PATH "_prev");
     sceIoRename(D2VITA_PROGRESS_PATH, D2VITA_PROGRESS_PATH "_prev");
     sceIoRemove(D2VITA_PROGRESS_PATH);                  // fresh run
@@ -265,6 +268,10 @@ const char* d2vita_platform_init() {
         }
         fclose(ef);
     }
+    // The log switches to asynchronous writes only now: every line above
+    // (boot, rotation, env.txt) went to the file synchronously, and
+    // WX86_JOURNAL_SYNC=1 can only be honored once env.txt has been read.
+    wx86_vita_progress_async_start();
     // D2NET defaults to ON, matching the original PC game: the network
     // stack is simply available, the player still has to pick Battle.net
     // from the in-game menu to use it. D2NET=0 in env.txt opts back out to

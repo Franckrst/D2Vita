@@ -2,7 +2,8 @@
 #ifdef __vita__
 #include "runtime/gil.h"
 #include <malloc.h>
-#include "runtime/trapcnt.h"   // trap counts per slot: the denominator for the "traversals" cost line
+#include "runtime/trapcnt.h"
+#include <utility>   // trap counts per slot: the denominator for the "traversals" cost line
 #ifdef D2_TLSWRAP
 // Counter defined in rt_boot.cpp (measurement build D2VPK_TLSWRAP=1). Must be
 // declared at FILE scope: an extern "C" linkage spec is not allowed inside a
@@ -16,12 +17,15 @@ extern "C" int d2_tlswrap_dump(char*, unsigned);
 #include "platform/radial_menu.h"   // 7-sector radial menu (hold Select + left stick)
 #include "platform/pad_core.h"      // scheme v2 ("aim"): pure core
 #include "runtime/pad_state.h"      // per-frame guest snapshot (hooks)
-#include "runtime/scripted_input.h" // d2vita_vpad_get
+#include "platform/controls_help.h"   // title-screen controls-help icon/panel
+#include "platform/item_assist.h"     // item assist: ground labels + D-pad browse + Cross pick-up
 #include "runtime/text_focus_probe.h"   // d2vita_text_focus : edit box focalisee (ouverture auto du clavier)
 #include "platform/vita_gxm.h"      // d2gxm_ui_active: le menu part-il sur le GPU ?
 #include "platform/vita_host.h"        // engine: log, cores, sleep (CONSOLE-specific)
 #include "runtime/host_clock.h"           // engine: monotonic host clock
 #include "runtime/scripted_input.h"       // inj_set_bounds : le curseur injecte suit la taille du jeu
+#include "runtime/cpu.h"                  // d2rt::Cpu — screen-state reads (controls_help)
+#include "runtime/screen_state.h"         // d2_title_screen_active(cpu)
 #include "platform/present_scale.h"   // engine: generic scaling (D2_PRESENT_WX86)
 #include "crashreport/build_id.h"     // d2cr::build_id() : etiquette de build a l'ecran
 
@@ -228,6 +232,26 @@ static OverlayPub overlay_read() {
     return p;
 }
 uint32_t g_kb_last_focus = 0;         // ouverture auto du clavier : dernier focus texte vu
+// Title-screen controls-help icon/panel (src/platform/controls_help.h):
+// same benign-race model as g_kb/g_rm above — written by the input tick,
+// drawn by the presentation path. Declared here, alongside g_kb/g_rm,
+// rather than near g_ctl_prev further down (where the plan draft originally
+// placed it): d2vita_overlay() and the GDI presentation function both draw
+// this overlay and are defined ABOVE the anonymous namespace that holds
+// g_ctl_prev/g_btn[], so declaring it there would leave those two draw
+// sites referencing it before its declaration.
+d2ch::State g_ch;
+char g_ch_labels[64][64];
+// d2ch::draw() takes one array of row pointers (const char* const*), not a
+// 2D char array -- char[64][64] does NOT convert to that (different memory
+// layout: one is a flat block of bytes, the other an array of pointers).
+// This is populated to mirror g_ch_labels right after format_controls_help()
+// fills it, and is what the draw call sites below actually pass.
+const char* g_ch_lines[64];
+int  g_ch_count = 0;
+bool d2ch_title_active_cached = false;   // recomputed every ~4 ticks by
+                                          // d2vita_input_tick; read by that
+                                          // same gate and by the draw calls
 // Translucent by default: the player can still see the character/menu behind
 // the keys while typing. D2_KBALPHA=0-100 in env.txt overrides (100 = opaque,
 // the old look); read once and clamped, like every other knob here.
@@ -596,6 +620,9 @@ void d2vita_overlay(uint32_t* fb) {
     // d2gxm_ui_active()) -- opening it is already gated on that path being
     // armed (see the Select handler below), so there is no CPU fallback to
     // draw here; doing so would blend it a second time.
+    // Controls-help icon/panel: only ever active on D2's literal title
+    // screen (d2ch_title_active_cached, maintained by d2vita_input_tick).
+    if (d2ch_title_active_cached) d2ch::draw(g_ch, fb, SCR_W, SCR_H, g_ch_count ? g_ch_lines : nullptr);
 }
 
 const d2kb::State* d2vita_kb_state() { return g_kb.open ? &g_kb : nullptr; }
@@ -808,6 +835,11 @@ void do_scale_and_flip(const PresentSlot* sfr) {
     if (fps_en < 0) { const char* e = getenv("D2VITA_FPS"); fps_en = (e && *e && std::strcmp(e, "0") != 0); }   // off by default; D2VITA_FPS=1 to show
     if (fps_en) draw_fps(dst, sfr->fps10);
     if (g_kb.open) draw_keyboard(dst);
+    // Controls-help icon/panel: same gate as the sceGxm overlay path above
+    // (d2vita_overlay) — this is the GDI/historical presentation path's own
+    // copy, needed so the overlay is visible whichever path is actually
+    // presenting the title screen.
+    if (d2ch_title_active_cached) d2ch::draw(g_ch, dst, SCR_W, SCR_H, g_ch_count ? g_ch_lines : nullptr);
     SceDisplayFrameBuf fb;
     std::memset(&fb, 0, sizeof fb);
     fb.size        = sizeof fb;
@@ -994,6 +1026,7 @@ extern "C" {
     extern int dyn86_intrin_on;
     int dyn86_intrin_report(char* out, unsigned cap);
     extern unsigned long long d2_proj_ver_n, d2_proj_ver_bad, d2_proj_ver_skip;
+    int d2_intrin_verify_line(char* out, unsigned cap);   // d2_intrin_114.cpp: lut/lgrid/lfill oracle
 }
 extern "C" size_t d2rt_box86_custommalloc_kb(void);   // custommem.c: box86 allocation categories
 extern "C" size_t d2rt_box86_jmptbl_kb(void);
@@ -1041,6 +1074,13 @@ extern "C" { extern uint32_t d2rt_timeprof_base; }   // guest module base (cpu_b
 // samples are kept WITH their timestamp, and rt_boot retroactively keeps only
 // the ones that fall inside a frame that exceeded the threshold.
 extern "C" {
+    extern volatile uint32_t dyn86_blksamp_ip;        // D2_BLKSAMP flavour (engine, dyn86.c)
+    extern const int dyn86_blksamp_built;
+    // DBGetBlock counters (engine, dynablock.c): always defined, counted only
+    // in the D2_BLKSAMP flavour.
+    extern volatile unsigned long long dyn86_dbg_calls, dyn86_dbg_tests, dyn86_dbg_hashb, dyn86_dbg_inval, dyn86_dbg_always;
+    extern volatile uint32_t d2rt_frame_now;          // frame_profile.cpp (needs WX86_FRAMEPROF)
+    const char* wx86_slot_tag(uint32_t idx);          // engine, bridge.cpp
     volatile uint32_t d2rt_ts_w = 0;                  // write index
     uint64_t d2rt_ts_t[4096];                         // timestamp (us)
     uint32_t d2rt_ts_ip[4096];                        // guest EIP
@@ -1062,7 +1102,63 @@ volatile bool g_wd_stop = false;
 // sample represents equal time and the resulting shares are genuine time
 // shares.
 volatile bool g_ts_stop = false;
+// ---- D2_BLKSAMP: whole-window block profile, dumped once ------------------
+// The 10 s top-8 above cannot rank functions: a function is spread over tens
+// of blocks. Here every sample between frames D2_TIMESAMP_FROM and
+// D2_TIMESAMP_TO (default: the Act V patrol window, 2800-5700) goes into one
+// table, dumped in full at the end as "blksamp:" lines (rva=n, or
+// S<slot>=n for time inside a shim). tools/bancs/blksamp_fonctions.py folds
+// blocks into their enclosing functions offline.
+struct BsEnt { unsigned ip, n; };
+static BsEnt  g_bs[16384];
+static unsigned g_bsFrom = 2800, g_bsTo = 5700, g_bsState = 0;   // 0 before, 1 counting, 2 dumped
+static unsigned long long g_bsTot = 0, g_bsDrop = 0, g_bsIdle = 0;
+static void bs_note(unsigned ip) {
+    const unsigned fr = d2rt_frame_now;
+    if (g_bsState == 0) { if (fr < g_bsFrom) return; g_bsState = 1; }
+    if (g_bsState == 2) return;
+    if (fr > g_bsTo) {
+        g_bsState = 2;
+        char m[1000]; int w = std::snprintf(m, sizeof m,
+            "blksamp: fenetre f%u-f%u echantillons=%llu vides=%llu perdus=%llu base=%x",
+            g_bsFrom, g_bsTo, g_bsTot, g_bsIdle, g_bsDrop, d2rt_timeprof_base);
+        d2vita_progress(m);
+        w = std::snprintf(m, sizeof m, "blk:"); int k = 0;
+        for (unsigned i = 0; i < 16384; ++i) {
+            const BsEnt& e = g_bs[i]; if (!e.ip) continue;
+            if ((e.ip & 0xFFFF0000u) == 0xFFFD0000u) {
+                // ENGINE stage of a trap round trip (cpu_box86.cpp BLKSAMP_STAGE).
+                w += std::snprintf(m + w, sizeof m - w, " E%u=%u", e.ip & 0xFFFFu, e.n);
+            } else if ((e.ip & 0xFFFF0000u) == 0xFFFE0000u) {
+                // A native port's PHASE marker (e.g. native_f3_114.cpp PH()).
+                w += std::snprintf(m + w, sizeof m - w, " P%u=%u", e.ip & 0xFFFFu, e.n);
+            } else if ((e.ip & 0xFFFF0000u) == 0xFFFF0000u) {
+                const char* t = wx86_slot_tag(e.ip & 0xFFFFu); const char* b = t ? std::strchr(t, '!') : nullptr;
+                w += std::snprintf(m + w, sizeof m - w, " S%s=%u", b ? b + 1 : (t ? t : "?"), e.n);
+            } else if (d2rt::trapcnt::base && e.ip >= d2rt::trapcnt::base && e.ip < d2rt::trapcnt::base + (d2rt::trapcnt::kMax << 4)) {
+                // A translated block AT a trap slot: the dispatch into the
+                // Bridge before the shim body starts, or an intrinsic served
+                // inline (it never enters the Bridge, so never sets S<slot>).
+                const char* t = wx86_slot_tag((e.ip - d2rt::trapcnt::base) >> 4); const char* b = t ? std::strchr(t, '!') : nullptr;
+                w += std::snprintf(m + w, sizeof m - w, " T%s=%u", b ? b + 1 : (t ? t : "?"), e.n);
+            } else w += std::snprintf(m + w, sizeof m - w, " %x=%u", e.ip - d2rt_timeprof_base, e.n);
+            if (++k == 40 || w > 900) { d2vita_progress(m); w = std::snprintf(m, sizeof m, "blk:"); k = 0; }
+        }
+        if (k) d2vita_progress(m);
+        d2vita_progress("blksamp: fin");
+        return;
+    }
+    ++g_bsTot;
+    if (!ip) { ++g_bsIdle; return; }
+    unsigned h = (ip * 2654435761u) >> 18, i = 0;
+    for (; i < 64; ++i) { BsEnt& t = g_bs[(h + i) & 16383];
+        if (t.ip == ip) { ++t.n; return; }
+        if (!t.ip) { t.ip = ip; t.n = 1; return; } }
+    ++g_bsDrop;
+}
 int timesamp_thread(SceSize, void*) {
+    if (const char* e = std::getenv("D2_TIMESAMP_FROM")) g_bsFrom = (unsigned)std::atoi(e);
+    if (const char* e = std::getenv("D2_TIMESAMP_TO"))   g_bsTo   = (unsigned)std::atoi(e);
     const char* e = std::getenv("D2_TIMESAMP");
     const unsigned per_us = (e && *e && *e != '0') ? (unsigned)std::atoi(e) : 0;
     if (!per_us) return 0;
@@ -1073,7 +1169,11 @@ int timesamp_thread(SceSize, void*) {
     uint64_t t_pub = sceKernelGetProcessTimeWide();
     while (!g_ts_stop) {
         sceKernelDelayThread(per_us);
-        const unsigned ip = g_wd_eip ? *g_wd_eip : 0u;
+        // Block flavour (-DD2_BLKSAMP): the word written at every block entry
+        // and at every shim entry — the code running NOW. Otherwise the emu's
+        // EIP, only refreshed at dispatcher exits (biased, audit §4).
+        const unsigned ip = dyn86_blksamp_built ? (unsigned)dyn86_blksamp_ip : (g_wd_eip ? *g_wd_eip : 0u);
+        if (dyn86_blksamp_built) bs_note(ip);
         { const uint32_t w = d2rt_ts_w & 4095u;
           d2rt_ts_t[w] = sceKernelGetProcessTimeWide(); d2rt_ts_ip[w] = ip;
           d2rt_ts_w = d2rt_ts_w + 1; }
@@ -1197,19 +1297,66 @@ int watchdog_thread(SceSize, void*) {
         // Native ports: served count per target + total fallbacks. This is
         // what tells you, on console, whether a port even ran at all — and
         // a rising fallback count means the fast-path condition isn't holding.
-        { char h[224];
+        { char h[320];
           // blit=: the CELL blit (g_blitN). The single biggest item in the
           // rendering budget, and it used to be published only at shutdown —
           // invisible on any bench run. Without it, "cells per frame" can't
           // be computed, the missing denominator for every rendering lever.
           // lent= is the virtual-path fallback: rising means the fast-path
           // condition isn't holding and the expected gain isn't there.
+          // dcc=<servis>/<replis> ko=<octets decodes>: the native DCC decoder,
+          // cumulative. A delta that never settles while the scene is static
+          // is a sprite cache too small for the zone -- invisible before,
+          // the [dcc] line only came out at shutdown.
           std::snprintf(h, sizeof h,
-                        "hot: grille=%llu coll=%llu rle=%llu lum=%llu blend=%llu expl=%llu blit=%llu lent=%llu",
+                        "hot: grille=%llu coll=%llu rle=%llu lum=%llu blend=%llu expl=%llu blit=%llu lent=%llu dcc=%llu/%llu ko=%llu",
                         d2rt_hot_stat(0), d2rt_hot_stat(1), d2rt_hot_stat(2),
                         d2rt_hot_stat(3), d2rt_hot_stat(4), d2rt_hot_stat(5),
-                        d2rt_hot_stat(11), d2rt_hot_stat(13));
+                        d2rt_hot_stat(11), d2rt_hot_stat(13),
+                        d2rt_hot_stat(100), d2rt_hot_stat(101), d2rt_hot_stat(102) >> 10);
           d2vita_progress(h);
+          // Per-core occupancy over the window, from the kernel's own idle
+          // clocks. Every other line here is per-subsystem; none of them sums
+          // to the wall, so "CPU-bound or waiting" was never answerable. A
+          // core with neither idle nor switch movement is printed "-" (not
+          // active for us), never as 100 %. The raw c0 idle delta is kept on
+          // the line so the unit can be checked against the window: an
+          // occupancy figure whose unit was never verified is not a figure.
+          { static SceKernelSystemInfo prev; static uint64_t prevT = 0; static bool armed = false;
+            SceKernelSystemInfo si; std::memset(&si, 0, sizeof si); si.size = sizeof si;
+            const int rs = sceKernelGetSystemInfo(&si);
+            const uint64_t now = sceKernelGetProcessTimeWide();
+            if (rs < 0) {
+                char c[112]; std::snprintf(c, sizeof c, "cpu: sceKernelGetSystemInfo rc=0x%08x -- census indisponible", (unsigned)rs);
+                d2vita_progress(c);
+            } else if (!armed) {
+                armed = true; prev = si; prevT = now;
+                char c[112]; std::snprintf(c, sizeof c, "cpu: census arme (activeCpuMask=0x%08x)", (unsigned)si.activeCpuMask);
+                d2vita_progress(c);
+            } else {
+                const uint64_t win = now - prevT;
+                char c[288]; int w = std::snprintf(c, sizeof c, "cpu(10s): occupes");
+                for (int k = 0; k < 4 && w < (int)sizeof c - 40; ++k) {
+                    const uint64_t idle = si.cpuInfo[k].idleClock - prev.cpuInfo[k].idleClock;
+                    const uint32_t sw = si.cpuInfo[k].threadSwitchCount - prev.cpuInfo[k].threadSwitchCount;
+                    if (!idle && !sw) { w += std::snprintf(c + w, sizeof c - w, " c%d=-", k); continue; }
+                    if (!win || idle > win) { w += std::snprintf(c + w, sizeof c - w, " c%d=?(idle>fenetre)", k); continue; }
+                    w += std::snprintf(c + w, sizeof c - w, " c%d=%u%%", k, (unsigned)((win - idle) * 100ull / win));
+                }
+                if (w < (int)sizeof c - 40)
+                    w += std::snprintf(c + w, sizeof c - w, " | commutations/s");
+                for (int k = 0; k < 4 && w < (int)sizeof c - 24; ++k) {
+                    const uint32_t sw = si.cpuInfo[k].threadSwitchCount - prev.cpuInfo[k].threadSwitchCount;
+                    w += std::snprintf(c + w, sizeof c - w, " c%d=%llu", k, win ? (unsigned long long)sw * 1000000ull / win : 0ull);
+                }
+                if (w < (int)sizeof c - 24)
+                    std::snprintf(c + w, sizeof c - w, " | brut: fenetre=%lluus c0-idle=%lluus",
+                                  (unsigned long long)win,
+                                  (unsigned long long)(si.cpuInfo[0].idleClock - prev.cpuInfo[0].idleClock));
+                d2vita_progress(c);
+                prev = si; prevT = now;
+            }
+          }
           // Sized 480, not 288: the engine's line carries several numeric
           // fields (peak, rms, gain0, output-error, flow) and was close to
           // truncation. The engine only appends the embedder's codec
@@ -1279,6 +1426,44 @@ int watchdog_thread(SceSize, void*) {
                     (unsigned long long)tot, (unsigned long long)dT, dF,
                     (unsigned long long)(dF > 0 ? dT / (uint64_t)dF : 0));
                 d2vita_progress(tp);
+                // D2_TRAPTOP=1: the 12 busiest slots of the window, per frame,
+                // named — shims AND intrinsics (trapcnt counts both). Says
+                // which traps make up the ~1000 round trips per frame.
+                static int s_top = -1; if (s_top < 0) s_top = std::getenv("D2_TRAPTOP") ? 1 : 0;
+                static uint64_t s_prevHit[d2rt::trapcnt::kMax];
+                if (s_top && dF > 0) {
+                    uint32_t best[12]; uint64_t bv[12]; int nb = 0;
+                    for (uint32_t i = 0; i < d2rt::trapcnt::kMax; ++i) {
+                        const uint64_t d = d2rt::trapcnt::hits[i] - s_prevHit[i];
+                        s_prevHit[i] = d2rt::trapcnt::hits[i];
+                        if (!d) continue;
+                        int j;
+                        if (nb < 12) j = nb++;
+                        else if (bv[11] < d) j = 11;
+                        else continue;
+                        best[j] = i; bv[j] = d;
+                        for (; j > 0 && bv[j-1] < bv[j]; --j) { std::swap(bv[j], bv[j-1]); std::swap(best[j], best[j-1]); }
+                    }
+                    char tt[900]; int w = std::snprintf(tt, sizeof tt, "traps/top:");
+                    for (int k = 0; k < nb && w < (int)sizeof tt - 64; ++k) {
+                        const char* t = wx86_slot_tag(best[k]); const char* b = t ? std::strchr(t, '!') : nullptr;
+                        w += std::snprintf(tt + w, sizeof tt - w, " %s=%llu", b ? b + 1 : (t ? t : "?"),
+                                           (unsigned long long)(bv[k] / (uint64_t)dF));
+                    }
+                    d2vita_progress(tt);
+                }
+                if (dyn86_blksamp_built && dF > 0) {
+                    static unsigned long long pc = 0, pt = 0, ph = 0, pi = 0, pa = 0;
+                    const unsigned long long c = dyn86_dbg_calls, t = dyn86_dbg_tests, h = dyn86_dbg_hashb,
+                                             iv = dyn86_dbg_inval, al = dyn86_dbg_always;
+                    char dg[240];
+                    std::snprintf(dg, sizeof dg,
+                        "dbgetblock: appels=%llu/img test+hachage=%llu/img (%llu o/img) toujours-teste=%llu/img invalides=%llu",
+                        (c - pc) / (unsigned long long)dF, (t - pt) / (unsigned long long)dF,
+                        (h - ph) / (unsigned long long)dF, (al - pa) / (unsigned long long)dF, iv - pi);
+                    d2vita_progress(dg);
+                    pc = c; pt = t; ph = h; pi = iv; pa = al;
+                }
                 s_prevTraps = tot; s_prevFrames = fr;
             } }
           // Cell-loop fork-join (D2_CELLPAR). The final report never arrives
@@ -1443,7 +1628,7 @@ int watchdog_thread(SceSize, void*) {
           // line prints AS SOON AS the mechanism is armed, so "served=0" is
           // itself a readable result instead of an unexplained silence.
           if (dyn86_intrin_on) {
-              char it[320];
+              char it[1024];
               if (dyn86_intrin_report(it, sizeof it) > 0) d2vita_progress(it);
               if (d2_proj_ver_n) {
                   char v[128];
@@ -1454,6 +1639,7 @@ int watchdog_thread(SceSize, void*) {
                                 (unsigned long long)d2_proj_ver_skip);
                   d2vita_progress(v);
               }
+              { char v[240]; if (d2_intrin_verify_line(v, sizeof v) > 0) d2vita_progress(v); }
           }
           // memintrin (D2_MEMINTRIN): same window, same reason as "mmu:". The
           // only place this used to be published was main()'s end-of-run
@@ -1681,20 +1867,33 @@ void d2vita_watchdog_start(const unsigned long long* pump_count, const int* fram
 //   L=left click (held)  R=right click (held)  Square(held)=Alt
 //   Cross=R walk/run toggle  Circle=Shift (held)  Triangle=W weapon swap
 //   D-pad = belt potions 1-4  |  Start=Escape
-//   R is ALSO the combo layer (its own click is independent of this role):
+//   R is ALSO the r+ combo layer (its own click is independent of this
+//   role), and L is likewise the l+ combo layer (free/unbound by default):
 //   R+Triangle=virtual keyboard  R+D-pad=F1..F4  R+Select=Space
 //   Select = radial menu (see radial_menu.h): skill tree, quests, automap,
 //   inventory, chat, party, character — replaces the older R+Cross=C,
 //   R+Circle=S, R+Square=Q, Triangle=Tab bindings. The virtual keyboard opens
 //   via R+Triangle (Triangle alone still swaps weapons).
 // Remap without a rebuild: ux0:data/d2vita/controls.txt ("cross=rclick",
-// "r+triangle=f5", "orbit=140", "sens=10", "deadzone=0.25", "anchor_y=470").
+// "r+triangle=f5", "l+circle=perso", "l=rclick", "r=none",
+// "select=inv", "orbit=140", "sens=10", "deadzone=0.25", "anchor_y=470").
+// A reference copy, fully commented, ships at app0:controls.reference.txt
+// and is copied to ux0:data/d2vita/controls.txt on first boot only (never
+// overwrites a file the player already has). Every rejected key or value in
+// an existing controls.txt is now named in boot_progress.txt instead of
+// silently doing nothing (see load_controls_txt()'s `warn` lambda).
 extern "C" { __attribute__((weak)) void d2gxm_shot_request(void); }
 extern "C" void d2vita_inject(const char* act, int a, int b);
 namespace {
-enum { A_NONE=0, A_LMB=1, A_RMB=2, A_KEY=3 };
+// A_ITEMS: item assist (held). Shows the ground-item labels by holding Alt
+// for the game, and while held the D-pad browses those labels and Cross
+// picks the focused one up — see platform/item_assist.h.
+enum { A_NONE=0, A_LMB=1, A_RMB=2, A_KEY=3, A_ITEMS=4 };
 struct Act { int kind; int vk; };
-struct BtnMap { uint32_t bit; Act base, layer; };
+// llayer: the L+ combo, mirroring layer's R+ role. Free (A_NONE) on every
+// entry by default — l+ is purely opt-in via controls.txt, unlike r+ which
+// ships four bindings (F1-F4) out of the box.
+struct BtnMap { uint32_t bit; Act base, layer, llayer; };
 // D2_LAGMARK=0 disables the freeze marker (up arrow); it arms automatically
 // whenever D2_LAGWATCH is present, since it's meaningless without it. Cost:
 // one bit test per controller read (30 Hz).
@@ -1713,20 +1912,39 @@ constexpr uint32_t B_SELECT=0x000001, B_START=0x000008, B_UP=0x000010, B_RIGHT=0
 BtnMap g_btn[] = {
     // Cross/Circle carry the role L used to hold alone (L/R are now the
     // click buttons, handled separately — see the L/R block further below).
-    { B_CROSS,  {A_KEY,0x52}, {A_NONE,0} },      // Cross: R, walk/run (toggle) | R+: free
-    { B_CIR,    {A_KEY,0x10}, {A_NONE,0} },     // Circle: Shift (held)         | R+: free
-    { B_SQR,    {A_KEY,0x12}, {A_NONE,0} },     // Square: Alt      | R+: (free: Q lives in the radial menu)
-    { B_TRI,    {A_KEY,0x57}, {A_NONE,0} },     // Tri  : W weapon swap | R+: keyboard (handled separately)
-    { B_UP,     {A_KEY,0x31}, {A_KEY,0x70} },   // ^ potion1       | R+: F1
-    { B_LEFT,   {A_KEY,0x32}, {A_KEY,0x71} },   // < potion2       | R+: F2
-    { B_DOWN,   {A_KEY,0x33}, {A_KEY,0x72} },   // v potion3       | R+: F3
-    { B_RIGHT,  {A_KEY,0x34}, {A_KEY,0x73} },   // > potion4       | R+: F4
-    { B_START,  {A_KEY,0x1B}, {A_NONE,0} },     // Start: ESCAPE | R+Start = keyboard (handled separately)
+    { B_CROSS,  {A_KEY,0x52}, {A_NONE,0}, {A_NONE,0} },      // Cross: R, walk/run (toggle) | R+: free | L+: free
+    { B_CIR,    {A_KEY,0x10}, {A_NONE,0}, {A_NONE,0} },     // Circle: Shift (held)         | R+: free | L+: free
+    { B_SQR,    {A_KEY,0x12}, {A_NONE,0}, {A_NONE,0} },     // Square: Alt      | R+: (free: Q lives in the radial menu) | L+: free
+    { B_TRI,    {A_KEY,0x57}, {A_NONE,0}, {A_NONE,0} },     // Tri  : W weapon swap | R+: keyboard (handled separately) | L+: free
+    { B_UP,     {A_KEY,0x31}, {A_KEY,0x70}, {A_NONE,0} },   // ^ potion1       | R+: F1 | L+: free
+    { B_LEFT,   {A_KEY,0x32}, {A_KEY,0x71}, {A_NONE,0} },   // < potion2       | R+: F2 | L+: free
+    { B_DOWN,   {A_KEY,0x33}, {A_KEY,0x72}, {A_NONE,0} },   // v potion3       | R+: F3 | L+: free
+    { B_RIGHT,  {A_KEY,0x34}, {A_KEY,0x73}, {A_NONE,0} },   // > potion4       | R+: F4 | L+: free
+    { B_START,  {A_KEY,0x1B}, {A_NONE,0}, {A_NONE,0} },     // Start: ESCAPE | R+Start: free | L+Start = screenshot (handled separately, always wins over l+ below)
     // Select is handled separately (see below): opens the radial menu
-    // (7 sectors) immediately; R+Select = Space.
+    // (7 sectors) immediately, unless remapped with controls.txt's
+    // top-level `select=`; R+Select = Space always.
 };
+// L and R's OWN action when held alone (not a g_btn entry: L/R are also the
+// r+/l+ combo-layer prefixes for every button above, which is independent of
+// what pressing L or R *by itself* does). Remappable via controls.txt's
+// top-level `l=`/`r=`; default to the historical hold-to-click behaviour.
+// KNOWN LIMITATION: lclick/rclick track ONE shared g_lmb_btn/g_rmb_sent
+// flag each, not per-source — binding l= AND r= to the same click would let
+// releasing either one drop it while the other is still held. Nobody asked
+// for that combination; not worth a per-source ref-count for it here.
+Act g_l_act = {A_LMB,0}, g_r_act = {A_RMB,0};
+Act g_l_engaged = {A_NONE,0}, g_r_engaged = {A_NONE,0};
+// Select's OWN action when pressed alone, remappable via top-level
+// `select=`. A_NONE (the default) keeps the radial menu; any other Act
+// bypasses it and fires directly instead — R+Select stays Space either way.
+Act g_select_act = {A_NONE,0};
 float g_cx=400.f, g_cy=300.f;                    // cursor, GAME coords
 bool  g_lmb_stick=false, g_lmb_btn=false, g_lmb_sent=false, g_rmb_sent=false;
+// Item assist. g_ia_refs counts the held buttons bound to it (l=/r=/select=/
+// any g_btn layer can each carry it); g_ia_lmb is its own held left button,
+// separate from the stick and the L/R clicks so none of them can drop it.
+d2ia::State g_ia; int g_ia_refs=0; bool g_ia_lmb=false, g_ia_cross_owned=false;
 uint32_t g_ctl_prev=0; bool g_ctl_init=false;
 // Orbit radius for direct-movement mode; still adjustable without a rebuild
 // via controls.txt orbit=N.
@@ -1742,8 +1960,9 @@ int   g_in_hz=0, g_tap_ticks=15;
 int   g_t_at=-1, g_t_x=0, g_t_y=0, g_t_x0=0, g_t_y0=0; bool g_t_moved=false;
 Act g_engaged[sizeof g_btn / sizeof *g_btn];
 // Select: opens the radial menu on press (no direct fallback); R+Select = Space.
-enum { SEL_IDLE=0, SEL_SPACE, SEL_RADIAL };
+enum { SEL_IDLE=0, SEL_SPACE, SEL_RADIAL, SEL_CUSTOM };
 int g_sel_mode = SEL_IDLE;
+Act g_sel_engaged = {A_NONE,0};   // engaged Act while g_sel_mode==SEL_CUSTOM
 
 // ---- scheme v2 ("aim") — mapping documented in docs-site/controles.md
 bool         g_scheme_aim = true;          // controls.txt scheme=aim|mouse ; env D2_PAD=0 forces mouse
@@ -1791,6 +2010,7 @@ bool parse_act(const char* v, Act* out){
     struct E { const char* n; Act a; };
     static const E T[] = {
         {"lclick",{A_LMB,0}},{"rclick",{A_RMB,0}},{"none",{A_NONE,0}},
+        {"items",{A_ITEMS,0}},{"item_assist",{A_ITEMS,0}},{"assist",{A_ITEMS,0}},
         {"alt",{A_KEY,0x12}},{"shift",{A_KEY,0x10}},{"tab",{A_KEY,0x09}},{"automap",{A_KEY,0x09}},
         {"esc",{A_KEY,0x1B}},{"echap",{A_KEY,0x1B}},{"inv",{A_KEY,0x49}},{"perso",{A_KEY,0x43}},
         {"skills",{A_KEY,0x54}},{"quests",{A_KEY,0x51}},{"swap",{A_KEY,0x57}},{"space",{A_KEY,0x20}},
@@ -1813,51 +2033,183 @@ uint32_t name_bit(const char* n){
 }
 void load_controls_txt(){
     FILE* f = fopen("ux0:data/d2vita/controls.txt","r");
-    if (!f) { d2vita_progress("input: mapping par defaut"); return; }
+    if (!f) {
+        // First boot, or the file was deleted: seed a fully-commented
+        // reference copy from the VPK (app0:controls.reference.txt) so the
+        // player finds real, documented keys under ux0:data/d2vita/ instead
+        // of nothing — see docs-site/controles.md. Never overwrites: this
+        // whole branch only runs when the fopen("r") just above failed.
+        // The default mapping still applies for THIS boot either way; the
+        // seeded file (being all comments plus the shipped defaults) takes
+        // effect starting next boot.
+        FILE* ref = fopen("app0:controls.reference.txt","r");
+        if (ref) {
+            FILE* out = fopen("ux0:data/d2vita/controls.txt","w");
+            if (out) {
+                char buf[512]; size_t r;
+                while ((r=fread(buf,1,sizeof buf,ref))>0) fwrite(buf,1,r,out);
+                fclose(out);
+                d2vita_progress("input: controls.txt de reference copie (ux0:data/d2vita/controls.txt)");
+            }
+            fclose(ref);
+        } else {
+            d2vita_progress("input: mapping par defaut");
+        }
+        return;
+    }
     // 1024, not 96: an input script (D2SCRIPT) can run several hundred
     // characters, and silently truncating it would launch a different
     // scenario than the one intended.
-    char line[1024]; int n=0;
+    char line[1024]; int n=0, bad=0;
+    // A bad line is silently DROPPED, not applied — but silent is exactly
+    // what confused players pasting a controls.txt from a different branch
+    // or build (scheme=, aim=, cone=... keys this parser has never known):
+    // the file "did nothing" with no clue why. Every rejected key/value now
+    // gets one boot_progress line, capped so a genuinely garbled file can't
+    // flood the log the watchdog and bug reports both read.
+    constexpr int MAX_WARN = 8;
+    // The reference file writes "#l=lclick   # comment": a player who
+    // uncomments it gets a trailing comment and padding, so cut at '#' and
+    // trim key and value — no valid action or button name contains either.
+    auto trim=[](char* s){ while(*s==' '||*s=='\t') ++s;
+        char* e=s+strlen(s); while(e>s&&(e[-1]==' '||e[-1]=='\t')) *--e=0; return s; };
     while (fgets(line,sizeof line,f)) {
         char* nl=strpbrk(line,"\r\n"); if(nl)*nl=0;
-        if(!line[0]||line[0]=='#') continue;
-        char* eq=strchr(line,'='); if(!eq||eq==line) continue; *eq=0; char* v=eq+1;
-        if      (!strcasecmp(line,"orbit"))   { g_orbit=atoi(v); n++; continue; }
-        else if (!strcasecmp(line,"sens"))    { g_sens=(float)atof(v); n++; continue; }
-        else if (!strcasecmp(line,"deadzone")){ g_dz=(float)atof(v); n++; continue; }
-        else if (!strcasecmp(line,"anchor_y")){ g_anchor_y_pm=atoi(v); n++; continue; }
-        else if (!strcasecmp(line,"scheme"))   { g_scheme_aim = strcasecmp(v,"mouse")!=0; n++; continue; }
-        else if (!strcasecmp(line,"aim"))      { g_padcfg.aim = atoi(v)!=0; n++; continue; }
-        else if (!strcasecmp(line,"orbit_min")){ g_padcfg.orbitMin=atoi(v); n++; continue; }
-        else if (!strcasecmp(line,"orbit_max")){ g_padcfg.orbitMax=atoi(v); n++; continue; }
-        else if (!strcasecmp(line,"range_min")){ g_padcfg.rangeMin=atoi(v); n++; continue; }
-        else if (!strcasecmp(line,"range_max")){ g_padcfg.rangeMax=atoi(v); n++; continue; }
-        else if (!strcasecmp(line,"cone"))     { g_padcfg.coneDeg=(float)atof(v); n++; continue; }
-        else if (!strcasecmp(line,"hover_h"))  { g_padcfg.hoverH=atoi(v); n++; continue; }
-        else if (!strcasecmp(line,"hud_h"))    { g_padcfg.hudH=atoi(v); n++; continue; }
-        else if (!strcasecmp(line,"reach"))    { g_padcfg.reach=atoi(v); n++; continue; }
+        char* hash=strchr(line,'#'); if(hash)*hash=0;
+        char* k=trim(line);
+        if(!k[0]) continue;
+        char raw[80]; snprintf(raw,sizeof raw,"%s",k);   // pre-split copy, for the warning text
+        char* eq=strchr(k,'='); if(!eq||eq==k) continue; *eq=0; char* v=trim(eq+1);
+        k=trim(k);
+        auto warn=[&](const char* why){
+            ++bad;
+            if (bad<=MAX_WARN){ char m[128]; snprintf(m,sizeof m,"input: controls.txt ignore \"%s\" (%s)",raw,why); d2vita_progress(m); }
+        };
+        if      (!strcasecmp(k,"orbit"))    { g_orbit=atoi(v); n++; continue; }
+        else if (!strcasecmp(k,"sens"))     { g_sens=(float)atof(v); n++; continue; }
+        else if (!strcasecmp(k,"deadzone")) { g_dz=(float)atof(v); n++; continue; }
+        else if (!strcasecmp(k,"anchor_y")) { g_anchor_y_pm=atoi(v); n++; continue; }
+        else if (!strcasecmp(k,"scheme")) { g_scheme_aim = strcasecmp(v,"mouse")!=0; n++; continue; }
+        else if (!strcasecmp(k,"aim")) { g_padcfg.aim = atoi(v)!=0; n++; continue; }
+        else if (!strcasecmp(k,"orbit_min")){ g_padcfg.orbitMin=atoi(v); n++; continue; }
+        else if (!strcasecmp(k,"orbit_max")){ g_padcfg.orbitMax=atoi(v); n++; continue; }
+        else if (!strcasecmp(k,"range_min")){ g_padcfg.rangeMin=atoi(v); n++; continue; }
+        else if (!strcasecmp(k,"range_max")){ g_padcfg.rangeMax=atoi(v); n++; continue; }
+        else if (!strcasecmp(k,"cone")) { g_padcfg.coneDeg=(float)atof(v); n++; continue; }
+        else if (!strcasecmp(k,"hover_h")) { g_padcfg.hoverH=atoi(v); n++; continue; }
+        else if (!strcasecmp(k,"hud_h")) { g_padcfg.hudH=atoi(v); n++; continue; }
+        else if (!strcasecmp(k,"reach")) { g_padcfg.reach=atoi(v); n++; continue; }
         // slot1..slot7 = hostile | ground | corpse -- what that skill slot
         // aims at. Ground so teleport lands where you point instead of on the
         // monster; corpse so the necromancer's corpse skills see the dead,
         // which the hostile filter drops by construction.
-        else if (!strncasecmp(line,"slot",4) && line[4]>='1' && line[4]<='7' && !line[5]) {
-            const int idx = line[4]-'1';
+        else if (!strncasecmp(k,"slot",4) && k[4]>='1' && k[4]<='7' && !k[5]) {
+            const int idx = k[4]-'1';
             if      (!strcasecmp(v,"ground")) g_padcfg.slotKind[idx]=pad::T_GROUND;
             else if (!strcasecmp(v,"corpse")) g_padcfg.slotKind[idx]=pad::T_CORPSE;
             else                              g_padcfg.slotKind[idx]=pad::T_HOSTILE;
             n++; continue;
         }
-        bool layer = !strncasecmp(line,"r+",2);
-        uint32_t bit = name_bit(layer?line+2:line);
-        Act a; if (!bit || !parse_act(v,&a)) continue;
-        for (BtnMap& m : g_btn) if (m.bit==bit) { (layer?m.layer:m.base)=a; n++; }
+        else if (!strcasecmp(k,"l"))        { if(parse_act(v,&g_l_act)) n++; else warn("action inconnue"); continue; }
+        else if (!strcasecmp(k,"r"))        { if(parse_act(v,&g_r_act)) n++; else warn("action inconnue"); continue; }
+        else if (!strcasecmp(k,"select"))   { if(parse_act(v,&g_select_act)) n++; else warn("action inconnue"); continue; }
+        bool r_layer = !strncasecmp(k,"r+",2);
+        bool l_layer = !r_layer && !strncasecmp(k,"l+",2);
+        uint32_t bit = name_bit((r_layer||l_layer)?k+2:k);
+        if (!bit) { warn("bouton inconnu"); continue; }
+        Act a; if (!parse_act(v,&a)) { warn("action inconnue"); continue; }
+        // Select resolves a valid bit (name_bit knows it) but has no
+        // g_btn[] entry: its base action is the dedicated `select=` branch
+        // above (which always intercepts the plain form before this point),
+        // and it has no combo layer at all — R+Select is hardcoded to
+        // Space, never remappable. Without this check, "r+select=" or
+        // "l+select=" would match zero g_btn entries and vanish with
+        // neither effect nor warning.
+        if (bit == B_SELECT) { warn("select ne prend pas de couche r+/l+"); continue; }
+        bool matched=false;
+        for (BtnMap& m : g_btn) if (m.bit==bit) { (r_layer?m.layer:l_layer?m.llayer:m.base)=a; n++; matched=true; }
+        if (!matched) warn("bouton sans effet");
     }
     fclose(f);
     g_padcfg.deadzone = g_dz; g_padcfg.sens = g_sens;
-    char m[64]; snprintf(m,sizeof m,"input: controls.txt applique (%d entrees)",n); d2vita_progress(m);
+    char m[96];
+    if (bad>0) snprintf(m,sizeof m,"input: controls.txt applique (%d entrees, %d ignorees)",n,bad);
+    else       snprintf(m,sizeof m,"input: controls.txt applique (%d entrees)",n);
+    d2vita_progress(m);
+}
+// Human-readable label for one Act, for the controls-help panel. Mirrors the
+// vk-code choices already made in g_btn[]'s own comments (line 1576+).
+const char* act_label(const Act& a) {
+    if (a.kind == A_NONE) return "-";
+    if (a.kind == A_LMB)  return "Left click";
+    if (a.kind == A_RMB)  return "Right click";
+    if (a.kind == A_ITEMS) return "Item assist (D-pad/Cross)";
+    switch (a.vk) {
+        case 0x52: return "R (walk/run)";
+        case 0x10: return "Shift";
+        case 0x12: return "Alt";
+        case 0x57: return "W (weapon swap)";
+        case 0x31: return "Potion 1"; case 0x32: return "Potion 2";
+        case 0x33: return "Potion 3"; case 0x34: return "Potion 4";
+        case 0x70: return "F1"; case 0x71: return "F2";
+        case 0x72: return "F3"; case 0x73: return "F4";
+        case 0x74: return "F5"; case 0x75: return "F6";
+        case 0x76: return "F7"; case 0x77: return "F8";
+        case 0x1B: return "Escape";
+        case 0x20: return "Space";
+        case 0x09: return "Tab / Automap";
+        case 0x49: return "Inventory";
+        case 0x43: return "Character";
+        case 0x54: return "Skills";
+        case 0x51: return "Quests";
+        case 0x0D: return "Enter";
+        default:   return "?";
+    }
+}
+const char* bit_label(uint32_t bit) {
+    if (bit == B_CROSS)  return "Cross";
+    if (bit == B_CIR)    return "Circle";
+    if (bit == B_SQR)    return "Square";
+    if (bit == B_TRI)    return "Triangle";
+    if (bit == B_UP)     return "D-pad Up";
+    if (bit == B_DOWN)   return "D-pad Down";
+    if (bit == B_LEFT)   return "D-pad Left";
+    if (bit == B_RIGHT)  return "D-pad Right";
+    if (bit == B_START)  return "Start";
+    return "?";
+}
+// Fills `out[i]` with up to `max` "<button>: <action>" lines: every g_btn[]
+// entry with a bound base action, its R+ layer if bound, then the fixed set
+// that is NOT remappable via controls.txt (kept in sync here, by hand, on
+// purpose — see design doc section 4: these six never move).
+int format_controls_help(char out[][64], int max) {
+    int n = 0;
+    if (n < max) snprintf(out[n++], 64, "L: %s", act_label(g_l_act));
+    if (n < max) snprintf(out[n++], 64, "R: %s", act_label(g_r_act));
+    if (n < max) snprintf(out[n++], 64, "Select: %s",
+        g_select_act.kind == A_NONE ? "Radial menu" : act_label(g_select_act));
+    for (const BtnMap& m : g_btn) {
+        if (n >= max) break;
+        if (m.base.kind != A_NONE)
+            snprintf(out[n++], 64, "%s: %s", bit_label(m.bit), act_label(m.base));
+        if (n < max && m.layer.kind != A_NONE)
+            snprintf(out[n++], 64, "R+%s: %s", bit_label(m.bit), act_label(m.layer));
+        if (n < max && m.llayer.kind != A_NONE)
+            snprintf(out[n++], 64, "L+%s: %s", bit_label(m.bit), act_label(m.llayer));
+    }
+    static const char* const kFixed[] = {
+        "R+Select: Space",
+        "R+Triangle: Virtual keyboard",
+        "L+Start: Screenshot",
+    };
+    for (const char* f : kFixed) {
+        if (n >= max) break;
+        snprintf(out[n++], 64, "%s", f);
+    }
+    return n;
 }
 void lmb_update(){
-    bool want = g_lmb_stick || g_lmb_btn;
+    bool want = g_lmb_stick || g_lmb_btn || g_ia_lmb;
     if (want && !g_lmb_sent){ d2vita_inject("ldown",(int)g_cx,(int)g_cy); g_lmb_sent=true; }
     else if (!want && g_lmb_sent){ d2vita_inject("lup",(int)g_cx,(int)g_cy); g_lmb_sent=false; }
 }
@@ -1865,11 +2217,48 @@ void do_press(const Act& a){
     if      (a.kind==A_LMB){ g_lmb_btn=true; lmb_update(); }
     else if (a.kind==A_RMB){ if(!g_rmb_sent){ d2vita_inject("rdown",(int)g_cx,(int)g_cy); g_rmb_sent=true; } }
     else if (a.kind==A_KEY)  d2vita_inject("keydown",a.vk,0);
+    else if (a.kind==A_ITEMS){
+        if (g_ia_refs++==0){
+            d2vita_inject("keydown",0x12,0);
+            g_ia.reset(g_in_hz/8 < 3 ? 3 : g_in_hz/8);
+        }
+    }
 }
 void do_release(const Act& a){
     if      (a.kind==A_LMB){ g_lmb_btn=false; lmb_update(); }
     else if (a.kind==A_RMB){ if(g_rmb_sent){ d2vita_inject("rup",(int)g_cx,(int)g_cy); g_rmb_sent=false; } }
     else if (a.kind==A_KEY)  d2vita_inject("keyup",a.vk,0);
+    else if (a.kind==A_ITEMS){
+        if (g_ia_refs>0 && --g_ia_refs==0){
+            d2vita_inject("keyup",0x12,0);
+            g_ia.reset(0); g_ia_lmb=false; g_ia_cross_owned=false; lmb_update();
+        }
+    }
+}
+// Ground-item labels and the game's own hover report, read straight from the
+// guest (see docs: label table Game+0x3c54a0, hover globals Game+0x3a6a78..).
+// The array holds the previous frame's labels — the game refills it while it
+// draws with Alt held — the same one-frame lag any hover has.
+int ia_read(d2rt::Cpu* cpu, d2ia::Label* out, d2ia::Hover* h){
+    *h = d2ia::Hover{false,0,0};
+    if (!cpu || !g_114 || !g_d2base) return 0;
+    uint32_t sv=0, sid=0, sty=0, cnt=0;
+    cpu->read(g_d2base+0x003a6a94u,&sv,4);
+    cpu->read(g_d2base+0x003a6a78u,&sid,4);
+    cpu->read(g_d2base+0x003a6a8cu,&sty,4);
+    *h = d2ia::Hover{sv!=0, sty, sid};
+    cpu->read(g_d2base+0x003c54a0u,&cnt,4);
+    if (cnt > (uint32_t)d2ia::MAX_LABELS) cnt = d2ia::MAX_LABELS;
+    int n=0;
+    for (uint32_t i=0;i<cnt;i++){
+        uint32_t e[5];
+        if (!cpu->read(g_d2base+0x003c54a8u+i*0x120u,e,sizeof e) || !e[4]) continue;
+        uint32_t id=0;
+        if (!cpu->read(e[4]+0xcu,&id,4)) continue;
+        d2ia::Label L{(int32_t)e[0],(int32_t)e[1],(int32_t)e[2],(int32_t)e[3],id};
+        if (L.x2>L.x1 && L.y2>L.y1) out[n++]=L;
+    }
+    return n;
 }
 // Front touch: absolute cursor; a brief still tap = full left click.
 // allowMove=false: the cursor position is tracked but no move is injected
@@ -2105,7 +2494,7 @@ void kb_open_now(){
 }
 } // namespace
 
-extern "C" void d2vita_input_tick(void){
+extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
     if (!g_ctl_init){
         g_ctl_init=true;
         sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
@@ -2212,6 +2601,9 @@ extern "C" void d2vita_input_tick(void){
         return;                     // consomme : pas de potion 2 non plus
     }
     const bool layer=(b&B_R)!=0;
+    // l+ combos only engage when R isn't ALSO held — R keeps first refusal
+    // on every button below, same as it already had over L's own click.
+    const bool l_layer=!layer && (b&B_L)!=0;
     bool moved=false;
 
     // L + Start = on-demand screenshot (ux0:data/d2vita/shot_<frame>.bmp) —
@@ -2288,12 +2680,16 @@ extern "C" void d2vita_input_tick(void){
     }
 
     // Select opens the radial menu IMMEDIATELY (no "tap = I" fallback: the
-    // radial menu's 7 functions fully replace the old individual controls).
-    // R+Select = Space, unchanged.
+    // radial menu's 7 functions fully replace the old individual controls),
+    // UNLESS controls.txt's top-level `select=` set a direct action instead
+    // (voice_of.reason, Discord 28/09: wanted Select to reach the mercenary's
+    // inventory rather than the radial menu). R+Select = Space, unchanged
+    // either way — it never goes through g_select_act.
     {
         const bool selDown=(b&B_SELECT)!=0, selWas=(was&B_SELECT)!=0;
         if (selDown && !selWas) {
             if (layer) { g_sel_mode=SEL_SPACE; d2vita_inject("keydown",0x20,0); }
+            else if (g_select_act.kind!=A_NONE) { g_sel_mode=SEL_CUSTOM; g_sel_engaged=g_select_act; do_press(g_sel_engaged); }
             // Le menu n'existe QUE sur le GPU. S'il n'est pas armé (.gxp
             // absent, atlas non alloué), ne pas l'ouvrir : un menu invisible
             // qui avale quand même les entrées serait pire que pas de menu.
@@ -2306,6 +2702,7 @@ extern "C" void d2vita_input_tick(void){
         }
         if (!selDown && selWas) {
             if      (g_sel_mode==SEL_SPACE)  d2vita_inject("keyup",0x20,0);
+            else if (g_sel_mode==SEL_CUSTOM) { do_release(g_sel_engaged); g_sel_engaged={A_NONE,0}; }
             else if (g_sel_mode==SEL_RADIAL) {
                 const int idx = radial_menu::resolved_index(g_rm);
                 radial_menu::end(g_rm);
@@ -2319,20 +2716,146 @@ extern "C" void d2vita_input_tick(void){
     // scheme (menus, character select, autopilot hand-over) runs unchanged.
     if (g_scheme_aim && aim_tick(cd, b)) return;
 
-    // L: left click (held); R: right click (held). Independent of `layer`: R
-    // keeps its OWN click while still arming the combo layer for the OTHER
-    // buttons (Triangle, D-pad, Select) — R's two effects coexist without
-    // conflict since `layer` is re-read every tick, never consumed by this
-    // block.
-    if ((b&B_L)&&!(was&B_L)){ g_lmb_btn=true; lmb_update(); }
-    if (!(b&B_L)&&(was&B_L)){ g_lmb_btn=false; lmb_update(); }
-    if ((b&B_R)&&!(was&B_R)){ if(!g_rmb_sent){ d2vita_inject("rdown",(int)g_cx,(int)g_cy); g_rmb_sent=true; } }
-    if (!(b&B_R)&&(was&B_R)){ if(g_rmb_sent){ d2vita_inject("rup",(int)g_cx,(int)g_cy); g_rmb_sent=false; } }
+    // ---- Controls-help overlay (title screen only) -------------------------
+    // Gated by d2_title_screen_active(cpu), recomputed at ~1/4 tick rate:
+    // this signal doesn't need every-frame freshness, and cpu->read() is a
+    // guest-memory read not worth paying every tick on the core all guest
+    // threads share.
+    bool title = d2ch_title_active_cached;
+    { static int s_gate = 0;
+      if ((++s_gate & 3) == 0) d2ch_title_active_cached = d2_title_screen_active(cpu); }
 
-    // Mapped buttons (edges, R layer sampled at the moment of press)
+    // d2ch-local touch bookkeeping, in SCREEN space (SCR_W x SCR_H, per
+    // controls_help.h's BAND_* constants) -- kept fully separate from the
+    // D2-cursor's own g_t_*/GAME-space state further below, and reset
+    // whenever the title screen isn't active or the panel's open/closed
+    // mode changes, so nothing carries stale state across screens or across
+    // that transition (letting stale state leak into the D2-cursor block's
+    // own g_t_at bookkeeping, e.g., would make its NEXT genuine tap-click
+    // silently stop registering).
+    static int  ch_tap_at=-1, ch_tap_x0=0, ch_tap_y0=0;
+    static bool ch_tap_moved=false, ch_tap_claimed=false;
+    static bool ch_drag_have_prev=false;
+    static int  ch_drag_prev_y=0;
+
+    if (!title) {
+        ch_tap_at = -1; ch_drag_have_prev = false; ch_tap_claimed = false;
+        // Force-close: don't let a title-screen panel survive leaving the
+        // title screen. No input leaks to D2 while `title` is false either
+        // way (the whole consuming block lives inside the `else` below),
+        // but without this, `g_ch.open` itself would survive a
+        // title->false->true cycle and the panel would silently reappear
+        // already open next time the title screen is reached (e.g. some
+        // auto-advance/attract-mode path that leaves the title screen
+        // without the player closing the panel via Circle/Start first).
+        g_ch.open = 0;   // volatile int, not bool -- controls_help.h's State::open
+    } else {
+        // Own SCE_TOUCH_PORT_FRONT sample, in SCREEN space -- same scaling
+        // as draw_keyboard()'s own touch handling below
+        // (tk.report[0].x*SCR_W/1920), NOT pad_to_game()'s GAME-space
+        // output. Guarded by `title`: this sceTouchPeek is only ever paid
+        // while d2ch itself can be relevant, so it never adds a THIRD
+        // sceTouchPeek to an ordinary in-game tick (title screen only:
+        // when the panel is closed and the player touches D2's own
+        // buttons, this is still a second, non-destructive peek here,
+        // alongside the D2-cursor block's own below -- harmless, just not
+        // "zero-added" on every title-screen tick).
+        bool ch_touched=false; int ch_tx=0, ch_ty=0;
+        { SceTouchData cht; memset(&cht,0,sizeof cht);
+          if (sceTouchPeek(SCE_TOUCH_PORT_FRONT,&cht,1)>=0 && cht.reportNum>0){
+              ch_touched=true;
+              ch_tx = cht.report[0].x*SCR_W/1920;
+              ch_ty = cht.report[0].y*SCR_H/1088;
+          } }
+
+        if (g_ch.open) {
+            // Panel open: D-pad scroll, Circle/Start close, and this
+            // frame's touch (if any) drives drag-scroll instead of the D2
+            // cursor. Unconditionally consumed below: nothing reaches D2.
+            ch_tap_at = -1;   // any pending closed-panel tap tracking is now moot
+            auto ch_edge=[&](uint32_t bit){ return (b&bit)&&!(was&bit); };
+            if (ch_edge(B_UP))   d2ch::scroll_dpad(g_ch, -1);
+            if (ch_edge(B_DOWN)) d2ch::scroll_dpad(g_ch, +1);
+            if (ch_edge(B_CIR) || ch_edge(B_START)) d2ch::close(g_ch);
+            if (ch_touched) {
+                if (ch_drag_have_prev) d2ch::scroll_drag(g_ch, ch_ty - ch_drag_prev_y);
+                ch_drag_prev_y = ch_ty; ch_drag_have_prev = true;
+            } else {
+                ch_drag_have_prev = false;
+            }
+            return;   // consumed: nothing this frame reaches D2's own input path
+        }
+        ch_drag_have_prev = false;   // panel not open: no drag state to keep
+
+        // Panel closed: a touch gesture is "claimed" by d2ch (and from then
+        // on never reaches D2) only if it BEGAN inside the icon band --
+        // decided once, at the down edge, so a drag wandering in/out of the
+        // band mid-gesture can't flip the verdict partway through, and so
+        // every OTHER touch on this screen (D2's own title-screen buttons:
+        // Single Player, Battle.net, Exit, ...) keeps reaching the ordinary
+        // D2-cursor code below exactly as it did before this task.
+        if (ch_touched) {
+            if (ch_tap_at < 0) {
+                ch_tap_at = g_itick; ch_tap_x0 = ch_tx; ch_tap_y0 = ch_ty; ch_tap_moved = false;
+                ch_tap_claimed = d2ch::icon_hit(ch_tx, ch_ty);
+            }
+            if (std::abs(ch_tx-ch_tap_x0)>10 || std::abs(ch_ty-ch_tap_y0)>10) ch_tap_moved = true;
+            if (ch_tap_claimed) return;   // consumed: this gesture is ours
+            // not claimed: fall through, exactly like every tick before this task.
+        } else if (ch_tap_at >= 0) {
+            const bool tap_short = (g_itick-ch_tap_at < g_tap_ticks) && !ch_tap_moved;
+            const bool claimed   = ch_tap_claimed;
+            ch_tap_at = -1;
+            if (claimed) {
+                if (tap_short) {
+                    d2ch::tap(g_ch, ch_tap_x0, ch_tap_y0);
+                    if (g_ch.open) {
+                        g_ch_count = format_controls_help(g_ch_labels, 64);
+                        for (int i = 0; i < g_ch_count; ++i) g_ch_lines[i] = g_ch_labels[i];
+                        g_ch.row_count = g_ch_count;
+                        g_ch.visible_rows = 20;   // tuned on-device in Task 8
+                        g_ch.row_px = d2ch::DEFAULT_ROW_PX;   // matches text() glyph height in draw(); see final-review Bug 1
+                    }
+                }
+                return;   // consumed: this release belonged to a claimed touch
+            }
+            // not claimed: fall through, D2's own release-tap-click logic
+            // (the "Front touch" block further down) handles it as always.
+        }
+    }
+
+    // L: g_l_act, held (default: left click). R: g_r_act, held (default:
+    // right click). Remappable via controls.txt's top-level `l=`/`r=`, but
+    // ALWAYS independent of `layer`/`l_layer`: R keeps its own action while
+    // still arming the r+ combo layer for the OTHER buttons (Triangle,
+    // D-pad, Select), and likewise L for l+ — the two effects coexist
+    // without conflict since `layer`/`l_layer` are re-read every tick, never
+    // consumed by this block.
+    if ((b&B_L)&&!(was&B_L)){ g_l_engaged=g_l_act; do_press(g_l_engaged); }
+    if (!(b&B_L)&&(was&B_L)){ do_release(g_l_engaged); g_l_engaged={A_NONE,0}; }
+    if ((b&B_R)&&!(was&B_R)){ g_r_engaged=g_r_act; do_press(g_r_engaged); }
+    if (!(b&B_R)&&(was&B_R)){ do_release(g_r_engaged); g_r_engaged={A_NONE,0}; }
+
+    // Mapped buttons (edges, R/L layer sampled at the moment of press; R wins if both held)
+    // Item assist owns the D-pad and Cross while it has labels to browse; with
+    // none on the ground (or during its warm-up) they keep their normal
+    // bindings, so a held Square never silently eats a potion.
+    d2ia::Label ia_l[d2ia::MAX_LABELS]; int ia_n=0; d2ia::Hover ia_h{false,0,0};
+    unsigned ia_dir=0; bool ia_confirm=false, ia_own=false;
+    if (g_ia_refs>0 && g_ia.warm()){ ia_n=ia_read(cpu,ia_l,&ia_h); ia_own=ia_n>0; }
     for (size_t i=0;i<sizeof g_btn/sizeof*g_btn;i++){
         bool now=(b&g_btn[i].bit)!=0, before=(was&g_btn[i].bit)!=0;
-        if (now&&!before){ g_engaged[i]= layer?g_btn[i].layer:g_btn[i].base; do_press(g_engaged[i]); }
+        if (now&&!before&&ia_own&&(g_btn[i].bit==B_CROSS||g_btn[i].bit==B_UP||g_btn[i].bit==B_LEFT||
+                                   g_btn[i].bit==B_DOWN||g_btn[i].bit==B_RIGHT)){
+            g_engaged[i]={A_NONE,0};
+            if      (g_btn[i].bit==B_CROSS){ ia_confirm=true; g_ia_cross_owned=true; }
+            else if (g_btn[i].bit==B_UP)    ia_dir|=d2ia::DIR_UP;
+            else if (g_btn[i].bit==B_LEFT)  ia_dir|=d2ia::DIR_LEFT;
+            else if (g_btn[i].bit==B_DOWN)  ia_dir|=d2ia::DIR_DOWN;
+            else                            ia_dir|=d2ia::DIR_RIGHT;
+            continue;
+        }
+        if (now&&!before){ g_engaged[i]= layer?g_btn[i].layer:l_layer?g_btn[i].llayer:g_btn[i].base; do_press(g_engaged[i]); }
         else if (!now&&before){ do_release(g_engaged[i]); g_engaged[i]={A_NONE,0}; }
     }
 
@@ -2358,6 +2881,18 @@ extern "C" void d2vita_input_tick(void){
     }
 
     touch_tick(true, &moved);
+
+    if (!(b&B_CROSS)) g_ia_cross_owned=false;
+    if (g_ia_refs>0){
+        if (dm){ g_ia.reset(0); g_ia_lmb=false; }            // walking with the stick: drop any pick-up
+        else {
+            d2ia::In in{ia_l, ia_n, ia_h, ia_dir, ia_confirm, (b&B_CROSS)&&g_ia_cross_owned, moved,
+                        (int)g_cx, (int)g_cy, g_game_w/2, g_game_h*g_anchor_y_pm/1000};
+            const d2ia::Out o=g_ia.tick(in);
+            if (o.move){ g_cx=(float)o.mx; g_cy=(float)o.my; moved=true; }
+            g_ia_lmb=o.lmb;
+        }
+    }
 
     if (g_cx<0)g_cx=0; if (g_cx>g_game_w-1)g_cx=(float)(g_game_w-1);
     if (g_cy<0)g_cy=0; if (g_cy>g_game_h-1)g_cy=(float)(g_game_h-1);

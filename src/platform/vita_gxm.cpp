@@ -1498,6 +1498,14 @@ void d2gxm_page_upload(int page, int x, int y, int w, int h, const uint8_t* src,
     for (int r = 0; r < h; ++r) std::memcpy(dst + (size_t)r * g_pageDim, src + (size_t)r * srcPitch, (size_t)w);
 }
 
+int d2gxm_page_read(int page, int x, int y, int w, int h, uint8_t* dst, int dstPitch) {
+    if (!g_ready || page < 0 || page >= MAXPAGES || !g_page[page].p || !dst) return 0;
+    if (x < 0 || y < 0 || x + w > g_pageDim || y + h > g_pageDim) return 0;
+    const uint8_t* src = (const uint8_t*)g_page[page].p + (size_t)y * g_pageDim + x;
+    for (int r = 0; r < h; ++r) std::memcpy(dst + (size_t)r * dstPitch, src + (size_t)r * g_pageDim, (size_t)w);
+    return 1;
+}
+
 void d2gxm_palette(int slot, const uint32_t* argb256) {
     if (!g_ready || slot < 0 || slot >= D2GXM_PALETTES || !argb256) return;
     { static int shown = 0;

@@ -52,13 +52,17 @@ run() {  # $1 = label, $2.. = knobs
 
 echo "== jambe A (témoin, D2_INTRIN absent)"
 LA=$(run A)
+echo "== jambe A2 (témoin bis : porte de déterminisme)"
+LA2=$(run A2)
 echo "== jambe B (D2_INTRIN=1)"
 LB=$(run B D2_INTRIN=1)
 echo "== jambe V (D2_INTRIN=1 D2_PROJVERIFY=1, oracle croisé)"
-LV=$(run V D2_INTRIN=1 D2_PROJVERIFY=1)
+LV=$(run V D2_INTRIN=1 D2_PROJVERIFY=1 D2_INTRINVERIFY=1)
 
 hash_of() { grep -o "empreinte=0x[0-9a-f]*" "$1" | tail -1; }
-HA=$(hash_of "$LA"); HB=$(hash_of "$LB")
+HA=$(hash_of "$LA"); HB=$(hash_of "$LB"); HA2=$(hash_of "$LA2")
+echo "empreinte A2: ${HA2:-<aucune>}  (doit egaler A, sinon le banc est du bruit)"
+[ -n "$HA" ] && [ "$HA" = "$HA2" ] || { echo "ECHEC 0 : A != A2, run NON DETERMINISTE — aucun verdict possible"; }
 ring_of() { grep -o "lh=0x[0-9a-f]*" "$1" | tail -1; }
 RA=$(ring_of "$LA"); RB=$(ring_of "$LB")
 echo
@@ -69,6 +73,11 @@ echo "ring      B : ${RB:-<aucune>}"
 
 SERVED=$(grep -o "proj50dd60 appels=[0-9]* servis=[0-9]* replis=[0-9]*" "$LB" | tail -1)
 echo "armement  B : ${SERVED:-<aucune ligne intrin>}"
+for T in lut50dc30 lgrid475aa0 lfill4744b0 lut2_50dbe0; do
+  echo "armement  B : $(grep -o "$T appels=[0-9]* servis=[0-9]* replis=[0-9]*" "$LB" | tail -1)"
+done
+IVER=$(grep -o "intrinverify: .*" "$LV" | tail -1)
+echo "oracle    V : ${IVER:-<aucune ligne intrinverify>}"
 ARMA=$(grep -c "intrin: ARME" "$LA" || true)
 echo "témoin A doit être muet : $ARMA ligne(s) « intrin: ARME »"
 VER=$(grep -o "projverify: compares=[0-9]* divergences=[0-9]* sautes=[0-9]*" "$LV" | tail -1)
@@ -78,6 +87,14 @@ fail=0
 [ -n "$HA" ] && [ "$HA" = "$HB" ] || { echo "ECHEC 1 : empreintes FBHASH différentes ou absentes"; fail=1; }
 [ -n "$RA" ] && [ "$RA" = "$RB" ] || { echo "ECHEC 1b : empreintes ring (lh=) différentes ou absentes"; fail=1; }
 echo "$SERVED" | grep -qE "servis=[1-9]" || { echo "ECHEC 2 : test VIDE (servis=0)"; fail=1; }
+# lut/lgrid/lfill: every target that was compared at least once must show zero divergences
+for T in lut lgrid lfill lut2; do
+  pair=$(echo "$IVER" | grep -oE "$T=[0-9]+/[0-9]+" | cut -d= -f2)
+  n=${pair%/*}; b=${pair#*/}
+  [ -n "$pair" ] || { echo "ECHEC 4 : pas de compteur $T dans intrinverify"; fail=1; continue; }
+  [ "$b" = 0 ] || { echo "ECHEC 4 : $T divergences=$b"; fail=1; }
+  [ "$n" != 0 ] || echo "AVERTISSEMENT : $T jamais compare sur ce scenario (n=0)"
+done
 [ "$ARMA" = 0 ] || { echo "ECHEC 2b : le témoin A était armé"; fail=1; }
 echo "$VER" | grep -qE "compares=[1-9]" || { echo "ECHEC 3a : oracle croisé jamais exercé"; fail=1; }
 echo "$VER" | grep -q "divergences=0"   || { echo "ECHEC 3b : DIVERGENCE arithmétique"; fail=1; }

@@ -25,7 +25,40 @@ the source of truth for the public repository.
 - [x] Memory budget calibrated on hardware (compact arena, newlib heap
       raised to 38 MiB)
 - [x] GPU rendering (sceGxm) via a guest-side reconstructed Glide3x ring,
-      asynchronous submission
+      asynchronous submission; the ring walk runs on its own core
+      (`D2_FLUSHFIL`, default) and gives ring space back as it walks, so a
+      heavy Perspective frame (~1.3 MB) and the next one never overflow the
+      2 MiB ring — overflowing records used to be dropped by the DLL, which
+      made the floor flicker (fixed 2026-09-27, console: 0 dropped, 24 fps
+      at Harrogath's gate)
+- [x] Act V texture-cache thrash fixed (2026-09-26): the ring DLL now
+      announces 2 TMUs (`D2_GLNUMTMU`, default 2), so D2 sizes its sprite
+      cache at 3/4 of TMU0 instead of a 3 MiB cap. On the scripted Harrogath
+      patrol (`tools/bancs/patrouille_acte5.sh`, real console, valid passes,
+      not interleaved) the re-sent textures drop from ~50/frame to 1,
+      ~20.0 → ~24.0 fps (game cap 25). This needs a larger GXM atlas: at
+      32 MiB it filled up in the wilderness and drew wrong sprites (blinking
+      Death Maulers); the atlas is now 48 MiB and a failed upload draws
+      untextured instead of a stale sprite — console confirmation pending.
+      The boot_progress log is asynchronous (periodic reports no longer stall
+      the game thread; `journal=0` on console).
+- [x] Act V frame cost cut ~1.6 ms of guest work per frame by default
+      (2026-09-28, console, Harrogath patrol, same-route interleaved
+      passes): trap round trips for intrinsics served in line from the
+      translated code (`D2_INTRINLINE`), the ring DLL's per-vertex copy in
+      line, 32 KiB read-ahead on a seek. Native F3 optimized and served in
+      line takes another ~1.25 ms but stays opt-in (`D2_F3NATIF=1`).
+      New measurement flavour `D2VPK_BLKSAMP=1` gives the first reliable
+      time-per-function profile (`tools/bancs/blksamp_fonctions.py`).
+- [x] Act V stutter fixed (2026-09-28): the engine-side 25 Hz online frame
+      cap (`D2_ONLINE_CAP`) armed whenever `D2NET` was set — i.e. in solo
+      too. Solo D2 already draws exactly once per 40 ms simulation step; the
+      cap waited 40 ms rounded up to the next ms plus wake-up latency
+      (~41.6 ms/frame), drifted against D2's own clock and made D2 skip
+      draws. Now off by default: 24.0 → 25.0 fps and 25 → 3 frames over
+      60 ms per 110 s of Harrogath patrol (console, 1 pass before, 3 after).
+      Online play has no cap either unless `D2_ONLINE_CAP=<hz>` is set —
+      not re-measured online.
 - [x] Native 960×544 resolution (`D2_RES`, on by default; `D2_RES=0` or
       `D2_RES=WxH`, 640×480 to 1280×1024, to override): the game itself
       draws 960×544 (one texel = one pixel, no filter, no pillarbox),
@@ -34,13 +67,38 @@ the source of truth for the public repository.
       changes. Menus stay 800×600 pillarboxed: their art is fixed-size.
       4:3 aspect preserved by default for 800×600 (no stretch;
       `D2_ASPECT=etire` for the old stretched behavior)
+- [x] The in-game Resolution option stays a zoom: 800×600 draws 960×544,
+      640×480 draws 848×480 (640×480's height at the screen's aspect)
+      scaled ×1.13 to full screen, so characters are as big as native
+      640×480. Switching mid-game works: the sizes are written before
+      `SetResolution` calls D2Gfx (Game+0xf90a0), otherwise the world view
+      stayed 640 wide. `D2_RES640=WxH` / `D2_RES640=0` (original, bordered).
+      **Confirmed on console** (2026-09-27: game start at 640, 640→800→640
+      mid-game, both panels open). At 640×480 the HUD bar's two
+      `(W-640)/2` gaps and the column between two open panels are filled
+      with stone from the game's own inventory panel. The game loads that
+      panel's DC6 (`Panel\InvChar6`, frame 4) when its UI initialises, so
+      at the first UI draw in 640 mode — game start or mid-game switch —
+      a 40×128 stone patch is decoded from it on the host and pinned in an
+      atlas cell of ours, then laid as randomly-picked bricks (hash of
+      position, stable across frames); the bar's gold rims are re-sampled
+      from the bar itself. No panel needs to have been opened. **Confirmed
+      on console** (2026-09-27: 800→640 switch without opening anything;
+      decoded patch = the GPU texture, 5120/5120 bytes); qemu gate
+      `MODE640=1 tools/hudfill_arm_check.sh`.
 - [x] HUD bar at 960×544: D2's 800-wide bar opens two `(W-800)/2` px gaps
       (80 px each at 960), which the bar fills with its own stone
       re-sampled from the texture the game already loaded — no Blizzard
       art is added or shipped. `D2_HUDFILL=0` shows the gaps again.
       **Confirmed on console** (2026-09-22); the qemu gate
       `tools/hudfill_arm_check.sh` only proves the hook and its numbers,
-      since GPU submission there is a sink.
+      since GPU submission there is a sink. With the game's Perspective
+      option OFF, D2 draws the art alone (86×55) rather than its padded
+      texture (128×64): both shapes are recognised (fixed 2026-09-27 —
+      until then turning Perspective off brought the gaps back). The gate
+      runs both (`PERSP=0` / `PERSP=1`) and also checks the column between
+      two open panels, whose expected position had not followed the
+      vertical centring of the panels.
 - [x] Side panels at 960×544 (inventory, skill tree, stash, trade, belt):
       D2's UI-draw routine rewrites its screen shift to the 800×600 values
       (+80/−60) at the start of every frame, so the whole 800 layout
@@ -49,14 +107,18 @@ the source of truth for the public repository.
       80 px away — the button under the cursor lit up, the click did
       nothing (measured on console, 2026-09-23). The shift is now written
       at the *entry* of that routine (its prologue replayed from the host,
-      zero bytes of `.text` changed), so drawing and clicks share it. By
-      default the panels stay at the screen edges (left panel 0..400,
-      right panel `W−400..W`, the game's own +80/−60 shift); the
-      `inventory.bin`/`belts.bin` tables and the replayed `800BorderFrame`
-      follow that anchoring. `D2_RES_PANNEAUX=centre` centres the 800
-      layout as one block instead (panels contiguous, SGD2FreeRes's
-      model, an 80 px stone strip on each side); `D2_RES_PANNEAUX=0`
-      keeps the game's own tables and frame, for A/B. With two panels
+      zero bytes of `.text` changed), so drawing and clicks share it.
+      **Since 0.1.15, panels are centred by default** (SGD2FreeRes's model:
+      the whole 800 layout as one contiguous block, an 80 px stone strip on
+      each side) — changed from the earlier edge anchoring after Discord
+      feedback (voice_of.reason, 28/09) that the black column between
+      inventory and stash at the edges got in the way of selling/dragging
+      items between them. `D2_RES_PANNEAUX=bords`/`edges` restores the old
+      edge anchoring (left panel 0..400, right panel `W−400..W`, the
+      game's own +80/−60 shift); the `inventory.bin`/`belts.bin` tables and
+      the replayed `800BorderFrame` follow whichever anchoring is active.
+      `D2_RES_PANNEAUX=0` keeps the game's own tables and frame, for A/B.
+      With two panels
       open the game draws no world, so the column between them (or, when
       centred, the side strips) is filled in the Glide ring with the
       frame's own stone (`D2_HUDFILL=0` to disable). Verified on console:
@@ -78,6 +140,19 @@ the source of truth for the public repository.
       draw and click could in X before this fix. Verified on console: full
       ornament visible top and bottom on both panels, inventory close-click
       still lands after the shift (594,432 vs the old 594,404)
+      **2026-09-28: switched the default from edges to centre**, per the
+      above. Console-confirmed: `boot_progress.txt` shows `res: panneaux
+      ancres au centre (defaut)` right after deploying the new build, and
+      the title screen (with the new controls-help tab from the same
+      session) renders correctly in a fetched screenshot. **Not yet
+      re-confirmed with a panel actually open on THIS build** — the
+      anchoring math itself is unchanged (only which value is chosen by
+      default), and was already console-measured under
+      `D2_RES_PANNEAUX=centre` before it became the default (scripted
+      clicks, `D2_TRACE_CLIC` globals read mid-draw, see above), but nobody
+      has looked at an open inventory/stash pair side by side since the
+      flip. Worth a hands-on look before calling the gap this was meant to
+      close actually closed.
 - [x] DirectSound audio (host mixer, natively-ported Storm codecs) —
       implemented, **enabled by default**; `D2_SON=0` opts back out to
       `DSERR_NODRIVER`, faithful to a machine with no sound card
@@ -94,9 +169,148 @@ the source of truth for the public repository.
       drawn with the virtual keyboard's own font. Added 2026-09-23 after a
       beta tester's bug report could not be tied to a specific build with
       confidence; `D2VITA_BUILDTAG=0` hides it
+- [x] **Title-screen "controls help" overlay**, merged 2026-09-28: a
+      persistent icon in D2's left letterbox band, title screen only (not
+      character select, not options, not in-game), opens a translucent
+      panel listing the current effective bindings (`format_controls_help()`
+      in `src/platform/vita_present.cpp`, following `l=`/`r=`/`select=`/`l+`
+      dynamically — see the next entry), scrollable by D-pad or
+      touch-drag, closed by Circle or Start
+      (`src/platform/controls_help.h`). The host oracle
+      (`tools/oracle_controls_help.sh`) passes (21 checks, 0 failed) and the
+      qemu-arm boot gate (`tools/rt_boot_arm_check.sh`) reaches a clean exit
+      at the title screen with the overlay's draw call wired into every
+      frame — but neither is a visual check of the panel itself.
+      **Not yet validated on Vita3K**: SIGSEGVs before the title screen on
+      an unrelated, pre-existing sceGxm shader-patcher crash (reproduced
+      identically on the commit predating this feature). **Not yet
+      validated on real console** either: a build with this feature ran
+      stably on hardware for 7.5+ minutes with no crash, but the title
+      screen's arrival was never confirmed reached in that session, so the
+      icon, panel legibility, scrolling and the close gesture have no
+      on-console evidence yet.
+- [x] **`controls.txt`: L, R, Select remappable, `l+` layer, unknown-line
+      warnings, `controls.reference.txt`**, landed 2026-09-28 in response to
+      controls feedback (Discord, GitHub #16): `l=`/`r=`/`select=` remap
+      what L, R and Select do held/pressed alone without touching their
+      combo-layer role (`r+` unchanged, new `l+` mirror, free by default); a
+      rejected `controls.txt` line (unknown button, unknown action, or an
+      `r+select=`/`l+select=` combo Select doesn't have) is now named in
+      `boot_progress.txt` instead of silently doing nothing; a fully
+      commented reference file ships in the VPK (`app0:controls.reference.txt`)
+      and is seeded to `ux0:data/d2vita/controls.txt` on first boot only.
+      Fixed the same day (Discord, psyinfolaf: `l=alt` ignored): the parser
+      kept trailing comments and padding, so every line uncommented from
+      the reference file (`l=alt   # ...`) was rejected. It now cuts at `#`
+      and trims key and value — console A/B on the same file: 0 applied /
+      3 rejected before, 3 applied after.
+      Validated: host oracle (`oracle_controls_help.sh`, unaffected),
+      qemu-arm boot gate PASS(natif), both build paths (VPK + CMake host)
+      green.
+      2026-09-28, deployed to the dev console (`tools/deploy_eboot.sh`,
+      eboot swap only — saves/`env.txt` untouched): clean boot, 60+ s of
+      sustained gameplay-thread activity with no `crash.log` and no
+      regression in the watchdog log. This confirms the new input tick
+      doesn't regress the console boot path, but it was an unattended
+      run — nobody physically exercised L, R, Select or an `l+` combo, so
+      the remaps themselves still await a hands-on pass.
+      **`controls.reference.txt` specifically is NOT yet reachable on
+      that console**: `boot_progress.txt` shows `input: mapping par
+      defaut`, meaning both the `ux0:data/d2vita/controls.txt` read AND
+      the `app0:controls.reference.txt` fallback missed. Cause: an eboot
+      swap only replaces the executable — `app0:` is the installed VPK's
+      OWN data segment, populated at install time, so a file added to
+      the VPK doesn't reach a console that only ever had an older VPK
+      installed. Needs a real VPK (re)install to actually land, not just
+      `deploy_eboot.sh`; the reference file itself was confirmed present
+      in the built `.vpk` archive (host-side `zipfile` check), so the gap
+      is in this deployment method, not the file.
+      Investigated and found NOT separable from that same track: a
+      "move-only" left stick (no attack/pickup while walking past a
+      monster) and multi-action macros (e.g. one button = map + run) both
+      need the same per-frame reading of monster/item positions that
+      aim-assist already does — see the next entry.
+
+- [x] Multi-row belt flicker fixed (2026-09-28, console): hovering or
+      dragging in an expanded 2-4 row belt made it flicker. `belt_rec`
+      (`src/runtime/native_hooks_resolution.cpp`) read the box count from
+      the first word of the `belts.bin` row, which is always 0, so it never
+      shifted any box for the 960x544 canvas while `belt_pos` did shift the
+      same box (x 423 vs 503): the game got two positions for one slot. The
+      count is the second word (console trace: 0 / 16 for a 4-row belt).
+      Never exercised before: the long-running test character had no
+      multi-row belt. The Discord reports of potions refusing the upper
+      belt rows (zymonx 27/09, voice_of.reason 28/09) likely share this
+      cause — not yet confirmed by those players.
+
+- [x] **Ladder runewords in single player, opt-in** (`D2_RUNEWORDS_LADDER=1`,
+      2026-09-29, Discord request): 1.14d keeps 23 runewords `server=1` in
+      `Runes.txt` (Spirit, Insight, Infinity…), refused outside a ladder
+      game. `src/runtime/native_hooks_solo.cpp` hooks the runeword lookup
+      (`Game+0x22bed0`) and, only when called from the ladder check
+      (`Game+0x162807`), resumes on the "apply" branch — no game byte or data
+      written. Gated on the game type (`game+0x6a`, measured on console: 3 =
+      single player, 2 = hosted TCP/IP); anything else keeps the game's rule.
+      Console A/B with a patched test save (`tools/d2s_items.py`, Spirit
+      runes + 4-socket Crystal Sword): off -> "Gemmed Crystal Sword"; on,
+      single player -> Spirit; on, hosted TCP/IP -> "Gemmed Crystal Sword".
+      Deliberate departure from the unmodified game, hence opt-in.
+      Same file, `D2_RESPEC_UNLIMITED=1` (2026-09-29, Discord request): the
+      NPC handler calls `Game+0x18fd50` ("deactivated respec quest",
+      a1q1.cpp: quest 41 bit 0 used, bit 1 cleared) after Akara's reset;
+      from that call site (`Game+0x17a266`) in a type-3 game it is skipped,
+      so the reset stays offered. Console: log "gardee disponible (type de
+      partie 3)", player confirmed the menu entry still there after use.
+      Limit: a character that already spent its reset is not re-armed.
 
 ## In progress / open
 
+- [ ] **Item assist (`items` action in `controls.txt`), on `main`**
+      (2026-09-29): hold the bound button (e.g. `square=items`) to show
+      the ground-item labels (Alt, for the game), browse them with the
+      D-pad and pick up with Cross. The label rects and the hover report
+      are read straight from the guest at input-tick time (label table
+      `Game+0x3c54a8`, hover globals `Game+0x3a6a78/8c/94`) — no hook,
+      none of the aim-assist scheme; the pure logic is
+      `src/platform/item_assist.h`, host-tested by
+      `tools/oracle_item_assist.sh`. `alt` is unchanged, `items` is a new
+      action and nothing is bound to it by default. **Validation: host
+      logic tests and a clean Vita build only — not run on qemu-arm,
+      Vita3K or a console yet**; the guest offsets and label coordinate
+      space (same as the mouse) are inherited from the aim-assist branch's
+      console runs, not re-checked here. Open: default binding decision
+      (Square=items?) waits for Discord feedback.
+- [ ] **Aim-assist controller scheme, opt-in**: `wt/manette-curseur-libre`
+      (5 iterative test builds, `manette-v2-test1` through `-v5-test1` plus
+      `v0.1.11-remapping-beta2..4`) reworks the right stick into a
+      hostile-auto-target assist and adds D-pad browsing of ground-item
+      labels — the two pieces most asked for on GitHub #16 and Discord
+      (chrhaeusler, xkosiorx). Feedback on #16 stopped 2026-09-21 with the
+      free-cursor + assist combination working; not picked back up since.
+      The core logic (`src/platform/pad_core.h/.cpp`,
+      `src/runtime/pad_state.h/.cpp`) is pure, host-tested
+      (`tests/pad/pad_core_test.cpp`, 1460 lines, 295 checks) and reads the
+      game's own ground-item label table (`Game+0x3c54a8`) rather than
+      guessing label positions — see PR #14's description for why that
+      table read was necessary. **Not directly mergeable as-is**: the
+      branch also carries ~2700 unrelated lines (a `glide_ring`/
+      `gx_host.cpp` rewrite, deleted `native_f3_114.cpp`, dropped
+      `tools/bancs/*` scripts) from having diverged from `main` before the
+      0.1.12/0.1.13 perf work landed, and its own `vita_present.cpp`
+      changes replace the whole input tick — which would silently undo the
+      `l=`/`r=`/`select=`/`l+` remap work above rather than sit next to it.
+      2026-09-28: `pad_core`/`pad_state` (plus their test) copied as-is
+      onto branch `manette/pad-core-port` (NOT `main` — this file still
+      describes `main`), verified independently there: compiles clean
+      (`-Wall -Wextra -Werror -fsanitize=address,undefined`), 295/295 pass
+      against current `main`, full VPK build unaffected (neither file is
+      in `rt_boot_srcs.sh`'s explicit source list, so nothing calls them
+      yet — intentionally dead code at this stage). Next step: merge that
+      branch, then write fresh glue in `vita_present.cpp` behind a new
+      opt-in `aim=1` (default off — everyone's current bindings stay
+      exactly as they are), and ship it the same way as the earlier test
+      builds — a downloadable beta for Discord feedback, not a merge to
+      `main` — before it earns real validation.
 - [ ] **Warden / anti-cheat fidelity**: no structured exception handling at
       all (a guest fault kills the thread), no PEB/LDR, no per-region
       `VirtualProtect` tracking, self `OpenProcess` still denied — detailed

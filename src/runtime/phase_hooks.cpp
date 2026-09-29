@@ -87,6 +87,42 @@ static uint64_t g_ppSimN=0;                 // simulation steps, all sources (LO
 static uint64_t g_odSimAtDraw=~0ull;        // g_ppSimN at the last EXECUTED draw
 static uint64_t g_odLastSimUs=0;
 static uint64_t g_odDrawn=0, g_odSkipped=0, g_odSleptUs=0, g_odSleeps=0;
+// ---- D2_PPTRACE=1: TIMELINE of the loop, dumped for each slow frame ------
+// Averages cannot tell WHY a frame took 70 ms when its guest work was a
+// normal 32 ms (console, Act V patrol, 26/09/2026: every steady-state slow
+// frame read run~32 + attente~38). This ring keeps the timestamped sequence
+// of simulation steps (S/s), draws (D/d, X = skipped by ONEDRAW), loop turns
+// (T/t), ring flushes (F/f) and empty-pump waits (w); frame_profile prints the
+// window of each frame over the lagwatch threshold. One clock read per event.
+struct PpEv { uint64_t t; char k; int16_t a; int16_t b; int16_t c; int16_t d; };   // a,b: optional payload (tour exit: skip counter, elapsed ms)
+static PpEv     g_ppTr[1024];
+static uint32_t g_ppTrW=0;
+static int      g_ppTrOn=-1;
+static inline bool pp_tr_on(){ if(g_ppTrOn<0) g_ppTrOn=getenv("D2_PPTRACE")?1:0; return g_ppTrOn!=0; }
+void pp_trace(char k){ if(!pp_tr_on()) return; PpEv& e=g_ppTr[g_ppTrW++&1023u]; e.t=rt_now_us(); e.k=k; e.a=e.b=e.c=e.d=INT16_MIN; }
+static inline int16_t cl16(int32_t v){ return (int16_t)(v<-32000?-32000:v>32000?32000:v); }
+static void pp_trace4(char k, int32_t a, int32_t b, int32_t c, int32_t d){ if(!pp_tr_on()) return; PpEv& e=g_ppTr[g_ppTrW++&1023u]; e.t=rt_now_us(); e.k=k;
+    e.a=cl16(a); e.b=cl16(b); e.c=cl16(c); e.d=cl16(d); }
+// "chrono: S+0 s+1 D+1 F+33 f+34 d+35 w+36x12 ..." (ms from t0), consecutive
+// identical events folded as xN.
+void pp_trace_dump(uint64_t t0, uint64_t t1, uint32_t frame){
+    if(!pp_tr_on()) return;
+    char m[900]; int o=std::snprintf(m,sizeof m,"chrono f%u (%llums):",frame,(unsigned long long)((t1-t0)/1000));
+    const uint32_t w=g_ppTrW, n = w<1024u? w : 1024u;
+    char last=0; uint32_t rep=0;
+    auto flush=[&](){ if(rep>1 && o<(int)sizeof m-16) o+=std::snprintf(m+o,sizeof m-o,"x%u",rep); };
+    for(uint32_t i=w-n;i!=w;i++){
+        const PpEv& e=g_ppTr[i&1023u];
+        if(e.t<t0 || e.t>t1) continue;
+        if(e.k==last && e.k=='w'){ ++rep; continue; }
+        flush(); rep=1; last=e.k;
+        if(o>=(int)sizeof m-24) break;
+        o+=std::snprintf(m+o,sizeof m-o," %c+%llu",e.k,(unsigned long long)((e.t-t0)/1000));
+        if(e.a!=INT16_MIN && o<(int)sizeof m-32) o+=std::snprintf(m+o,sizeof m-o,"[%d,%d,%d,%d]",e.a,e.b,e.c,e.d);
+    }
+    flush();
+    jpline("%s",m);
+}
 // Entry: opens the slot and redirects the return address to the exit trap.
 static void pp_enter(Cpu& c, PpKind k, uint32_t exitTrap){
     ++g_ppHooks;
@@ -106,6 +142,19 @@ static void pp_enter(Cpu& c, PpKind k, uint32_t exitTrap){
 // and redirect to the original address. EAX unchanged.
 static uint32_t pp_exit(Cpu& c, PpKind k, Bridge& br){
     ++g_ppHooks;
+    if(k==PP_SIM) pp_trace('s'); else if(k==PP_DRAW) pp_trace('d');
+    else if(k==PP_TOUR){
+        // D2's frame-skip state after the turn: [0x7a0704] (a draw only
+        // happens while it is 0), the elapsed time its render gate sees,
+        // [0x7a048c] - [0x7a0490] (now - render base, ms), [0x7a04a8] and
+        // the loop mode [0x7a0610].
+        if(pp_tr_on() && g_d2base)
+            pp_trace4('t',(int32_t)c.read_u32(g_d2base+0x3a0704u),
+                          (int32_t)(c.read_u32(g_d2base+0x3a048cu)-c.read_u32(g_d2base+0x3a0490u)),
+                          (int32_t)c.read_u32(g_d2base+0x3a04a8u),      // D2's fps/skip budget
+                          (int32_t)c.read_u32(g_d2base+0x3a0610u));     // loop mode
+        else pp_trace('t');
+    }
     PpSlot& s=g_ppSlot[k];
     const uint64_t now=rt_now_us();
     if(now>=s.t0) g_ppUs[k]+=now-s.t0; ++g_ppCnt[k];
@@ -114,9 +163,10 @@ static uint32_t pp_exit(Cpu& c, PpKind k, Bridge& br){
     br.redirect_next(ret);
     return c.reg(R_EAX);
 }
-void pp_flush_begin(){ if(!pp_on()) return; g_ppFlushT0=rt_now_us(); }
+void pp_flush_begin(){ if(!pp_on()) return; pp_trace('F'); g_ppFlushT0=rt_now_us(); }
 void pp_flush_end(){
     if(!pp_on()||!g_ppFlushT0) return;
+    pp_trace('f');
     const uint64_t now=rt_now_us();
     if(now>=g_ppFlushT0) g_ppFlushUs+=now-g_ppFlushT0; ++g_ppFlushN;
     if(!g_ppSlot[PP_DRAW].busy) ++g_ppFlushHors;     // a flush outside a draw would make "draw net of flush" wrong
@@ -213,7 +263,7 @@ void phase_hooks_install(Cpu* cpu, Bridge& br){
         }
         Shim s; s.argc=0; s.stdcall_cleanup=false; s.tag="native!sim_step";
         s.fn=[&br](Cpu&c)->uint32_t{
-            ++g_lwSimN; ++g_ppSimN;
+            ++g_lwSimN; ++g_ppSimN; pp_trace('S');
             if(g_odMode) g_odLastSimUs=rt_now_us();
             if(g_r60TagOn){ const uint32_t t=(uint32_t)g_ppSimN; gr_emit(c,D2GR_OP_TICK,&t,1); }   // D2_REPLAY60: timestamps the step in the ring
             if(g_ppOn) pp_enter(c,PP_SIM,s_simExit);
@@ -259,7 +309,7 @@ void phase_hooks_install(Cpu* cpu, Bridge& br){
                     // in-game = a simulation step happened less than 200ms ago
                     const bool enJeu = g_odLastSimUs && (now-g_odLastSimUs)<200000ull;
                     if(enJeu && g_odSimAtDraw==g_ppSimN){
-                        ++g_odSkipped;
+                        ++g_odSkipped; pp_trace('X');
                         if(g_odMode==2 && g_sched){
                             Waitable* never=rt_never_event();   // manual KEvent that is NEVER signaled, created once on first use (rt_boot.cpp)
                             const uint32_t ms=g_odSleepUs/1000u;
@@ -271,6 +321,7 @@ void phase_hooks_install(Cpu* cpu, Bridge& br){
                     }
                     g_odSimAtDraw=g_ppSimN; ++g_odDrawn;
                 }
+                pp_trace('D');
                 if(g_ppOn) pp_enter(c,PP_DRAW,s_drawExit);
                 const uint32_t E=c.reg(R_ESP);
                 if(i==0){ c.write_u32(E-4,c.reg(R_EBP)); c.set_reg(R_ESP,E-8); br.redirect_next(entry+1); }  // `push ebp`
@@ -294,6 +345,7 @@ void phase_hooks_install(Cpu* cpu, Bridge& br){
         s_tourExit=br.shim_trap("native.hook","pp_tour_exit");
         Shim s; s.argc=0; s.stdcall_cleanup=false; s.tag="native!pp_tour";
         s.fn=[&br](Cpu&c)->uint32_t{
+            pp_trace('T');
             pp_enter(c,PP_TOUR,s_tourExit);
             const uint32_t E=c.reg(R_ESP);
             c.write_u32(E-4,c.reg(R_EBP)); c.set_reg(R_ESP,E-8); br.redirect_next(s_tourEntry+1);

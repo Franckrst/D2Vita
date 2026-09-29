@@ -64,7 +64,7 @@ static uint64_t g_jpWindowUs = 120ull * 1000000ull;   // D2_JITPROFILE_POST (s)
 // Output: printf for qemu, d2vita_progress for console (printf never reaches
 // the Vita log). A single burst, at the end.
 void jpline(const char* fmt, ...){
-    char b[220]; va_list ap; va_start(ap,fmt);
+    char b[1024]; va_list ap; va_start(ap,fmt);   // chrono/natif-image lines run to ~900: 220 truncated them
     std::vsnprintf(b,sizeof b,fmt,ap); va_end(ap);
     std::printf("%s\n", b); std::fflush(stdout);
     d2vita_progress(b);

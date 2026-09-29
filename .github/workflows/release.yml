@@ -51,10 +51,26 @@ jobs:
       - name: Build release VPK
         run: D2VPK_CHANNEL=release D2VPK_REBUILD=1 bash tools/build_rt_boot_vpk.sh
 
+      # The release description is the tag's own section of the changelog
+      # (docs-site/changelog.md, "## <tag> — <date>" up to the next "## "),
+      # so what the player reads on GitHub is the same text as the site's
+      # changelog; GitHub's generated commit list is appended below it.
+      - name: Release notes from the changelog
+        run: |
+          awk -v tag="${GITHUB_REF_NAME}" '
+            /^## / { if (on) exit; if (index($0, "## " tag " ") == 1 || $0 == "## " tag) { on = 1; next } }
+            on { print }' docs-site/changelog.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "See [the changelog](https://github.com/${GITHUB_REPOSITORY}/blob/main/docs-site/changelog.md)." > release-notes.md
+          fi
+          printf '\nVersion française : [journal des versions](https://github.com/%s/blob/main/docs-site/changelog.fr.md).\n' \
+            "${GITHUB_REPOSITORY}" >> release-notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: build-vita/d2vita.vpk
+          body_path: release-notes.md
           generate_release_notes: true
           # A tag with a pre-release suffix (v0.1.11-beta) is published as a
           # GitHub pre-release: shown as such, never the "latest" download.

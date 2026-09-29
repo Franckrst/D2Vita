@@ -31,6 +31,10 @@ void d2gxm_set_window(int w, int h);
 // which the atlas stops allocating pages and evicts instead.
 int  d2gxm_page_create(int page, int dim);
 void d2gxm_page_upload(int page, int x, int y, int w, int h, const uint8_t* src, int srcPitch);
+// Reads back a w x h rectangle of page indices (the page lives in CPU-mapped
+// GPU memory). Returns 0 if the page doesn't exist. Rare, small reads only:
+// the page is uncached memory.
+int  d2gxm_page_read(int page, int x, int y, int w, int h, uint8_t* dst, int dstPitch);
 // `slot` in [0, D2GXM_PALETTES). argb256 = 256 words of 0xAARRGGBB.
 void d2gxm_palette(int slot, const uint32_t* argb256);
 // Submits and presents ONE frame. clearARGB = grBufferClear color.
@@ -75,6 +79,7 @@ static inline bool d2gxm_ready() { return false; }
 static inline void d2gxm_set_window(int, int) {}
 static inline int  d2gxm_page_create(int, int) { return 1; }
 static inline void d2gxm_page_upload(int, int, int, int, int, const uint8_t*, int) {}
+static inline int  d2gxm_page_read(int, int, int, int, int, uint8_t*, int) { return 0; }
 static inline void d2gxm_palette(int, const uint32_t*) {}
 static inline void d2gxm_submit(const d2gr::Vtx*, uint32_t, const uint16_t*, uint32_t,
                                 const d2gr::Batch*, uint32_t, uint32_t, uint64_t) {}

@@ -33,9 +33,14 @@ RE_MARK = re.compile(r"^\[\s*([0-9.]+)s\].*MARQUE #(\d+)")
 # above the threshold: it never shows up in any "lente#" line. The per-window
 # frame rate is what carries that information instead, so we read it too.
 RE_FPS = re.compile(r"^\[\s*([0-9.]+)s\]\s+frames: n=(\d+) fps=([0-9.]+)")
+# Current line shape (frame_profile.cpp, fp_top_lines_of):
+#   lente#NN fF Dms | io=Ims gx=Gms attente-invitee=Ams run=Rms journal=Lms INEXPLIQUE=Xms | blocs=B jit=Jms sync=Sms reads=.. scomp=.. sw=.. look=..
+# Older logs carried run= after sync= and no gx=/attente-invitee=/journal=; all are accepted.
+# journal= is matched without a capture group, so group numbers stay those of older logs.
 RE = re.compile(
-    r"lente#(\d+) f(\d+) (\d+)ms \| io=(\d+)ms blocs=(\d+) jit=(\d+)ms sync=(\d+)ms "
-    r"run=(\d+)ms reads=(\d+) scomp=(\d+) sw=(\d+) look=(\d+)"
+    r"lente#(\d+) f(\d+) (\d+)ms \| io=(\d+)ms"
+    r"(?: gx=(\d+)ms attente-invitee=(\d+)ms(?: run=(\d+)ms)?(?: journal=\d+ms)? INEXPLIQUE=(-?\d+)ms \|)?"
+    r" blocs=(\d+) jit=(\d+)ms sync=(\d+)ms(?: run=(\d+)ms)? reads=(\d+) scomp=(\d+) sw=(\d+) look=(\d+)"
     r"(?: \| invite ech=(\d+) ([0-9a-f]+)=(\d+) ([0-9a-f]+)=(\d+) ([0-9a-f]+)=(\d+))?")
 
 
@@ -85,6 +90,14 @@ def cause(d):
     ms = d['ms']
     if d['io'] * 2 > ms:                       # l'E/S explique la moitié ou plus
         return f"ATTENTE E/S — carte mémoire ({d['io']}ms sur {ms}ms)"
+    if d['gx'] * 2 > ms:
+        return f"VIDAGE GPU / ring Glide ({d['gx']}ms sur {ms}ms)"
+    if d['att'] * 2 > ms:
+        return f"FIL DE RENDU EN ATTENTE (pompe vide {d['att']}ms sur {ms}ms) — le jeu n'avait rien à dessiner"
+    if d['run'] * 2 > ms:
+        return f"CODE INVITÉ (dynarec {d['run']}ms sur {ms}ms)" + (" — voir ech=" if d['ech'] else " — aucun échantillon EIP : armer D2_TIMESAMP")
+    if d['inexp'] is not None and d['inexp'] * 2 > ms:
+        return f"BLOQUÉ hors invité/E-S/GPU ({d['inexp']}ms sur {ms}ms) — GIL, ordonnanceur ou présentation"
     if d['scomp'] > 200 and d['ech'] == 0:
         return "DÉCOMPRESSION (Storm)"
     if d['reads'] > 200 and d['ech'] == 0:
@@ -121,12 +134,16 @@ def main():
         mt = RE_T.match(line)
         t = float(mt.group(1)) if mt else -1.0
         g = m.groups()
-        d = dict(t=t, frame=int(g[1]), ms=int(g[2]), io=int(g[3]), blocs=int(g[4]),
-                 jit=int(g[5]), sync=int(g[6]), run=int(g[7]), reads=int(g[8]),
-                 scomp=int(g[9]), sw=int(g[10]), look=int(g[11]),
-                 ech=int(g[12]) if g[12] else 0,
-                 ips=[(int(g[13], 16), int(g[14])), (int(g[15], 16), int(g[16])),
-                      (int(g[17], 16), int(g[18]))] if g[12] else [])
+        run = g[6] if g[6] is not None else g[11]
+        d = dict(t=t, frame=int(g[1]), ms=int(g[2]), io=int(g[3]),
+                 gx=int(g[4]) if g[4] else 0, att=int(g[5]) if g[5] else 0,
+                 inexp=int(g[7]) if g[7] is not None else None,
+                 blocs=int(g[8]), jit=int(g[9]), sync=int(g[10]),
+                 run=int(run) if run is not None else 0, reads=int(g[12]),
+                 scomp=int(g[13]), sw=int(g[14]), look=int(g[15]),
+                 ech=int(g[16]) if g[16] else 0,
+                 ips=[(int(g[17], 16), int(g[18])), (int(g[19], 16), int(g[20])),
+                      (int(g[21], 16), int(g[22]))] if g[16] else [])
         key = (d['frame'], d['ms'])
         if key in seen:            # lines get republished on every window
             continue
@@ -188,7 +205,9 @@ def main():
     for d in rows:
         ts = f"{d['t']:8.0f}" if d['t'] >= 0 else "       ?"
         print(f"{ts} {d['frame']:8d} {d['ms']:6d}ms  {cause(d)}")
-        det = (f"           io={d['io']}ms jit={d['jit']}ms sync={d['sync']}ms reads={d['reads']} "
+        inexp = f" inexpliqué={d['inexp']}ms" if d['inexp'] is not None else ""
+        det = (f"           io={d['io']}ms gx={d['gx']}ms attente={d['att']}ms run={d['run']}ms{inexp} "
+               f"jit={d['jit']}ms sync={d['sync']}ms reads={d['reads']} "
                f"scomp={d['scomp']} blocs={d['blocs']} sw={d['sw']} look={d['look']}")
         print(det)
         if d['ech']:

@@ -62,7 +62,9 @@ esac
 WX86="$ROOT/third_party/winx86"
 # shellcheck source=tools/rt_boot_srcs.sh
 source "$ROOT/tools/rt_boot_srcs.sh"
-bash "$WX86/build.sh" >/dev/null
+# WX86_LIBTAG/WX86_EXTRA: gate an engine FLAVOUR (e.g. WX86_LIBTAG=_blksamp
+# WX86_EXTRA=-DD2_BLKSAMP) — its own archive, the default one untouched.
+LIBTAG="${WX86_LIBTAG:-}" EXTRA="${WX86_EXTRA:-}" bash "$WX86/build.sh" >/dev/null
 arm-linux-gnueabihf-g++ -std=c++17 -static -O2 -g -marm \
   -march=armv7-a+simd -mfpu=neon -mfloat-abi=hard \
   -DD2RT_CPU_BOX86 \
@@ -72,7 +74,7 @@ arm-linux-gnueabihf-g++ -std=c++17 -static -O2 -g -marm \
   -I"$ROOT/third_party/pklib" \
   -I"$WX86/third_party/box86-dynarec/include" -I"$WX86/third_party/box86-dynarec" \
   "${RT_BOOT_SRCS_HEAD[@]}" "${RT_BOOT_SRCS_TAIL[@]}" "$ROOT/third_party/pklib/explode.c" \
-  "$WX86/build-arm/libwinx86.a" -lpthread -lm \
+  "$WX86/build-arm/libwinx86${WX86_LIBTAG:-}.a" -lpthread -lm \
   -o "$ROOT/build-arm/rt_boot_arm" 2>/tmp/rt_boot_arm_build.err || { echo "FAIL: compilation ARM (voir /tmp/rt_boot_arm_build.err)"; grep -E "error" /tmp/rt_boot_arm_build.err | head -10; exit 1; }
 
 # 0.5 directory-index self-test (D2_PATHCACHETEST), run TWICE: index active,

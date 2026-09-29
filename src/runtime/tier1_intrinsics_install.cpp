@@ -13,6 +13,7 @@
 using namespace d2rt;
 
 extern "C" { extern unsigned int d2rt_b5_index_on, d2rt_b5_direct_n, d2rt_b5_direct_lo; }
+extern "C" void wx86_intrinline_counts(int* on, unsigned long long* stubs, unsigned long long* skip);   // engine, cpu_box86.cpp (D2_INTRINLINE)
 
 // ---- Tier-1 Warden-safe intrinsics --------------------------------------
 // Point the dynarec trap dispatch at inline handlers for the ultra-hot
@@ -83,4 +84,6 @@ void tier1_clock_cs_intrinsics_install(Cpu* cpu, Bridge& br){
             std::printf("%s\n",m); d2vita_progress(m);
         }
     }
+    {   int on=0; unsigned long long st=0, sk=0; wx86_intrinline_counts(&on,&st,&sk);
+        if(on) jpline("intrinline: D2_INTRINLINE=1 — %llu creneaux intrinseques servis EN LIGNE depuis le code traduit (%llu deja traduits, laisses en sortie)",st,sk); }
 }

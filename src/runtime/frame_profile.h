@@ -80,4 +80,5 @@ extern uint64_t g_wpWinf_n, g_wpWinf_us;   // WFSO INFINITE (touched directly by
 extern uint32_t g_lagMs;          // D2_LAGWATCH=<ms> threshold (set directly in main())
 extern d2rt::Bridge* g_profBr;    // stage 2 of the frame profile (PROF_COUNTERS); set right after `Bridge br(cpu)`
 void fp_tick(int frame);          // called once per presented frame
+void fp_owner(const void* cpu);   // the render thread's guest cpu (per-frame D2_NATPROF slice)
 void fp_dump();                   // final report (called at teardown)

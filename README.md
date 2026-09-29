@@ -122,18 +122,20 @@ On Vita, the boot diagnostic screen tells you what is missing from `ux0:data/d2v
 | Left stick | Direct movement (cursor orbits the character + held left click) |
 | Right stick | Free mouse, no click |
 | Touch screen | Absolute cursor; short tap = left click |
-| L (held) | Left click |
-| R (held) | Right click (also a combo layer: R+Triangle = virtual keyboard — also opens by itself on text fields — R+D-pad = F1-F4, R+Select = Space) |
+| L (held) | Left click (remappable) — also the L combo layer, free by default |
+| R (held) | Right click (remappable) — also the R combo layer: R+Triangle = virtual keyboard — also opens by itself on text fields — R+D-pad = F1-F4, R+Select = Space |
 | Cross | R — toggle walk/run |
 | Circle | Shift (held) — attack in place |
 | Square (held) | Alt — show items on the ground |
 | Triangle | W — weapon swap |
 | D-pad | Belt potions 1-4 |
 | Start | Esc |
-| Select | Radial menu — skills (T), quests (Q), map (Tab), inventory (I), chat (Enter), party (P), character (C) |
+| Select | Radial menu (remappable) — skills (T), quests (Q), map (Tab), inventory (I), chat (Enter), party (P), character (C) |
 
-Remappable without a rebuild via `ux0:data/d2vita/controls.txt`. Full detail:
-[Controller and keyboard](https://franckrst.github.io/D2Vita/controles/).
+Remappable without a rebuild via `ux0:data/d2vita/controls.txt` — a fully
+commented reference copy is seeded there on first boot. A title-screen
+"Controls" tab (left letterbox band) shows the bindings actually in effect.
+Full detail: [Controller and keyboard](https://franckrst.github.io/D2Vita/controles/).
 
 ## Reference D2 binaries
 

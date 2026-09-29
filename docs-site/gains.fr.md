@@ -19,6 +19,13 @@ en est la synthèse.
 
 | Portage | Gain mesuré | Niveau | Détail |
 |---|---|---|---|
+| Cache de textures : 2 TMU annoncées au jeu (`D2_GLNUMTMU=2`, défaut) | **~+20 %** (1 TMU : 20,06 et 19,95 img/s ; 2 TMU : 23,98, 23,95, 23,95 ; plafond 25) ; textures renvoyées ~50 → 1 par image | Console (banc de patrouille acte V, passes valides seulement, **non entrelacées**, prises à ~1 h d'écart) | Avec 1 TMU, son cache de sprites de 3 Mio débordait en régime permanent : ~50 textures déjà connues renvoyées par image. Exige un atlas assez grand : à 32 Mio il saturait dans les zones sauvages (sprites faux, Death Maulers qui clignotent) ; corrigé par l'atlas de 48 Mio et la gestion des échecs — **confirmation console en attente**. |
+| Limiteur de cadence en ligne désactivé par défaut (`D2_ONLINE_CAP`, 28/09) | **24,0 → 25,0 img/s ; images > 60 ms : 25 → 3** par 110 s de patrouille | Console (banc de patrouille acte V, route A, 1 passe avant, 3 passes après) | Le limiteur 25 Hz du moteur s'armait dès que `D2NET` était présent, donc aussi en solo. Il arrondissait l'attente à la milliseconde supérieure (~41,6 ms/image) et dérivait contre l'horloge de D2, qui sautait alors des dessins. En solo, D2 se limite déjà lui-même à un dessin par pas de 40 ms. |
+| Intrinsèques servis **en ligne** depuis le code traduit (`D2_INTRINLINE`, défaut depuis le 28/09) | **−0,9 à −1,25 ms de calcul par image** (route A 26,8/26,6 → 25,7/25,9 ms ; route B 27,1/27,0 → 25,8/25,8 ms) ; c0 76–77 % → 74–75 % | Console (banc de patrouille acte V, 8 passes entrelacées, comparaison à route égale) ; qemu : oracle pixel `FBHASH` identique sur 4000 images (2 témoins + 1 jambe), banc de contention `D2_CSTEST` PASS | ~1000 allers-retours de trap par image coûtaient ~4 µs chacun (sortie du JIT, verrou, ré-entrée, recherche de bloc : ~10 % du temps d'image, profil par bloc). Le stub du créneau devient un appel natif box86 ; retour direct à l'appelant par la pile CALLRET. GetTickCount et sections critiques (~650 appels/image). |
+| Copie des sommets **en ligne** dans la DLL ring (défaut depuis le 28/09 ; `D2_GLRUNS=0` pour l'ancien chemin) | **−0,9 ms de calcul par image** (route A : 27,6/27,6/27,2 → 26,3/26,8 ms) | Console (5 passes) ; qemu en partie 4000 images Perspective : 1,07 M dessins relus octet par octet, 0 écart, sabotage détecté | La copie de chaque sommet (28 octets, bandes en zigzag) était un appel + `rep movs` : 4,4 % du temps dans la fonction de copie. |
+| Pré-lecture fichiers 32 Kio sur saut (`D2_READAHEAD_JUMP`, défaut 32 depuis le 28/09) | Lectures carte dans la fenêtre 65–71 → 25–27 ; temps carte 208–223 → 130–197 ms | Console (4 passes, à route égale) | Pas de RAM en plus (fenêtre de 32 Kio inchangée). Effet sur les à-coups trop petit pour être mesuré (2–4 images de chargement par passe). |
+| F3 natif **optimisé et servi en ligne** (`D2_F3NATIF=1` + `D2_INTRINLINE`, 28/09) | **−1,25 ms de plus** (route B 25,6 → 24,4/24,3 ms ; c0 74 → 72 %) | Console (4 passes entrelacées) ; qemu : oracle `D2_F3NATIF=2` 168 503 cellules, 0 divergence ; `D2_F3CHECK` 436 538 bandes, 0 écart | Bandes écrites directement (sans `hostptr` par sommet), coins des cellules rejetées différés, visibilité en entiers quand c'est exact. **Toujours désactivé par défaut** : décision du joueur. |
+| F3 natif : dalles de sol en Perspective, `Game+0x10cf70` (`D2_F3NATIF=1`) | **~−2 ms de calcul par image** (calcul traduit 28,0 → ~20,6 ms, shims natifs ~5,3 ms ; c0 −2 points ; fps inchangés, déjà au plafond de 25 en ville) | Console (banc de patrouille acte V, 2 passes valides par variante) ; oracle qemu `D2_F3NATIF=2` : 0 divergence sur 82 000+ cellules dessinées | Portage de l'**appelant** (~30 petits appels par cellule absorbés). Le reste du coût est mémoire (tables de projection et LUT, ring partagé avec le fil de vidage). Désactivé par défaut en attendant la décision. |
 | Boucle de cellules native (`NATIVECELLLOOP`) | **+16,1 %** | Console (A/B/A/B, binaire identique) | Traversées ÷2, blit ÷7. |
 | `D2_CELLOPT` (masque d'optimisations dans la boucle native) | **+9,3 %** | Console | Moitié moins de travail par cellule. |
 | `D2_CELLPAR=1` (parallélisme fork-join, 1 fil ouvrier) | **+12 %** | Console | `D2_CELLPAR=2` = **0 %** (`USER_2` partagé, pas de second cœur disponible). |
@@ -45,6 +52,10 @@ en est la synthèse.
 | Report du RLE sur un fil dédié | **FAIL** sur trois modes ; le mode qui passait trois jours plus tôt **ne passe plus** | qemu (oracle) | « Prouver l'oracle avant de conclure » — le PASS fondateur ne s'était jamais rejoué depuis. |
 | Quatre hypothèses de cache d'image | **Toutes réfutées** (0 image identique sur 4 000) | qemu (`D2_CACHEPROBE`) | A trouvé autre chose à la place : l'option vidéo Perspective absente du registre coûtait +14,2 % de blocs invités. |
 | PMU matériel (compteurs de cycles Cortex-A9) | **Abandonné** | Console | Le noyau Vita remet le registre d'accès à zéro à chaque changement de contexte ; demanderait de patcher l'ordonnanceur système. |
+| `REP MOVSD` par paquets NEON de 16 octets (`D2_REPMOVS=1`, moteur) | **Neutre** (27,4 contre 27,4 ms) | Console (4 passes) ; exact (oracle, sabotage détecté) | La copie des sommets était dominée par l'appel, pas par les octets. Désactivé. |
+| Regroupement des sommets contigus dans la DLL (`D2_GLRUNS=1`) | **Neutre** | Console (4 passes) | Les bandes Perspective référencent leurs sommets en zigzag : jamais contigus. |
+| 5 intrinsèques de l'acte V (`D2_INTRIN` : projection, LUT couleur ×2, grille de lumière, remplissage) | **Négatif** : ~+4,3 ms de calcul par image, ~−3,2 % d'img/s (5 passes de patrouille, oracles à 0 divergence) | Console | Des fonctions minuscules (20 000 à 30 000+ appels par image) faites d'arithmétique entière, que le dynarec traduit déjà presque 1 pour 1 : le corps natif n'est pas plus rapide, et chaque appel paie la plomberie. Désactivés par défaut. |
+| Sérialisation native des dessins (`D2_GLNATDRAW=1`, intrinsèque au point de trap) | **Négatif** : ~+5,5 ms par image, −3,8 % d'img/s (4 passes entrelacées, banc v1 sans contrôle de parcours, fenêtre 2600-5600) | Console | ~1 700 sorties du code traduit par image coûtent plus que la copie évitée. Même leçon : un intrinsèque ne paie que si le corps épargné est gros par appel. |
 | Quinze leviers dynarec, bilan de campagne | **Un seul gain dans toute l'histoire du dynarec** (`D2_CALLRET`, +6,8 %) | Console | « le dynarec n'est pas le levier », le gain est dans le portage natif de code invité, pas dans la traduction elle-même. |
 
 ## Méthode de sélection d'un portage qui rapporte
@@ -90,7 +101,7 @@ D2_ONEDRAW=1
 D2_IOSTAT=1
 D2_READAHEAD=128
 D2_READAHEAD_MIN=32
-D2_READAHEAD_JUMP=8
+D2_READAHEAD_JUMP=32
 D2_READAHEAD_WIN=8
 D2_READAHEAD_WINKB=32
 D2_SON=1

@@ -20,6 +20,7 @@
 #include "platform/vita_gxm.h"
 #ifdef __vita__
 #include <psp2/kernel/processmgr.h>
+#include "platform/vita_host.h"     // wx86_vita_progress_flush (d2_crashlog)
 #endif
 #include "platform/vita_net.h"
 #include "runtime/rt_host.h"        // what rt_boot.cpp exposes to the extracted runtime units
@@ -28,6 +29,7 @@
 #include "runtime/native_hooks_codec.h"  // codec/DCC/Fog-raise hooks
 #include "runtime/native_hooks_cellengine.h"  // cell-loop/light-grid/blend/RLE/collision hooks
 #include "runtime/native_hooks_resolution.h"  // resolution de jeu native (D2_RES)
+#include "runtime/native_hooks_solo.h"       // confort solo : runewords ladder, reinitialisation d Akara
 #include "runtime/guest_atomics.h"           // atomics over guest memory -> winx86
 #include "runtime/guest_thread_ctx.h"        // current-thread TIB + last error -> winx86
 #include "runtime/guest_sync.h"              // kernel objects + handle table + observer -> winx86
@@ -111,6 +113,8 @@ static void son_codec_report(){
 // D2-specific side of the mechanism above (src/runtime/d2_intrin_114.cpp);
 // declared here rather than in its own header since it has only two entry points.
 extern "C" int d2_intrin_114_register(uint32_t d2base);
+extern "C" void wx86_runacc_arm(int on);   // per-thread guest run time (engine, cpu_box86.cpp)
+extern "C" int d2_intrin_verify_line(char* out, unsigned cap);
 extern "C" int d2_proj_verify;
 extern "C" unsigned long long d2_proj_ver_n, d2_proj_ver_bad, d2_proj_ver_skip;
 extern "C" uint32_t d2_proj_verify_trap;
@@ -680,6 +684,9 @@ static void d2crashtest_tick(Cpu& c, Bridge& br, int frame){
         // visible (unclear why — it resolves fine for D2_SIGNTAG further down
         // this same file). _Exit is the POSIX-equivalent standard name and
         // compiles under both arm-vita-eabi-g++ and the qemu-arm toolchain.
+#ifdef __vita__
+        wx86_vita_progress_flush();   // _Exit skips atexit: the halt line must reach the file
+#endif
         std::_Exit(kD2CrashTestHaltExitCode);
     }
     static const d2cr::CrashTestKind kind = d2cr::crashtest_kind_from_env(getenv("D2_CRASHTEST"));
@@ -1357,6 +1364,11 @@ extern "C" unsigned long long d2rt_hot_stat(int which){
         case 67: return g_wrOob;      case 68: return g_wrOobOff;
         case 69: return g_wrOobLen;   case 70: return g_wrOobSpan;
         case 71: return g_wrOobKind;
+        // 100..103: native DCC decoder. Published per window because a sprite
+        // churn (cache too small for the zone) only shows as decodes that
+        // never stop -- the shutdown-only [dcc] line cannot see it mid-game.
+        case 100: return g_dccNatN;    case 101: return g_dccNatFB;
+        case 102: return g_dccNatBytes; case 103: return g_dccN;
         // 75..85: cell-blit loop fork-join (D2_CELLPAR).
         case 75: return g_parCalls;    case 76: return g_parCellsW;
         case 77: return g_parJoins;    case 78: return g_parWaitMax;
@@ -1506,6 +1518,9 @@ void d2_crashlog(const char* fmt, ...){
     char body[512]; va_list ap; va_start(ap,fmt); std::vsnprintf(body,sizeof body,fmt,ap); va_end(ap);
     std::fprintf(stderr,"[crashlog] %s\n", body);
     d2vita_progress(body);   // no-op on qemu, boot-progress log on Vita
+#ifdef __vita__
+    wx86_vita_progress_flush();   // a stop/fatal reason must reach the file now, not in 50 ms
+#endif
     if(g_crashLogPath.empty()) return;
     if(FILE* f=std::fopen(g_crashLogPath.c_str(),"a")){ std::fprintf(f,"%s\n",body); std::fclose(f); }
 }
@@ -2765,6 +2780,9 @@ int main(int argc,char**argv){
                        "que ring: (dessins/sommets par image) n'a pas bouge"
                      : "nopend: mode=%d", v);
           std::printf("%s\n",m); d2vita_progress(m); } }
+    { extern int dyn86_repmovs;
+      if(const char* e=getenv("D2_REPMOVS")){ dyn86_repmovs = atoi(e)==1 ? 1 : atoi(e)==9 ? 9 : 0;   // 9 = SABOTAGE (the fast path drops its 16-byte stores): oracle self-test only
+          jpline("dynarec: REP MOVSD par paquets de 16 octets %s (D2_REPMOVS=%d)", dyn86_repmovs?"ACTIF":"inactif", dyn86_repmovs); } }
     { extern int box86_dynarec_forward;
       if(const char* e=getenv("D2_FORWARD")){ int v=atoi(e); if(v<0) v=0;
           box86_dynarec_forward = v;
@@ -2880,6 +2898,11 @@ int main(int argc,char**argv){
         if(ms < 20 || ms > 60000) ms = 80;
         g_lagMs = (uint32_t)ms;
         d2rt_lag_on = 1;
+        // run= on the lente# lines: exact per-thread guest time, counted at
+        // trap boundaries (engine). Kept even under _NOSAMP: it's the part
+        // that says whether a slow frame was COMPUTING. Cost: two clock reads
+        // per real trap (~850/frame in Act V), none per intrinsic.
+        wx86_runacc_arm(1);
         d2rt_timeprof_base = g_d2base;
         // ⚠️ THE SAMPLER IS THE ONLY EXPENSIVE PART. It forces a FINITE block
         // budget, but under D2SCHED=native the budget is normally INFINITE:
@@ -2899,8 +2922,8 @@ int main(int argc,char**argv){
             d2rt_timeprof_on = 10000;             // us
             cpu->set_run_limit(4096ull*8ull);     // amorcage, l'asservissement reprend
         }
-        char m[176]; std::snprintf(m,sizeof m,
-            "lagwatch: ARME seuil=%ld ms | echantillonnage=%s | "
+        char m[208]; std::snprintf(m,sizeof m,
+            "lagwatch: ARME seuil=%ld ms | echantillonnage=%s | run=exact (fil de rendu, traps exclus) | "
             "lire les lignes « lente#NN ... | invite ech=... »",
             ms, d2rt_lag_on ? "actif" : "COUPE (D2_LAGWATCH_NOSAMP)");
         std::printf("%s\n",m); d2vita_progress(m);
@@ -3573,7 +3596,57 @@ int main(int argc,char**argv){
         if(g_nocapFrom && !g_nocapDone && (uint32_t)g_frame>=g_nocapFrom) nocap_apply();
         ep_tick(g_frame);   // D2_EIPPROF_FROM/TO: profiling window (no-op without the knobs)
         { FuScope _s(&g_fuCmd);   cmd_poll(); }      // vision-driven runtime injection ($D2CMDFILE)
-        { FuScope _s(&g_fuInput); if(d2vita_input_tick) d2vita_input_tick(); }   // physical controls (Vita)
+        { FuScope _s(&g_fuInput); if(d2vita_input_tick) d2vita_input_tick(&c); }   // physical controls (Vita)
+        // D2_SCREENSCAN: one-shot guest-memory snapshot, armed by D2SCRIPT
+        // "memscan" and env-gated so it costs nothing when unset. Used only by
+        // the Task 3 title-screen-signal spike; not part of the shipped feature.
+        // Lives here (not vita_present.cpp) because this TU is linked into both
+        // the qemu-arm oracle and the VPK build — see Task 1 Step 5.
+        if (g_memscan) {
+            g_memscan = false;
+            const char* label = getenv("D2_SCREENSCAN_LABEL");
+            const char* baseS  = getenv("D2_SCREENSCAN_BASE");
+            const char* lenS   = getenv("D2_SCREENSCAN_LEN");
+            if (label && baseS) {
+                uint32_t base = (uint32_t)strtoul(baseS, nullptr, 16);
+                uint32_t len  = lenS ? (uint32_t)strtoul(lenS, nullptr, 16) : 0x20000u;
+                // Reject 0/garbage sizes: this vector is sized straight off the
+                // env var, inside a per-frame lambda — a huge value should fail
+                // loudly here, not thrash or silently truncate downstream.
+                const uint32_t kMaxLen = 8u*1024*1024;
+                if (len == 0 || len > kMaxLen) {
+                    std::printf("screenscan: D2_SCREENSCAN_LEN=0x%x hors bornes (1..0x%x) -> ignore\n",
+                                len, kMaxLen);
+                } else {
+                    std::vector<uint8_t> buf(len);
+                    // Captures used to hardcode ux0:data/d2vita/, which does NOT
+                    // exist under qemu-arm (that path is Vita-only elsewhere in
+                    // this codebase, e.g. cdkeys_file.cpp) — this TU builds for
+                    // both, so the write silently died exactly where the Task 3
+                    // spike runs. Same fix as the "snap" dump a few lines below:
+                    // route through g_writeRoot (D2WRITE, defaults to /tmp),
+                    // which exists everywhere.
+                    const char* froot = g_writeRoot.empty() ? "/tmp" : g_writeRoot.c_str();
+                    char path[256];
+                    snprintf(path, sizeof path, "%s/screenscan_%s.bin", froot, label);
+                    if (!c.read(g_d2base + base, buf.data(), len)) {
+                        std::printf("screenscan: %s lecture hors zone mappee a Game+0x%x (%u Ko) -> abandon, rien ecrit\n",
+                                    label, base, len >> 10);
+                    } else {
+                        FILE* f = fopen(path, "wb");
+                        if (f) {
+                            fwrite(buf.data(), 1, len, f);
+                            fclose(f);
+                            std::printf("screenscan: %s (%u Ko a Game+0x%x) -> %s\n",
+                                        label, len >> 10, base, path);
+                        } else {
+                            std::printf("screenscan: %s: echec ouverture %s (%s)\n",
+                                        label, path, strerror(errno));
+                        }
+                    }
+                }
+            }
+        }
 #ifdef D2V_CRASHTEST
         d2crashtest_tick(c, br, g_frame);
 #endif
@@ -3881,8 +3954,20 @@ int main(int argc,char**argv){
           // Configuration answers read by the guest DLL: announced TMU memory
           // (D2_GLTEXMEM) and gamma table (fields identified by disassembly
           // at 0x5090f5..0x509144).
-          uint32_t texmax=0x400000u;
-          if(const char* e=getenv("D2_GLTEXMEM")){ unsigned mo=atoi(e); if(mo>=1&&mo<=1024) texmax=mo<<20; }
+          // 16 MiB per TMU by default (was 4). What the game does with it
+          // (Game+0x1096e0..0x1098f7): with ONE TMU, sprites get
+          // min(TMU/2, 3 MiB), the tile cache min(TMU/4, 1 MiB), and the
+          // rest of TMU0 goes to three further caches; with TWO TMUs (the
+          // default, D2_GLNUMTMU below) sprites get 3/4 of TMU0 and the
+          // other caches all of TMU1. At 4 MiB / 1 TMU Act V re-sent ~109
+          // textures per frame (15.5 fps, console, 2026-09-25).
+          // The number is only ANNOUNCED — the game's slot tables are a few
+          // hundred KiB — BUT whatever the game keeps resident must fit in
+          // the GXM atlas (D2_GXMATLAS, 48 MiB): 16 x 2 = 32 MiB resident at
+          // most. Capped at 64 MiB: above 128 MiB the stacked TMU1 range
+          // would reach the TMU bits of gx_tmu_key (bit 28).
+          uint32_t texmax=16u<<20;
+          if(const char* e=getenv("D2_GLTEXMEM")){ unsigned mo=atoi(e); if(mo>=1&&mo<=64) texmax=mo<<20; }
           c.write_u32(cfg+0,0u); c.write_u32(cfg+4,texmax);
           c.write_u32(cfg+8,256u); c.write_u32(cfg+12,8u);
           { uint32_t bench=0; if(const char* e=getenv("D2_GLIDEBENCH")){ long v=atol(e); if(v>0&&v<100000000L) bench=(uint32_t)v; }
@@ -3894,8 +3979,47 @@ int main(int argc,char**argv){
           // ring). An older DLL ignores this field.
           const bool dedup = !(getenv("D2_GRDEDUP") && !strcmp(getenv("D2_GRDEDUP"),"0"));
           c.write_u32(cfg+20,dedup?1u:0u);
-          std::snprintf(m,sizeof m,"ring: ARME — en-tete 0x%08x donnees 0x%08x taille %u Ko, TMU annoncee %u Mio (v%u) dedup-DLL=%s",
-                        hdr,grDataVA,grSize>>10,texmax>>20,ver,dedup?"oui":"NON (D2_GRDEDUP=0)");
+          // D2_GLNUMTMU (default 2): GR_NUM_TMU answered by the DLL. At 1 the
+          // game caps its sprite texture cache at 3 MiB whatever the TMU size
+          // (Game+0x109805..0x109822); at 2 it gives the sprites 3/4 of TMU0
+          // and moves the tile caches to TMU1 (Game+0x1097b8, 0x109860).
+          // Default 2 since 26/09/2026: at 1, the Act V patrol (Harrogath,
+          // tools/bancs/patrouille_acte5.sh) re-sent ~50 textures / 1.5 MB
+          // per frame, 97-99.9% of them already in the atlas — the 3 MiB
+          // cache thrashing in steady state. At 2: 1 texture per frame,
+          // ~20.0 -> ~24.0 fps (game cap 25), guest run ~37 -> ~28 ms/frame,
+          // flush thread 25 -> 9 ms/frame, same heap (console, valid passes,
+          // not interleaved). Needs the 48 MiB atlas: at 32 MiB it saturated
+          // in the wilderness and drew wrong sprites. Only ANNOUNCED: textures
+          // still live in the one GXM atlas, keyed by (tmu, address).
+          uint32_t ntmu=2; if(const char* e=getenv("D2_GLNUMTMU")){ int v=atoi(e); if(v>=1&&v<=2) ntmu=(uint32_t)v; }   // D2 uses TMUs 0 and 1 only
+          c.write_u32(cfg+24,ntmu);
+          // D2_GLNATDRAW (default 0): 1 = draws serialized by d2vGlideDraw, a
+          // dynarec intrinsic, instead of the DLL's own translated copy; 2 =
+          // same, every record re-checked by the DLL; 3 = translated copy,
+          // every record re-checked (oracle of the rep-movs copy). Default 0:
+          // on console the intrinsic was SLOWER (Act V patrol, 4 interleaved
+          // passes: ~5.5 ms more guest run per frame, -3.7% fps) — leaving
+          // translated code once per draw costs more than the copy it saves.
+          uint32_t natdraw=0; if(const char* e=getenv("D2_GLNATDRAW")){ int v=atoi(e); if(v>=0&&v<=3) natdraw=(uint32_t)v; }
+          c.write_u32(cfg+28,natdraw);
+          // D2_GLCOPY=boucle: the DLL copies draws with its old C loop instead
+          // of rep movs (A/B of the copy only; default rep movs).
+          { const char* e=getenv("D2_GLCOPY"); c.write_u32(cfg+32,(e&&!strcmp(e,"boucle"))?1u:0u); }
+          // D2_GLRUNS=0: the DLL copies drawn vertices one call per vertex, as
+          // before it coalesced contiguous ones into runs (A/B of that change).
+          // Vertex copy of grDrawVertexArray/draw_ptrs (glide3x_ring.c). Default
+          // (and D2_GLRUNS=2): each vertex copied in line, unrolled, without
+          // a call — a Perspective strip's vertices are never contiguous.
+          // Console, Act V patrol, route A, 28/09/2026: guest run 27.5 ms/img
+          // (3 passes, D2_GLRUNS=0) -> 26.6 ms/img (2 passes). 1 = runs of
+          // contiguous vertices through d2gr_copy (measured neutral), 0 = one
+          // d2gr_copy call per vertex (the old path).
+          { const char* e=getenv("D2_GLRUNS");
+            c.write_u32(cfg+36,(e&&!strcmp(e,"0"))?1u:0u);
+            c.write_u32(cfg+40,(e&&(!strcmp(e,"0")||!strcmp(e,"1")))?0u:1u); }
+          std::snprintf(m,sizeof m,"ring: ARME — en-tete 0x%08x donnees 0x%08x taille %u Ko, TMU annoncee %u Mio x%u (v%u) dedup-DLL=%s natdraw=%u",
+                        hdr,grDataVA,grSize>>10,texmax>>20,ntmu,ver,dedup?"oui":"NON (D2_GRDEDUP=0)",natdraw);
           d2vita_progress(m); std::printf("[%s]\n",m); std::fflush(stdout);
           return 1u; });
       // D2V_CRASHTEST changes ONLY the capture list (adds &br, needed to
@@ -3910,7 +4034,7 @@ int main(int argc,char**argv){
           gr_flush(c,c.arg(0),pp_flush_begin);   // D2_GRPROF benchmark, flush timing, pp_flush_begin (D2_PHASEPROF), gr_replay, tail/stalls/dropped
           pp_flush_end();
           online_cap_wait(online_cap_period_us());   // D2_ONLINE_CAP: see the comment at its definition site
-          ++g_frame; lw_frame(c); pp_frame(); fp_tick(g_frame); ep_tick(g_frame); cmd_poll(); frameTick(c);   // lw_frame: D2_LOOPWATCH also sees the ring path
+          ++g_frame; lw_frame(c); pp_frame(); fp_owner(&c); fp_tick(g_frame); ep_tick(g_frame); cmd_poll(); frameTick(c);   // lw_frame: D2_LOOPWATCH also sees the ring path
 #ifdef D2V_CRASHTEST
           d2crashtest_tick(c, br, g_frame);
 #endif
@@ -3932,10 +4056,15 @@ int main(int argc,char**argv){
           if(!n) t0=rt_now_us();
           ++n; g_gbT1=rt_now_us();
           return 0u; });
+      // d2vGlideDraw: one draw record, written natively (gx_host.cpp). Served
+      // as an intrinsic (armed below, after tier1); this shim body is the
+      // fallback when intrinsics are disabled.
+      REG("d2vhost.dll","d2vGlideDraw",5,[](Cpu&c)->uint32_t{
+          return gr_draw_native(c,c.arg(0),c.arg(1),c.arg(2),c.arg(3),c.arg(4)); });
       REG("d2vhost.dll","d2vGlideTexUpload",4,[](Cpu&c)->uint32_t{
           const uint64_t nb=gl_texbytes(c,c.arg(3));
           gr_tex_upload_count(nb);
-          if(grgx_on()) gx_tex_upload(c,c.arg(1),c.arg(3));
+          if(grgx_on()) gx_tex_upload(c,gx_tmu_key(c.arg(0),c.arg(1)),c.arg(3));
           // The HOST-side texture cache hooks in here: hash the content,
           // return a stable handle, only recopy if the fingerprint is new.
           // Under qemu we settle for measuring only (D2_GLTEXHASH).
@@ -3972,6 +4101,16 @@ int main(int argc,char**argv){
     std::printf("linked: %u imports still unresolved (routed to default shim)\n", br.unresolved_count());
 
     tier1_clock_cs_intrinsics_install(cpu, br);
+    // Armed ONLY when D2_GLNATDRAW asks for the host path (1 or 2): off by
+    // default (measured slower), and a registered slot far from the others
+    // sends every non-intrinsic trap through the probe path.
+    if(const char* nd=getenv("D2_GLNATDRAW"); nd && (nd[0]=='1'||nd[0]=='2'))
+    if(uint32_t v=br.shim_trap("d2vhost.dll","d2vGlideDraw")){
+        cpu->set_intrinsic(v,&gr_draw_intrinsic);
+        // The index window is rebuilt by every set_intrinsic: publish it
+        // AFTER this last registration (tier1's [b5] line predates it).
+        jpline("[natdraw] intrinseque d2vGlideDraw@0x%08x | index direct: fenetre=%u creneaux @0x%08x (hors fenetre -> table)",
+               v, d2rt_b5_direct_n, d2rt_b5_direct_lo); }
 
     // POINT-9 torture-test drive: run the arbitrary EXE's entry through the SAME
     // scheduler as Game.exe, then return — bypassing every D2-specific hook below
@@ -4016,6 +4155,7 @@ int main(int argc,char**argv){
     // hooks, extracted into src/runtime/phase_hooks.cpp (logic unchanged).
     phase_hooks_install(cpu,br);
     ringtag_hooks_install(cpu,br);
+    { void native_f3_install(Cpu*, Bridge&); native_f3_install(cpu,br); }   // D2_F3NATIF (off by default)
     // ---- keys.txt: CD keys in cleartext, encoded in the installer's format
     // and substituted into the buffer read from the MPQ (src/runtime/cdkeys_file.cpp).
     cdkeys_hooks_install(cpu,br);
@@ -4105,6 +4245,7 @@ int main(int argc,char**argv){
     // DERNIER : ses quatre crochets sont independants des autres, et ca rend
     // le recensement d'alternates ci-dessous lisible.
     native_hooks_resolution_install(cpu,br);
+    native_hooks_solo_install(cpu,br);
 
     // ALTERNATES CENSUS. The dynarec's redirect table (the primitive all our
     // native ports hook through) has no bound anymore, but a LOST counter
@@ -5648,7 +5789,7 @@ int main(int argc,char**argv){
                 dyn86_pendor0_pess3, dyn86_pendor0_cut3);
               std::printf("  %s\n",m); d2vita_progress(m); }
             if(dyn86_intrin_on){
-                char m[320]; dyn86_intrin_report(m,sizeof m);
+                char m[1024]; dyn86_intrin_report(m,sizeof m);
                 std::printf("  %s\n",m); d2vita_progress(m);
             }
             if(d2_proj_verify || d2_proj_ver_n){
@@ -5658,6 +5799,7 @@ int main(int argc,char**argv){
                     (unsigned long long)d2_proj_ver_skip);
                 std::printf("  %s\n",m); d2vita_progress(m);
             }
+            { char m[240]; if(d2_intrin_verify_line(m,sizeof m)>0){ std::printf("  %s\n",m); d2vita_progress(m); } }
             // `appels` is served+fb: a dedicated counter used to cost a
             // 64-bit read-modify-write per call for a number that is the sum
             // of two others (dyn86_memintrin.h).
@@ -5815,6 +5957,9 @@ int main(int argc,char**argv){
     // thread was ever started this run.
     d2cr::d2cr_shutdown();
 #ifdef __vita__
+    // Last: drain the log, stop and join its writer thread (atexit never runs
+    // on sceKernelExitProcess) — every line above must reach the file.
+    wx86_vita_progress_stop();
     sceKernelExitProcess(0);
 #endif
     return 0;

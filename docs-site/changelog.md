@@ -4,6 +4,142 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.17-beta — 2026-09-29
+
+- **Two single-player options, both off by default** (add them to
+  `env.txt`):
+  - `D2_RUNEWORDS_LADDER=1`: the 23 ladder-only runewords (Spirit, Insight,
+    Infinity…) can be made in single player.
+  - `D2_RESPEC_UNLIMITED=1`: Akara's "Reset Stat/Skill Points" stays
+    available after use, once you have earned it (Den of Evil).
+  Neither acts in TCP/IP, Open Battle.net or realm games, and no game file
+  is changed. They depart from the unmodified game on purpose, which is
+  why they are opt-in.
+
+Beta: both were checked on a real console. Includes the 0.1.16-beta fixes.
+
+## v0.1.16-beta — 2026-09-28
+
+- **Multi-row belts no longer flicker.** Hovering or dragging potions in
+  an expanded 2–4 row belt made it flicker: the game got two different
+  screen positions for the same belt slot. This is very likely also why
+  potions sometimes refused to go into the upper belt rows — please
+  confirm on Discord.
+- **`controls.txt`: lines uncommented from the reference file now work.**
+  The reference file writes `#l=lclick   # comment`; uncommenting a line
+  kept the trailing comment, so the line was rejected (e.g. `l=alt` left
+  L as a left click). Comments after `#` and extra spaces around `=` are
+  now ignored.
+
+Beta: both fixes were checked on a real console. Tell us on Discord if
+anything regressed compared to 0.1.15.
+
+## v0.1.15-beta — 2026-09-28
+
+- **Inventory, stash and character panels are centered by default now.**
+  They used to be anchored to the screen edges, with a wide black gap
+  between two open panels; they now sit together as one 800-wide block
+  (the SGD2FreeRes model), which makes dragging items between an open
+  inventory and stash easier. `D2_RES_PANNEAUX=bords` (or `edges`) in
+  `env.txt` restores the previous edge anchoring.
+
+Beta: the anchoring math itself hasn't changed and was already
+console-measured before becoming the default, but nobody's looked at two
+open panels side by side on this exact build yet. Tell us on Discord if
+anything looks or clicks wrong.
+
+## v0.1.14-beta — 2026-09-28
+
+- **Title-screen "Controls" tab.** A small icon in the left letterbox band
+  of the title screen opens a full-screen panel listing every binding
+  currently in effect — defaults plus anything `controls.txt` changed —
+  scrollable by D-pad or drag, closed with Circle or Start.
+- **L, R and Select are now remappable**, without touching their role as
+  combo-layer prefixes: `l=`/`r=`/`select=` in `controls.txt` change what
+  pressing them *alone* does (default: left click, right click, the radial
+  menu). A new `l+` layer mirrors the existing `r+` one and starts
+  entirely free, for players to fill in themselves.
+- **A bad `controls.txt` line now says so.** An unknown button, an unknown
+  action, or a combo Select doesn't have used to be silently ignored;
+  every rejected line is now named in `boot_progress.txt`.
+- **A fully-commented reference `controls.txt`** ships inside the VPK and
+  is copied to `ux0:data/d2vita/controls.txt` the very first time the game
+  boots — it never overwrites a file a player already has.
+
+Beta: boots cleanly on real hardware, but nobody has hand-tested every new
+remap yet (`l=`, `r=`, `select=`, the `l+` layer). Feedback wanted on
+Discord before this becomes the default release.
+
+## v0.1.13 — 2026-09-28
+
+- **Act V stutter gone.** On the scripted Harrogath patrol (real console,
+  110 s), frames over 60 ms drop from ~25 to 3 and the frame rate reaches
+  the game's own cap: 24.0 → 25.0 fps. The cause was ours: an engine-side
+  25 Hz frame cap written for online play also ran in solo (it armed
+  whenever `D2NET` was set, which the default config always sets). Solo
+  Diablo II already draws exactly once per 40 ms simulation step; the cap
+  waited a little longer than 40 ms every frame, drifted against the game's
+  own clock, and the game then skipped a draw every few seconds. The cap is
+  now off by default. **Online:** there is no engine cap either anymore —
+  not re-measured online yet; if the game ever runs too fast in a
+  Battle.net game, `D2_ONLINE_CAP=25` in `env.txt` brings the old cap back.
+- **Less CPU per frame (~1.6 ms of game-thread work, ~5% of a frame).**
+  The most frequent calls from the game into the runtime (clock reads,
+  critical sections — ~650 per frame) are now served from inside the
+  translated code instead of leaving it and coming back; the Glide ring
+  DLL copies Perspective vertices in line; `wsprintfA` no longer allocates.
+  Main core load on the patrol: ~77% → ~74%. Proven identical on qemu
+  (pixel-identical image over 4000 frames, critical-section contention
+  test) and measured on console with interleaved passes.
+- **Fewer memory-card reads when new content streams in:** a seek now
+  reads 32 KiB ahead instead of 8 (~60% fewer card reads on the patrol),
+  no extra RAM.
+- **Native Perspective floor (`D2_F3NATIF=1`) faster**, still opt-in: it is
+  now served in line and writes its draws directly, another ~1.25 ms per
+  frame on the patrol (0 divergence against the game's own code on 168,503
+  compared cells).
+
+## v0.1.12 — 2026-09-27
+
+- **Perspective floor no longer flickers.** In heavy Perspective scenes
+  (Harrogath's gate: ~1.3 MB of Glide records per frame) the render ring
+  could not hold the frame being sent to the GPU on the second core *and*
+  the next one, and the Glide DLL silently dropped the end of each frame —
+  a patch of floor, different every frame. The flush thread now gives the
+  ring space back as it walks the frame instead of at its end. Console, at
+  the gate, Perspective ON: 0 dropped records, 24 fps (a first fix that sent
+  those frames synchronously cured the flicker but fell to 9 fps there).
+- **The in-game Resolution option zooms again.** *800×600* draws at the
+  Vita's native 960×544 as before; *640×480* now draws at 848×480 — the
+  original 640×480's height at the screen's shape — scaled ×1.13 to full
+  screen, so characters look as big as native 640×480. Before, choosing
+  640×480 only swapped the HUD art. Switching mid-game works in both
+  directions (the world used to stop two thirds across the screen after a
+  switch to 640). `D2_RES640=WxH` forces another size, `D2_RES640=0` gives
+  the original bordered 640×480. Confirmed on console.
+- **HUD gaps filled at 640×480 too.** The 640 bar and the column between
+  two open panels are filled with stone taken from the game's own inventory
+  panel, read from the game's already-loaded art at the first UI draw — no
+  panel needs to be opened first, and no Blizzard art is added to the
+  package. Not available for classic (non-Lord of Destruction) characters.
+- **HUD gaps no longer come back with Perspective OFF**, and the black
+  column between two open panels (character sheet + inventory) is filled
+  again at 960×544 — its expected position had not followed the vertical
+  centring of the panels. Confirmed on console, Perspective ON and OFF.
+- **Act V runs faster:** the Glide driver now announces two texture units,
+  which lifts D2's sprite cache from 3 MiB — it was re-sending ~50 known
+  textures per frame. Console patrol bench: ~20 → ~24 fps (the game's own
+  cap is 25).
+- **Blinking monsters (Death Maulers) fixed in the texture atlas**: with two
+  texture units the atlas could fill up in the wilds and a failed upload
+  left the previous sprite bound. The atlas grows to 48 MiB, a failed
+  upload now leaves the texture unbound instead of stale, and full size
+  classes borrow unused pages from the others. Verified with the qemu
+  texture oracle (718 wrong-texture draws → 0); console confirmation is
+  still pending.
+- The boot log (`boot_progress.txt`) is now written asynchronously: its
+  periodic reports no longer stall the game thread (30–107 ms each before).
+
 ## v0.1.11-beta7 — 2026-09-24
 
 - **Explored map kept across waypoint trips (and across games).** D2 keeps a

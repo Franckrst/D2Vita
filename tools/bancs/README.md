@@ -60,6 +60,54 @@ banc), pour qu'une jambe « sans » reste possible.
 Pendant une campagne, garder la console éveillée : `nohup bash tools/bancs/nosleep_console.sh &`
 (un sommeil au milieu d'une fenêtre détruit la passe).
 
+## 1bis. La patrouille de l'acte V — `patrouille_acte5.sh`
+
+Le scénario de mesure de l'acte V, à partir de **la sauvegarde du joueur** : personnage `jujd`, barbare niveau 86, difficulté Normal, acte V. Le script `gen_patrouille_acte5.py` démarre la partie par clics (Single Player, OK, **Normal**). Nightmare et Hell sont débloqués mais restent à l'acte I. La patrouille descend ensuite une fois de l'apparition au waypoint (bas de l'escalier), puis fait 10 tours waypoint → huttes → waypoint, un clic toutes les 150 images. Elle ne revient jamais vers l'apparition, où se trouve le coffre : un clic de retour qui dérive l'ouvrait, avec l'inventaire.
+
+```bash
+tools/bancs/patrouille_acte5.sh nd1_a                    # une passe
+tools/bancs/patrouille_acte5.sh nd0_a D2_GLNATDRAW=0     # même passe, un knob changé
+```
+
+- **Toujours la même sauvegarde.** Avant chaque passe, `ux0:data/d2vita/save_banc/` est restauré depuis `build-vita/bancs/acte5/save_banc_ref/`, une copie de la sauvegarde du joueur **hors git**. La vraie sauvegarde (`save/`) n'est jamais touchée.
+- **Contrôle « acte V ».** La capture de l'image 2499 est comparée à `ref_apparition_2499.png` (apparition à Harrogath). Si la passe n'est pas arrivée là, par exemple sur un clic de menu raté, elle est relancée une fois à l'identique, puis déclarée en ÉCHEC. Elle n'est jamais mesurée.
+- **Reproductibilité.** Les tours ne se referment pas exactement : un clic peut s'arrêter sur l'escalier ou derrière le mercenaire. Mais deux passes du même script donnent les mêmes vues aux mêmes images (écart moyen ~1 sur 12 points de contrôle, console, 26/09/2026). Seuls le mercenaire et la neige diffèrent.
+- **Aucune capture dans la fenêtre** : une capture GXM gèle le jeu ~2,8 s. Il n'y en a que deux, à l'image 2499 (acte V) et à l'image 5760, après la fenêtre. La seconde est comparée à `ref_fin_5760.png` (créée par la première passe valide) ; une passe dont le parcours a divergé n'est pas mesurée.
+- **Mesure :** fps sur la fenêtre des images 2800–5700 (battements `alive:`), c0 médian, `run=` médian par image. Deux passes par variante, entrelacées A B A B ; donner la dispersion.
+- **Clics :** `move`, `ldown` +5, `lup` +15. Un appui et un relâchement dans la même image ne sont pas pris. Les menus sont en coordonnées 800×600 ; la partie est en 960×544 natif, à 1:1 avec les captures GXM.
+- **`env.txt` du joueur.** Le script le sauvegarde (`build-vita/bancs/acte5/env_joueur_console.txt`, sauf s'il contient déjà un `D2SCRIPT=`, c'est-à-dire un env de banc resté d'une passe interrompue) et le **remet en place à la sortie**, quelle qu'en soit la cause.
+- **Passes rejetées.** Leur journal est renommé `bp_<LAB>_rejetee1.txt` (première tentative) ou `bp_<LAB>_rejetee.txt` (échec final) : un nom de passe valide ne désigne jamais une passe non mesurée.
+
+### Les à-coups, pas seulement le fps — `a_coups.py`
+
+À ~24 img/s le fps moyen touche le plafond de 25 du jeu et ne bouge presque plus. Ce qui se voit, ce sont les images lentes.
+
+```bash
+python3 tools/bancs/a_coups.py build-vita/bancs/acte5/bp_A1.txt build-vita/bancs/acte5/bp_B1.txt
+```
+
+Par passe : fps, `run` médian, nombre d'images > 60 ms dans la fenêtre, et, si la passe a tourné avec `D2_PPTRACE=1 D2_PHASEPROF=1`, leur partage entre **sauts d'image de D2** (le dessin est sauté quand le retard cumulé atteint 40 ms : `t+N[2,..]` dans la ligne `chrono`) et **autres** (dessin long : chargement de contenu, téléversements).
+
+Instruments associés :
+- `natif-image fN` (avec `D2_NATPROF=1` et `D2_LAGWATCH`) : pour chaque image lente, les shims où **le fil de jeu** a passé son temps. C'est ce qui a montré que les « vidages longs » étaient une attente du fil de jeu (`WaitForSingleObject`) sur le fil de chargement de D2.
+- `D2_IOTRACE=<image>` : à partir de cette image, une ligne `iotr` par lecture (fichier, offset, taille, RAM ou carte, µs).
+
+### Le temps par fonction — saveur `D2VPK_BLKSAMP=1`, `blksamp_fonctions.py`
+
+Les profileurs du build normal comptent des fréquences d'entrée de bloc, pas du temps (`docs/audi_perf.md` §4). La saveur de mesure publie l'adresse x86 de chaque bloc traduit **à son entrée** (et aux points de retour CALLRET), et l'indice du créneau pendant chaque corps de shim. Le fil `d2_timesamp` lit ce mot à intervalle fixe : chaque échantillon vaut le même temps.
+
+```bash
+D2VPK_BLKSAMP=1 D2VPK_OUT=$PWD/build-vita-blksamp tools/build_rt_boot_vpk.sh
+VITA_IP=… tools/deploy_eboot.sh build-vita-blksamp/eboot.bin
+tools/bancs/patrouille_acte5.sh blksamp1 D2_TIMESAMP=250
+python3 tools/bancs/blksamp_fonctions.py build-vita/bancs/acte5/bp_blksamp1.txt   # capstone + pefile
+```
+
+- Fenêtre : images `D2_TIMESAMP_FROM`–`D2_TIMESAMP_TO` (défaut 2800–5700), table vidée en fin de fenêtre (lignes `blk:`).
+- Le rapport replie les blocs dans leur fonction (débuts = cibles des `call` directs de Game.exe) : c'est du temps **propre**, pas inclusif. `S<nom>` = temps dans le corps d'un shim, `(trap) <nom>` = bloc au créneau (aiguillage vers le Bridge ou intrinsèque servi en ligne). Les blocs au-delà de `SizeOfImage` sont les autres modules traduits : la DLL Glide ring est chargée juste après Game.exe.
+- Tous les fils invités écrivent le même mot : le fil de jeu domine, mais ce n'est pas un profil par fil.
+- Coût de la saveur : ~5 instructions ARM par entrée de bloc (~+1,6 ms de `run` par image sur la patrouille). **Jamais livrée.**
+
 ## 2. Une suite — `suite_console.sh`
 
 ```

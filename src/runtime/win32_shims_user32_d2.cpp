@@ -210,7 +210,7 @@ void win32_shims_user32_d2_install(Bridge& br){
         { static uint64_t lastIn=0; uint64_t nowIn=rt_now_us();
           if(nowIn-lastIn>=16000ull){ lastIn=nowIn;
               text_focus_poll(c);                     // publie le focus AVANT le tick d'entree
-              if(d2vita_input_tick) d2vita_input_tick();
+              if(d2vita_input_tick) d2vita_input_tick(&c);
               cmd_poll(); } }
         if(g_msgQ.empty()){
             // Real-clock mode: D2 paces frames by spinning on an empty pump
