@@ -120,6 +120,20 @@ Battle.net, which is the default. It's a network-policy choice, not a
 performance lever, so it isn't part of the config above — add it to
 `env.txt` yourself if you want it. Details: [Online play](en-ligne.md).
 
+`D2_RUNEWORDS_LADDER=1` (off by default) lets **single-player** games create
+the 23 runewords 1.14d reserves to the Battle.net ladder (Spirit, Insight,
+Infinity… — the `server` column of `Runes.txt`). It only acts in a
+single-player game: TCP/IP, Open Battle.net and realm games keep the game's
+own rule, and no game file is changed.
+
+`D2_RESPEC_UNLIMITED=1` (off by default) keeps Akara's "Reset Stat/Skill
+Points" available after use, in single-player games only. The first reset
+is still earned the normal way (Den of Evil); after that it never gets used
+up. A character that already spent it before the option was turned on does
+not get it back.
+
+Both are deliberate departures from the unmodified game, so they stay opt-in.
+
 ### The picture
 
 Nothing to set: once you're in a game the game itself draws at the screen's

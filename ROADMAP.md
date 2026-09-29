@@ -243,6 +243,26 @@ the source of truth for the public repository.
       belt rows (zymonx 27/09, voice_of.reason 28/09) likely share this
       cause — not yet confirmed by those players.
 
+- [x] **Ladder runewords in single player, opt-in** (`D2_RUNEWORDS_LADDER=1`,
+      2026-09-29, Discord request): 1.14d keeps 23 runewords `server=1` in
+      `Runes.txt` (Spirit, Insight, Infinity…), refused outside a ladder
+      game. `src/runtime/native_hooks_solo.cpp` hooks the runeword lookup
+      (`Game+0x22bed0`) and, only when called from the ladder check
+      (`Game+0x162807`), resumes on the "apply" branch — no game byte or data
+      written. Gated on the game type (`game+0x6a`, measured on console: 3 =
+      single player, 2 = hosted TCP/IP); anything else keeps the game's rule.
+      Console A/B with a patched test save (`tools/d2s_items.py`, Spirit
+      runes + 4-socket Crystal Sword): off -> "Gemmed Crystal Sword"; on,
+      single player -> Spirit; on, hosted TCP/IP -> "Gemmed Crystal Sword".
+      Deliberate departure from the unmodified game, hence opt-in.
+      Same file, `D2_RESPEC_UNLIMITED=1` (2026-09-29, Discord request): the
+      NPC handler calls `Game+0x18fd50` ("deactivated respec quest",
+      a1q1.cpp: quest 41 bit 0 used, bit 1 cleared) after Akara's reset;
+      from that call site (`Game+0x17a266`) in a type-3 game it is skipped,
+      so the reset stays offered. Console: log "gardee disponible (type de
+      partie 3)", player confirmed the menu entry still there after use.
+      Limit: a character that already spent its reset is not re-armed.
+
 ## In progress / open
 
 - [ ] **Aim-assist controller scheme, opt-in**: `wt/manette-curseur-libre`

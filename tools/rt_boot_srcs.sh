@@ -51,6 +51,7 @@ RT_BOOT_SRCS_HEAD=(
   "$ROOT/src/runtime/native_hooks_codec.cpp"
   "$ROOT/src/runtime/native_hooks_cellengine.cpp"
   "$ROOT/src/runtime/native_hooks_resolution.cpp"
+  "$ROOT/src/runtime/native_hooks_solo.cpp"
   "$ROOT/src/runtime/win32_shims_shell32_d2.cpp"
   "$ROOT/src/runtime/win32_shims_advapi32_d2.cpp"
   "$ROOT/src/runtime/win32_shims_user32_d2.cpp"

@@ -126,6 +126,20 @@ politique réseau, pas un levier de perf, donc il ne fait pas partie de la
 config ci-dessus — ajoute-le toi-même dans `env.txt` si tu le veux. Détails :
 [Jouer en ligne](en-ligne.md).
 
+`D2_RUNEWORDS_LADDER=1` (désactivé par défaut) permet, en **solo**, de créer
+les 23 runewords que la 1.14d réserve au ladder Battle.net (Spirit, Insight,
+Infinity… — la colonne `server` de `Runes.txt`). Il n'agit qu'en partie
+solo : TCP/IP, Battle.net ouvert et realm gardent la règle du jeu, et aucun
+fichier du jeu n'est modifié.
+
+`D2_RESPEC_UNLIMITED=1` (désactivé par défaut) garde la réinitialisation
+« Reset Stat/Skill Points » d'Akara disponible après usage, en solo
+seulement. La première s'obtient toujours normalement (la Tanière du Mal) ;
+ensuite elle n'est jamais consommée. Un personnage qui l'avait déjà utilisée
+avant l'activation de l'option ne la récupère pas.
+
+Ce sont deux écarts volontaires au jeu non modifié, donc ils restent optionnels.
+
 ### L'image
 
 Rien à régler : une fois en partie, le jeu dessine lui-même au 960×544 de
