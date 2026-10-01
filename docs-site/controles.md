@@ -68,11 +68,12 @@ Bind the `items` action to any other button if you prefer, and **hold** it:
 - the D-pad jumps the cursor from label to label (the nearest one in the
   direction pressed), so the highlighted item is the one the game itself
   reports as hovered;
-- Cross picks the highlighted item up. The cursor goes onto the label, and
-  the click is only sent once the game has reported the item as hovered:
+- **L** (the aim button) or Cross picks the highlighted item up — with
+  `aim` on L, hold Square and press L, no need to reach for Cross. The
+  cursor goes onto the label, and the click is only sent once the game has reported the item as hovered:
   clicking earlier is read by the game as "walk there";
-- with nothing on the ground, the D-pad and Cross keep their normal
-  bindings (potions, walk/run), so holding the button never eats a potion;
+- with nothing on the ground, the D-pad, Cross and L keep their normal
+  bindings (potions, walk/run, aim), so holding the button never eats a potion;
 - the right stick still moves the cursor by hand — landing on a label
   focuses it; the left stick (direct movement) cancels any pick-up.
 
@@ -109,13 +110,16 @@ applies, and the `aim` button is a plain **left click** there — which is why
 L now clicks in the menus.
 
 A diamond marks the current hostile target (gold once the game confirms the
-hover). Assisted aiming only ever borrows the cursor: it moves onto the
+hover). It can be hidden: `diamond=off` in `controls.txt` (the aim itself is
+unchanged; `diamond=on` is the default). Assisted aiming only ever borrows the cursor: it moves onto the
 target, holds the click once the game reports the hover, and puts the cursor
 back where you left it on release — as does the stop click that ends a walk.
 **The cursor beats everything**: whatever it sits on is what `aim` acts on,
 ahead of any cone. Distances are measured in the world, not in screen pixels,
 and a unit the game refuses to hover — a critter, a vulture still in the air —
-is dropped after a moment instead of capturing every press.
+is dropped after a moment instead of capturing every press (up to 32 such
+units are remembered, so a pack of critters no longer hides the monster
+behind it).
 
 **Open panels** (inventory, chest, vendor, NPC menus, Larzuk's add-socket
 window…): both sticks move the cursor and `aim` is a left click. The list of
@@ -134,6 +138,7 @@ orbit_min=40       # px (at 600 lines), walk-ring radius at a light stick push
 orbit_max=110      # px, full stick
 cone=35            # aim cone half-angle around the cursor, degrees
 hover_h=28         # default hover height above a unit's feet, px
+diamond=on          # off = hide the aim marker (the aim still works)
 hud_h=60           # bottom band ASSISTED clicks never enter, px (the cursor
                    # you drive does go there, or the belt would be unreachable)
 reach=300          # how far `aim` reaches for a chest/door/NPC, world units
@@ -237,7 +242,17 @@ orbit=70         # direct-movement radius (px), plain mode
 sens=18          # right stick speed (default 18)
 deadzone=0.15    # default 0.15
 anchor_y=470     # character's vertical anchor (for a 1000-tall resolution)
+diamond=off      # hide the aim assist's diamond (default on)
 ```
+
+**Accepted ranges** for the numeric keys — a value outside it is refused (the
+default stays) and reported in `boot_progress.txt`: `orbit` 10–400, `sens`
+1–100, `deadzone` 0–0.9 (a fraction: `0.15`, not `15`), `anchor_y` 100–900,
+`orbit_min`/`orbit_max` 5–400, `cone` 5–90, `hover_h` 0–150, `hud_h` 0–300,
+`reach` 50–2000. In particular `orbit=1000`, which some older builds used,
+is refused: it would push the walk point off the screen and nothing could be
+controlled any more. A UTF-8 byte-order mark at the start of the file (added
+by some Windows editors) is ignored.
 
 **Buttons**: `cross`/`croix`, `circle`/`rond`, `square`/`carre`,
 `triangle`, `up`, `down`, `left`, `right`, `start` (prefix with `r+` for
@@ -249,8 +264,8 @@ set what L, R and Select do *by themselves*, not a combo.
 `esc`/`echap`, `inv`, `perso`, `skills`, `quests`, `swap`, `space`, `run`,
 `enter`, `pot1`-`pot4`, `f1`-`f8`, `vk:0xNN` (raw key code), `none`.
 
-A line the game doesn't recognise — an unknown button, an unknown
-action, or (`r+select=`/`l+select=`) a combo Select doesn't have — is
+A line the game doesn't recognise — an unknown key or button, an unknown
+action, a number outside its range, or (`r+select=`/`l+select=`) a combo Select doesn't have — is
 never applied, and now says so: check `boot_progress.txt` for
 `controls.txt ignore "..."` lines, one per rejected line (capped at 8).
 Before this, a bad line simply did nothing with no indication why —

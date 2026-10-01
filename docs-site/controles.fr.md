@@ -68,11 +68,12 @@ Assignez l'action `items` à un autre bouton si vous préférez, et **maintenez-
 - la croix directionnelle saute d'un nom à l'autre (le plus proche dans la
   direction pressée), et l'objet surligné est celui que le jeu lui-même
   déclare survolé ;
-- Croix ramasse l'objet surligné. Le curseur se place sur le nom, et le
-  clic n'est envoyé qu'une fois que le jeu a signalé l'objet comme survolé :
+- **L** (le bouton de visée) ou Croix ramasse l'objet surligné — avec `aim`
+  sur L, maintenez Carré et appuyez sur L, inutile d'aller chercher Croix. Le
+  curseur se place sur le nom, et le clic n'est envoyé qu'une fois que le jeu a signalé l'objet comme survolé :
   cliquer avant est lu par le jeu comme « aller là-bas » ;
-- sans objet au sol, la croix directionnelle et Croix gardent leurs
-  fonctions habituelles (potions, marche/course) : maintenir le bouton ne
+- sans objet au sol, la croix directionnelle, Croix et L gardent leurs
+  fonctions habituelles (potions, marche/course, visée) : maintenir le bouton ne
   fait jamais perdre une potion ;
 - le stick droit déplace toujours le curseur à la main — se poser sur un
   nom le sélectionne ; le stick gauche (déplacement direct) annule tout
@@ -112,14 +113,16 @@ comportement simple des sticks s'applique toujours, et le bouton `aim` y est un
 simple **clic gauche** — c'est pourquoi L clique désormais dans les menus.
 
 Un losange marque la cible hostile courante (doré une fois que le jeu confirme
-le survol). La visée assistée ne fait qu'emprunter le curseur : il se place sur
+le survol). On peut le masquer : `diamond=off` dans `controls.txt` (la visée
+elle-même ne change pas ; `diamond=on` par défaut). La visée assistée ne fait qu'emprunter le curseur : il se place sur
 la cible, maintient le clic une fois que le jeu signale le survol, puis revient
 là où vous l'aviez laissé au relâchement — comme le clic d'arrêt qui termine
 une marche. **Le curseur prime sur tout** : ce qu'il survole est ce sur quoi
 `aim` agit, avant tout cône. Les distances se mesurent dans le monde, pas en
 pixels d'écran, et une unité que le jeu refuse de survoler — un critter, un
 vautour encore en l'air — est abandonnée au bout d'un moment au lieu de
-capturer chaque appui.
+capturer chaque appui (jusqu'à 32 unités de ce genre sont mémorisées : une
+meute de critters ne cache plus le monstre derrière elle).
 
 **Panneaux ouverts** (inventaire, coffre, marchand, menus de PNJ, fenêtre
 d'ajout de socket de Larzuk…) : les deux sticks déplacent le curseur et `aim`
@@ -138,6 +141,7 @@ orbit_min=40       # px (à 600 lignes), rayon de l'anneau de marche à faible i
 orbit_max=110      # px, stick à fond
 cone=35            # demi-angle du cône de visée autour du curseur, en degrés
 hover_h=28         # hauteur de survol par défaut au-dessus des pieds d'une unité, px
+diamond=on         # off = masque le losange de visée (la visée marche toujours)
 hud_h=60           # bande basse où les clics ASSISTÉS n'entrent jamais, px (le curseur
                    # que vous pilotez, lui, y va, sinon la ceinture serait inatteignable)
 reach=300          # portée de `aim` vers un coffre/une porte/un PNJ, unités du monde
@@ -244,7 +248,17 @@ orbit=70         # rayon du déplacement direct (px), mode simple
 sens=18          # vitesse du stick droit (défaut 18)
 deadzone=0.15    # défaut 0.15
 anchor_y=470     # ancre verticale du personnage (pour une résolution de 1000)
+diamond=off      # masque le losange de la visée assistée (défaut on)
 ```
+
+**Plages acceptées** pour les clés numériques — une valeur hors plage est
+refusée (le défaut reste) et signalée dans `boot_progress.txt` : `orbit`
+10–400, `sens` 1–100, `deadzone` 0–0,9 (une fraction : `0.15`, pas `15`),
+`anchor_y` 100–900, `orbit_min`/`orbit_max` 5–400, `cone` 5–90, `hover_h`
+0–150, `hud_h` 0–300, `reach` 50–2000. En particulier `orbit=1000`, utilisé
+par d'anciennes versions, est refusé : il enverrait le point de marche hors
+de l'écran et plus rien ne répondrait. Un BOM UTF-8 en début de fichier
+(ajouté par certains éditeurs Windows) est ignoré.
 
 **Boutons** : `cross`/`croix`, `circle`/`rond`, `square`/`carre`,
 `triangle`, `up`, `down`, `left`, `right`, `start` (préfixer `r+` pour la
@@ -257,7 +271,8 @@ pas en combo.
 `esc`/`echap`, `inv`, `perso`, `skills`, `quests`, `swap`, `space`, `run`,
 `enter`, `pot1`-`pot4`, `f1`-`f8`, `vk:0xNN` (code de touche brut), `none`.
 
-Une ligne que le jeu ne reconnaît pas — bouton inconnu, action inconnue,
+Une ligne que le jeu ne reconnaît pas — clé ou bouton inconnu, action inconnue,
+nombre hors plage,
 ou (`r+select=`/`l+select=`) un combo que Select n'a pas — n'est jamais
 appliquée, et le dit désormais : regarder `boot_progress.txt` pour les
 lignes `controls.txt ignore "..."`, une par ligne rejetée (plafonné à 8).

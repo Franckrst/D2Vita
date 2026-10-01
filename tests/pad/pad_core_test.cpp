@@ -519,8 +519,8 @@ static void test_scenery_the_game_never_hovers_is_learned_by_class() {
     pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[2];
-    u[0].id = 1; u[0].type = 2; u[0].cls = 55; u[0].sx = 500; u[0].sy = 300; u[0].interact = true;  // torch
-    u[1].id = 2; u[1].type = 2; u[1].cls = 55; u[1].sx = 560; u[1].sy = 300; u[1].interact = true;  // another torch
+    u[0].id = 1; u[0].type = 2; u[0].cls = 55; u[0].sx = 500; u[0].sy = 300; u[0].interact = true; u[0].selectable = false;  // torch
+    u[1].id = 2; u[1].type = 2; u[1].cls = 55; u[1].sx = 560; u[1].sy = 300; u[1].interact = true; u[1].selectable = false;  // another torch
     s.setCursor(500, 296);                              // hovering the first one, game says nothing
     for (int i = 0; i < 10; ++i) { a = pad::Actions{}; s.tick(c, x, v, u, 2, a); }
     c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
@@ -618,7 +618,7 @@ static void test_offscreen_units_are_not_targets() {
     CHECK(pad::pick_interact(obj, 1, v, cfg) == -1);
 }
 
-static void test_scenery_offered_by_proximity_is_written_off_fast() {
+static void test_untargetable_scenery_is_not_offered_by_proximity() {
     // Console, 21/09: "in Lut Gholein it is the little fires or shadows that
     // sometimes get targeted by X". Those are offered by PROXIMITY, so the
     // cursor never passed over them and the passive learner never saw them.
@@ -628,16 +628,69 @@ static void test_scenery_offered_by_proximity_is_written_off_fast() {
     pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
     pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
     pad::Unit u[2];
-    u[0].id = 1; u[0].type = 2; u[0].cls = 99; u[0].sx = 430; u[0].sy = 300; u[0].interact = true;  // a fire
-    u[1].id = 2; u[1].type = 2; u[1].cls = 99; u[1].sx = 460; u[1].sy = 300; u[1].interact = true;  // another
+    u[0].id = 1; u[0].type = 2; u[0].cls = 99; u[0].sx = 430; u[0].sy = 300; u[0].interact = true; u[0].selectable = false;  // a fire
+    u[1].id = 2; u[1].type = 2; u[1].cls = 99; u[1].sx = 460; u[1].sy = 300; u[1].interact = true; u[1].selectable = false;  // another
     c.aim = true; s.tick(c, x, v, u, 2, a);
+    CHECK(!s.interacting());                              // the game's own flag says untargetable: never offered
+}
+
+static void test_a_selectable_object_is_never_written_off_by_a_slow_hover() {
+    // Console, 29/09: stash, waypoint, chests and town portal were not
+    // targeted. The game only hovers after a rendered frame (~12 fps), so a
+    // few ticks without hover on an object the game flags targetable is a
+    // race, not a statement: it must stay offerable, even after a long miss.
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1];
+    u[0].id = 1; u[0].type = 2; u[0].cls = 60; u[0].sx = 500; u[0].sy = 300; u[0].interact = true;   // selectable
+    s.setCursor(500, 296);
+    for (int i = 0; i < 20; ++i) { a = pad::Actions{}; s.tick(c, x, v, u, 1, a); }   // cold learner window
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
     CHECK(s.interacting());
-    int ticks = 0;
-    while (s.interacting() && ticks < 40) { a = pad::Actions{}; s.tick(c, x, v, u, 2, a); ++ticks; }
-    CHECK(ticks <= 12);                                   // written off in well under half a second
-    c.aim = false; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    for (int i = 0; i < 40; ++i) { a = pad::Actions{}; s.tick(c, x, v, u, 1, a); }   // gives up the press...
+    c.aim = false; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(s.interacting());                                                          // ...but is offered again
+}
+
+static void test_the_game_hover_on_an_object_wins_over_our_box() {
+    // The cursor is on the visible sprite of a big object (far above the
+    // feet-anchored box), the game says so: press acts on it, cursor stays.
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[2];
+    u[0] = mkMon(1, 420, 300);                                                       // a nearer NPC-ish unit
+    u[1].id = 2; u[1].type = 2; u[1].cls = 61; u[1].sx = 560; u[1].sy = 340; u[1].interact = true;
+    s.setCursor(560, 250);                                                           // 90 px above the feet
+    x.selValid = 1; x.selId = 2; x.selType = 2;
     c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
-    CHECK(!s.interacting());                              // and the whole class is gone, both of them
+    CHECK(s.interacting());
+    CHECK(!hasAct(a, pad::A_MOVE, 420, 272));
+    a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+    CHECK(hasAct(a, pad::A_LDOWN, 560, 250));                                        // pressed where it already hovers
+}
+
+static void test_a_crowd_of_untargetable_critters_does_not_hide_the_real_monster() {
+    // Console, 01/10: "in act 3 it keeps tracking the un-targetable small
+    // gecko". Rejection is per instance in a ring: with more critters than
+    // slots the oldest was forgotten while the nearest critters were still
+    // there, and the real monster behind them was never reached.
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[13];
+    for (int i = 0; i < 12; ++i) u[i] = mkMon(100 + i, 440 + i * 6, 300);          // 12 critters, the game never hovers them
+    u[12] = mkMon(1, 650, 300);                                                    // the real one, farther
+    bool reached = false;
+    for (int press = 0; press < 20 && !reached; ++press) {
+        c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 13, a);
+        if (s.interacting() && s.interactId() == 1) { reached = true; break; }
+        for (int i = 0; i < 40 && s.interacting(); ++i) {
+            if (s.interactId() == 1) { reached = true; break; }
+            a = pad::Actions{}; s.tick(c, x, v, u, 13, a);                          // never hovered: it gives up
+        }
+        c.aim = false; a = pad::Actions{}; s.tick(c, x, v, u, 13, a);
+    }
+    CHECK(reached);
 }
 
 static void test_walking_out_of_a_crowd_finds_clear_ground() {
@@ -820,10 +873,52 @@ static void test_controls_scan() {
     CHECK(scan("bogus=aim\n"));
     CHECK(ctl::button_bit("Cross") == 0x4000 && ctl::button_bit("rond") == 0x2000);
     CHECK(ctl::button_bit("nope") == 0);
+
+    // The scan and the loader share ONE action table: what one calls aim, so does the other.
+    CHECK(scan("l=aim_assist\n"));
+    CHECK(scan("l=lclick\ncross=aim_assist\n"));
+    CHECK(!scan("l=lclick\ncross=aimm\n"));            // a typo binds nothing
+    CHECK(scan("l=lclik\n"));                            // typo: loader keeps the default, so must the scan
+    CHECK(scan("l=leftclick\n"));
+    CHECK(scan("l=vk:0x1FF\n"));                         // not a virtual key: refused
+    CHECK(!scan("l=vk:0x4F\n"));                         // a real one is a deliberate opt-out
+    CHECK(scan("\xEF\xBB\xBFl=lclick\ncross=aim\n"));   // BOM does not hide the first key
+    CHECK(!scan("\xEF\xBB\xBFl=lclick\n"));
+}
+
+static void test_controls_parse() {
+    ctl::ActSpec a;
+    CHECK(ctl::parse_action("AIM", &a) && a.kind == ctl::ACT_AIM);
+    CHECK(ctl::parse_action("aim_assist", &a) && a.kind == ctl::ACT_AIM);
+    CHECK(ctl::parse_action("vk:0x4F", &a) && a.kind == ctl::ACT_KEY && a.vk == 0x4F);
+    CHECK(ctl::parse_action("vk:79", &a) && a.vk == 79);
+    CHECK(!ctl::parse_action("vk:", &a) && !ctl::parse_action("vk:zz", &a) && !ctl::parse_action("vk:0", &a));
+    CHECK(!ctl::parse_action("", &a) && !ctl::parse_action("lclik", &a));
+    char l1[] = "  Sens = 18   # right stick  ", *k, *v;
+    CHECK(ctl::split_line(l1, &k, &v) && !strcmp(k, "Sens") && !strcmp(v, "18"));
+    char l2[] = "# l=aim", l3[] = "   ", l4[] = "=5", l5[] = "nokey";
+    CHECK(!ctl::split_line(l2, &k, &v) && !ctl::split_line(l3, &k, &v) && !ctl::split_line(l4, &k, &v) && !ctl::split_line(l5, &k, &v));
+    char l6[] = "l=aim\r\n";
+    CHECK(ctl::split_line(l6, &k, &v) && !strcmp(v, "aim"));
+    double d, lo, hi;
+    CHECK(ctl::numeric_key("orbit", "70", &d, &lo, &hi) == 1 && d == 70);
+    CHECK(ctl::numeric_key("ORBIT", "1000", &d, &lo, &hi) == -1 && lo == 10 && hi == 400);   // the old per-mille value
+    CHECK(ctl::numeric_key("deadzone", "15", &d, &lo, &hi) == -1);                          // a percentage, not 0..1
+    CHECK(ctl::numeric_key("deadzone", "0.15", &d, &lo, &hi) == 1);
+    CHECK(ctl::numeric_key("sens", "40", &d, &lo, &hi) == 1);
+    CHECK(ctl::numeric_key("sens", "abc", &d, &lo, &hi) == -1);
+    CHECK(ctl::numeric_key("sens", "", &d, &lo, &hi) == -1);
+    CHECK(ctl::numeric_key("sens", "18px", &d, &lo, &hi) == -1);
+    CHECK(ctl::numeric_key("aim", "1", &d, &lo, &hi) == 0);
+    bool b = true;
+    CHECK(ctl::parse_switch("off", &b) && !b && ctl::parse_switch("1", &b) && b && ctl::parse_switch("Non", &b) && !b);
+    CHECK(!ctl::parse_switch("maybe", &b) && !ctl::parse_switch("", &b));
+    CHECK(ctl::bom_len("\xEF\xBB\xBFx", 4) == 3 && ctl::bom_len("x", 1) == 0 && ctl::bom_len("\xEF", 1) == 0);
 }
 
 int main() {
     test_controls_scan();
+    test_controls_parse();
     test_projection();
     test_clamp_and_box();
     test_pick_hostile();
@@ -841,6 +936,9 @@ int main() {
     test_aim_cone_follows_the_cursor();
     test_the_walk_leaves_the_cursor_alone();
     test_the_walk_waits_for_the_hover_to_clear();
+    test_a_selectable_object_is_never_written_off_by_a_slow_hover();
+    test_the_game_hover_on_an_object_wins_over_our_box();
+    test_a_crowd_of_untargetable_critters_does_not_hide_the_real_monster();
     test_the_walk_still_starts_at_once_on_clear_ground();
     test_the_walk_never_stalls_for_long();
     test_repick_follows_where_the_player_now_aims();
@@ -855,7 +953,7 @@ int main() {
     test_a_hovered_unit_is_never_given_up_on();
     test_scenery_the_game_never_hovers_is_learned_by_class();
     test_a_hovered_object_is_never_learned_as_scenery();
-    test_scenery_offered_by_proximity_is_written_off_fast();
+    test_untargetable_scenery_is_not_offered_by_proximity();
     test_walking_out_of_a_crowd_finds_clear_ground();
     test_left_stick_switches_target_while_cross_is_held();
     test_right_stick_switches_target_while_cross_is_held();

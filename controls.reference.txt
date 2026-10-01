@@ -10,16 +10,21 @@
 # Full walkthrough: https://franckrst.github.io/D2Vita/controles/
 #
 # One "key=value" per line. Blank lines and lines starting with # are
-# skipped. Whitespace around key/value is NOT trimmed — keep both flush
-# against the '='.
+# skipped. Whitespace around key/value and a trailing "# comment" are fine.
 
 # ---------------------------------------------------------------------------
 # General tuning
 # ---------------------------------------------------------------------------
 #orbit=70          # direct-movement radius, px (left stick, orbits the cursor)
 #sens=18           # right stick speed (free cursor: menus, panels, aiming)
-#deadzone=0.15     # stick deadzone, 0..1
+#deadzone=0.15     # stick deadzone, a fraction 0..0.9 (0.15, NOT 15)
 #anchor_y=470      # character's vertical screen anchor, per-mille of a 1000-tall canvas
+#diamond=on        # off = hide the aim assist's diamond (the aim itself still works)
+#
+# A number outside its range is refused and reported in boot_progress.txt:
+#   orbit 10..400, sens 1..100, deadzone 0..0.9, anchor_y 100..900, orbit_min/
+#   orbit_max 5..400, cone 5..90, hover_h 0..150, hud_h 0..300, reach 50..2000
+#   (orbit=1000 from older builds is NOT valid: it breaks the walking).
 
 # ---------------------------------------------------------------------------
 # L and R, held alone (they are ALSO the l+/r+ combo layers below —
@@ -91,8 +96,8 @@
 #
 # Item assist (action "items"): HOLD the button it is bound to. The game
 # shows the ground-item name labels (it is Alt held, for the game) and, while
-# you hold, the D-pad jumps the cursor from label to label and Cross picks
-# the highlighted item up. With no item on the ground the D-pad and Cross
+# you hold, the D-pad jumps the cursor from label to label and Cross — or L,
+# when L is the aim button — picks the highlighted item up. With no item on the ground the D-pad and Cross
 # keep their normal bindings. Any button, layer, l=, r= or select= can carry
 # it; "alt" stays a plain Alt. Default:  square=items
 # ---------------------------------------------------------------------------

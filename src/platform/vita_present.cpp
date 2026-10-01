@@ -1893,7 +1893,7 @@ namespace {
 // at, else the hostile in the aim cone, else the nearest chest/door/NPC).
 // Binding it ANYWHERE in controls.txt is also what switches the sticks to
 // aim mode; see pad_core.h and docs-site/controles.md.
-enum { A_NONE=0, A_LMB=1, A_RMB=2, A_KEY=3, A_ITEMS=4, A_AIM=5 };
+enum { A_NONE=ctl::ACT_NONE, A_LMB=ctl::ACT_LMB, A_RMB=ctl::ACT_RMB, A_KEY=ctl::ACT_KEY, A_ITEMS=ctl::ACT_ITEMS, A_AIM=ctl::ACT_AIM };
 struct Act { int kind; int vk; };
 // llayer: the L+ combo, mirroring layer's R+ role. Free (A_NONE) on every
 // entry by default — l+ is purely opt-in via controls.txt, unlike r+ which
@@ -1949,12 +1949,13 @@ bool  g_lmb_stick=false, g_lmb_btn=false, g_lmb_sent=false, g_rmb_sent=false;
 // Item assist. g_ia_refs counts the held buttons bound to it (l=/r=/select=/
 // any g_btn layer can each carry it); g_ia_lmb is its own held left button,
 // separate from the stick and the L/R clicks so none of them can drop it.
-d2ia::State g_ia; int g_ia_refs=0; bool g_ia_lmb=false, g_ia_cross_owned=false;
+d2ia::State g_ia; int g_ia_refs=0; bool g_ia_lmb=false, g_ia_cross_owned=false, g_ia_l_owned=false;
 uint32_t g_ctl_prev=0; bool g_ctl_init=false;
 // Orbit radius for direct-movement mode; still adjustable without a rebuild
 // via controls.txt orbit=N.
 int   g_orbit=70, g_anchor_y_pm=470;             // character anchor: y = h*470/1000
 float g_sens=18.f, g_dz=0.15f;
+bool  g_diamond=true;                            // controls.txt diamond=off hides the aim marker
 int   g_itick=0;
 // Tick rate (D2_INPUTHZ) and duration thresholds EXPRESSED IN TICKS. The
 // base thresholds (15 and 12) assume ~60 Hz — 250 ms and 200 ms. Leaving
@@ -2019,21 +2020,10 @@ bool pad_is_town(uint32_t t){ return t == 0 || t == 1 || t == 12 || t == 20 || t
 bool pad_is_merc(uint32_t cls){ return cls == 271 || cls == 338 || cls == 359 || cls == 560; }
 
 bool parse_act(const char* v, Act* out){
-    struct E { const char* n; Act a; };
-    static const E T[] = {
-        {"lclick",{A_LMB,0}},{"rclick",{A_RMB,0}},{"none",{A_NONE,0}},
-        {"items",{A_ITEMS,0}},{"item_assist",{A_ITEMS,0}},{"assist",{A_ITEMS,0}},
-        {"aim",{A_AIM,0}},{"aim_assist",{A_AIM,0}},
-        {"alt",{A_KEY,0x12}},{"shift",{A_KEY,0x10}},{"tab",{A_KEY,0x09}},{"automap",{A_KEY,0x09}},
-        {"esc",{A_KEY,0x1B}},{"echap",{A_KEY,0x1B}},{"inv",{A_KEY,0x49}},{"perso",{A_KEY,0x43}},
-        {"skills",{A_KEY,0x54}},{"quests",{A_KEY,0x51}},{"swap",{A_KEY,0x57}},{"space",{A_KEY,0x20}},
-        {"run",{A_KEY,0x52}},{"enter",{A_KEY,0x0D}},
-        {"pot1",{A_KEY,0x31}},{"pot2",{A_KEY,0x32}},{"pot3",{A_KEY,0x33}},{"pot4",{A_KEY,0x34}},
-        {"f1",{A_KEY,0x70}},{"f2",{A_KEY,0x71}},{"f3",{A_KEY,0x72}},{"f4",{A_KEY,0x73}},
-        {"f5",{A_KEY,0x74}},{"f6",{A_KEY,0x75}},{"f7",{A_KEY,0x76}},{"f8",{A_KEY,0x77}} };
-    for (const E& t : T) if (!strcasecmp(v,t.n)) { *out=t.a; return true; }
-    if (!strncasecmp(v,"vk:",3)) { *out={A_KEY,(int)strtol(v+3,nullptr,0)}; return true; }
-    return false;
+    ctl::ActSpec a;
+    if (!ctl::parse_action(v, &a)) return false;
+    *out = Act{a.kind, a.vk};           // ctl::ActKind and the enum above share their values
+    return true;
 }
 uint32_t name_bit(const char* n){ return ctl::button_bit(n); }
 void load_controls_txt(){
@@ -2074,40 +2064,45 @@ void load_controls_txt(){
     // gets one boot_progress line, capped so a genuinely garbled file can't
     // flood the log the watchdog and bug reports both read.
     constexpr int MAX_WARN = 8;
-    // The reference file writes "#l=lclick   # comment": a player who
-    // uncomments it gets a trailing comment and padding, so cut at '#' and
-    // trim key and value — no valid action or button name contains either.
-    auto trim=[](char* s){ while(*s==' '||*s=='\t') ++s;
-        char* e=s+strlen(s); while(e>s&&(e[-1]==' '||e[-1]=='\t')) *--e=0; return s; };
+    // Line rules (cut at '#', split at '=', trim) and the action table are
+    // shared with the hook installer's pre-scan: see controls_scan.h.
+    bool first = true;
     while (fgets(line,sizeof line,f)) {
-        char* nl=strpbrk(line,"\r\n"); if(nl)*nl=0;
-        char* hash=strchr(line,'#'); if(hash)*hash=0;
-        char* k=trim(line);
-        if(!k[0]) continue;
-        char raw[80]; snprintf(raw,sizeof raw,"%s",k);   // pre-split copy, for the warning text
-        char* eq=strchr(k,'='); if(!eq||eq==k) continue; *eq=0; char* v=trim(eq+1);
-        k=trim(k);
+        char* text = line;
+        if (first) { text += ctl::bom_len(line, strlen(line)); first = false; }
+        char raw[80]; { snprintf(raw,sizeof raw,"%s",text); char* c=strpbrk(raw,"\r\n#"); if(c)*c=0; char* t=raw; while(*t==' '||*t=='\t')++t; memmove(raw,t,strlen(t)+1); }
+        char *k, *v;
+        if (!ctl::split_line(text,&k,&v)) continue;
         auto warn=[&](const char* why){
             ++bad;
-            if (bad<=MAX_WARN){ char m[128]; snprintf(m,sizeof m,"input: controls.txt ignore \"%s\" (%s)",raw,why); d2vita_progress(m); }
+            if (bad<=MAX_WARN){ char m[160]; snprintf(m,sizeof m,"input: controls.txt ignore \"%s\" (%s)",raw,why); d2vita_progress(m); }
         };
-        if      (!strcasecmp(k,"orbit"))    { g_orbit=atoi(v); n++; continue; }
-        else if (!strcasecmp(k,"sens"))     { g_sens=(float)atof(v); n++; continue; }
-        else if (!strcasecmp(k,"deadzone")) { g_dz=(float)atof(v); n++; continue; }
-        else if (!strcasecmp(k,"anchor_y")) { g_anchor_y_pm=atoi(v); n++; continue; }
-        else if (!strcasecmp(k,"orbit_min")){ g_padcfg.orbitMin=atoi(v); n++; continue; }
-        else if (!strcasecmp(k,"orbit_max")){ g_padcfg.orbitMax=atoi(v); n++; continue; }
-        else if (!strcasecmp(k,"cone")) { g_padcfg.coneDeg=(float)atof(v); n++; continue; }
-        else if (!strcasecmp(k,"hover_h")) { g_padcfg.hoverH=atoi(v); n++; continue; }
-        else if (!strcasecmp(k,"hud_h")) { g_padcfg.hudH=atoi(v); n++; continue; }
-        else if (!strcasecmp(k,"reach")) { g_padcfg.reach=atoi(v); n++; continue; }
+        {
+            double d, lo, hi;
+            const int nk = ctl::numeric_key(k, v, &d, &lo, &hi);
+            if (nk < 0) { char w[64]; snprintf(w,sizeof w,"valeur hors plage %g..%g, defaut garde",lo,hi); warn(w); continue; }
+            if (nk > 0) {
+                if      (!strcasecmp(k,"orbit"))     g_orbit=(int)d;
+                else if (!strcasecmp(k,"sens"))      g_sens=(float)d;
+                else if (!strcasecmp(k,"deadzone"))  g_dz=(float)d;
+                else if (!strcasecmp(k,"anchor_y"))  g_anchor_y_pm=(int)d;
+                else if (!strcasecmp(k,"orbit_min")) g_padcfg.orbitMin=(int)d;
+                else if (!strcasecmp(k,"orbit_max")) g_padcfg.orbitMax=(int)d;
+                else if (!strcasecmp(k,"cone"))      g_padcfg.coneDeg=(float)d;
+                else if (!strcasecmp(k,"hover_h"))   g_padcfg.hoverH=(int)d;
+                else if (!strcasecmp(k,"hud_h"))     g_padcfg.hudH=(int)d;
+                else if (!strcasecmp(k,"reach"))     g_padcfg.reach=(int)d;
+                n++; continue;
+            }
+        }
+        if (!strcasecmp(k,"diamond")) { if (ctl::parse_switch(v,&g_diamond)) n++; else warn("valeur on/off attendue"); continue; }
         else if (!strcasecmp(k,"l"))        { if(parse_act(v,&g_l_act)) n++; else warn("action inconnue"); continue; }
         else if (!strcasecmp(k,"r"))        { if(parse_act(v,&g_r_act)) n++; else warn("action inconnue"); continue; }
         else if (!strcasecmp(k,"select"))   { if(parse_act(v,&g_select_act)) n++; else warn("action inconnue"); continue; }
         bool r_layer = !strncasecmp(k,"r+",2);
         bool l_layer = !r_layer && !strncasecmp(k,"l+",2);
         uint32_t bit = name_bit((r_layer||l_layer)?k+2:k);
-        if (!bit) { warn("bouton inconnu"); continue; }
+        if (!bit) { warn("cle ou bouton inconnu"); continue; }
         Act a; if (!parse_act(v,&a)) { warn("action inconnue"); continue; }
         // Select resolves a valid bit (name_bit knows it) but has no
         // g_btn[] entry: its base action is the dedicated `select=` branch
@@ -2231,7 +2226,7 @@ void do_release(const Act& a){
     else if (a.kind==A_ITEMS){
         if (g_ia_refs>0 && --g_ia_refs==0){
             d2vita_inject("keyup",0x12,0);
-            g_ia.reset(0); g_ia_lmb=false; g_ia_cross_owned=false; lmb_update();
+            g_ia.reset(0); g_ia_lmb=false; g_ia_cross_owned=false; g_ia_l_owned=false; lmb_update();
         }
     }
 }
@@ -2671,6 +2666,17 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
         }
     }
 
+    // Item assist owns the D-pad and Cross while it has labels to browse; with
+    // none on the ground (or during its warm-up) they keep their normal
+    // bindings, so a held Square never silently eats a potion.
+    d2ia::Label ia_l[d2ia::MAX_LABELS]; int ia_n=0; d2ia::Hover ia_h{false,0,0};
+    unsigned ia_dir=0; bool ia_confirm=false, ia_own=false;
+    if (g_ia_refs>0 && g_ia.warm()){ ia_n=ia_read(cpu,ia_l,&ia_h); ia_own=ia_n>0; }
+    // L, the aim button, is ALSO the pick-up button while the item assist has
+    // labels to browse: holding Square and pressing L takes the focused item,
+    // like Cross does. (Without labels L is the aim button as usual.)
+    bool ia_l_confirm=false;
+    if (ia_own && (b&B_L)&&!(was&B_L) && g_l_act.kind==A_AIM){ ia_l_confirm=true; ia_confirm=true; g_ia_l_owned=true; }
     // L: g_l_act, held (default: left click). R: g_r_act, held (default:
     // right click). Remappable via controls.txt's top-level `l=`/`r=`, but
     // ALWAYS independent of `layer`/`l_layer`: R keeps its own action while
@@ -2678,18 +2684,12 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
     // D-pad, Select), and likewise L for l+ — the two effects coexist
     // without conflict since `layer`/`l_layer` are re-read every tick, never
     // consumed by this block.
-    if ((b&B_L)&&!(was&B_L)){ g_l_engaged=g_l_act; do_press(g_l_engaged); }
+    if ((b&B_L)&&!(was&B_L)){ if (ia_l_confirm) g_l_engaged={A_NONE,0}; else { g_l_engaged=g_l_act; do_press(g_l_engaged); } }
     if (!(b&B_L)&&(was&B_L)){ do_release(g_l_engaged); g_l_engaged={A_NONE,0}; }
     if ((b&B_R)&&!(was&B_R)){ g_r_engaged=g_r_act; do_press(g_r_engaged); }
     if (!(b&B_R)&&(was&B_R)){ do_release(g_r_engaged); g_r_engaged={A_NONE,0}; }
 
     // Mapped buttons (edges, R/L layer sampled at the moment of press; R wins if both held)
-    // Item assist owns the D-pad and Cross while it has labels to browse; with
-    // none on the ground (or during its warm-up) they keep their normal
-    // bindings, so a held Square never silently eats a potion.
-    d2ia::Label ia_l[d2ia::MAX_LABELS]; int ia_n=0; d2ia::Hover ia_h{false,0,0};
-    unsigned ia_dir=0; bool ia_confirm=false, ia_own=false;
-    if (g_ia_refs>0 && g_ia.warm()){ ia_n=ia_read(cpu,ia_l,&ia_h); ia_own=ia_n>0; }
     for (size_t i=0;i<sizeof g_btn/sizeof*g_btn;i++){
         bool now=(b&g_btn[i].bit)!=0, before=(was&g_btn[i].bit)!=0;
         if (now&&!before&&ia_own&&(g_btn[i].bit==B_CROSS||g_btn[i].bit==B_UP||g_btn[i].bit==B_LEFT||
@@ -2749,11 +2749,12 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
       if (tmoved){ moved=true; if (aim_live) g_assist->setCursor((int)g_cx,(int)g_cy); } }
 
     if (!(b&B_CROSS)) g_ia_cross_owned=false;
+    if (!(b&B_L)) g_ia_l_owned=false;
     const bool walking = aim_live ? aim_walking : dm;
     if (g_ia_refs>0){
         if (walking){ g_ia.reset(0); g_ia_lmb=false; }       // walking with the stick: drop any pick-up
         else {
-            d2ia::In in{ia_l, ia_n, ia_h, ia_dir, ia_confirm, (b&B_CROSS)&&g_ia_cross_owned, moved||aim_cur,
+            d2ia::In in{ia_l, ia_n, ia_h, ia_dir, ia_confirm, ((b&B_CROSS)&&g_ia_cross_owned)||((b&B_L)&&g_ia_l_owned), moved||aim_cur,
                         (int)g_cx, (int)g_cy, g_game_w/2, g_game_h*g_anchor_y_pm/1000};
             const d2ia::Out o=g_ia.tick(in);
             if (o.move && !(aim_live && g_assist->interacting())){
@@ -2773,7 +2774,7 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
     // item the item assist has focused (the rect the game itself laid out).
     {
         OverlayPub ov{};
-        if (aim_live && aim_tgt.has){
+        if (aim_live && aim_tgt.has && g_diamond){
             ov.retHas=1; ov.retVer=aim_tgt.verified?1:0; ov.retX=aim_tgt.sx; ov.retY=aim_tgt.sy;
         }
         if (g_ia_refs>0 && !walking){

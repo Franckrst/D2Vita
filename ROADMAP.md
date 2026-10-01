@@ -265,6 +265,14 @@ the source of truth for the public repository.
 
 ## In progress / open
 
+- [ ] **0.1.19-beta (2026-10-01), host-validated only, not yet confirmed on
+      console**: static objects (stash, waypoint, chests, portal, doors) the
+      game flags targetable are never written off by a slow hover; the game
+      hover wins over our box; the untargetable-unit memory holds 32 units;
+      Square held + L picks up the highlighted item; `diamond=off`; one
+      shared `controls.txt` reader (pre-scan = loader), numeric range
+      validation, BOM. Open: "keeps walking after L" report, gecko diamond
+      before the first press.
 - [ ] **Aim assist and item assist are the built-in default controls
       (0.1.18-beta, 2026-09-29)**: `l=aim` (hold), `square=items`,
       `l+cross=inv`, `l+circle=automap`, `l+square=vk:0x4F` (mercenary

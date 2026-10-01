@@ -5,6 +5,28 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.19-beta — 2026-10-01
+
+- **Coffre-fort, point de passage, coffres, portail de ville et portes sont
+  de nouveau ciblés par le bouton de visée.** Un objet que le jeu déclare
+  ciblable n'est plus écarté définitivement après un survol lent (le jeu ne
+  répond qu'après une image dessinée), et un objet que le jeu survole déjà
+  l'emporte sur notre propre boîte de sélection. Pas encore confirmé sur
+  console.
+- **Les meutes de critters non ciblables** (geckos de l'acte III) ne cachent
+  plus le vrai monstre derrière elles : la mémoire « le jeu ne le survole
+  jamais » retient 32 unités au lieu de 8.
+- **Maintenir Carré et appuyer sur L** ramasse l'objet au sol surligné
+  (Croix marche toujours). L garde son rôle de visée quand il n'y a rien à
+  ramasser.
+- **`diamond=off`** dans `controls.txt` masque le losange de visée.
+- **Lecture de `controls.txt` plus stricte et plus sûre** : les nombres hors
+  plage (`orbit=1000` des anciennes versions, `deadzone=15`) sont refusés et
+  signalés dans `boot_progress.txt` au lieu de rendre le personnage
+  incontrôlable ; une faute de frappe dans `l=` (`l=lclik`) ne laisse plus L
+  sans effet ; `l=aim_assist` est reconnu ; un BOM UTF-8 en début de fichier
+  est ignoré.
+
 ## v0.1.18-beta — 2026-09-29
 
 - **Nouveau schéma de manette par défaut — merci de le tester et de

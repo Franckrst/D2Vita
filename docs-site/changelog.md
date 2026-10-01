@@ -4,6 +4,25 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.19-beta — 2026-10-01
+
+- **Stash, waypoint, chests, town portal and doors are targeted by the aim
+  button again.** An object the game flags as targetable is no longer
+  written off for good after a slow hover (the game only answers after a
+  rendered frame), and an object the game already hovers wins over our own
+  hit box. Not confirmed on console yet.
+- **Packs of untargetable critters** (Act III geckos) no longer hide the
+  real monster behind them: the "game never hovers it" memory holds 32
+  units instead of 8.
+- **Hold Square, press L to pick up** the highlighted ground item (Cross
+  still works). L keeps its aim role when there is nothing to pick up.
+- **`diamond=off`** in `controls.txt` hides the aim diamond.
+- **`controls.txt` reading is stricter and safer**: out-of-range numbers
+  (`orbit=1000` from older builds, `deadzone=15`) are refused and reported in
+  `boot_progress.txt` instead of making the character uncontrollable; a
+  typo in `l=` (`l=lclik`) no longer leaves L doing nothing; `l=aim_assist`
+  is recognised; a UTF-8 BOM at the start of the file is ignored.
+
 ## v0.1.18-beta — 2026-09-29
 
 - **New default controller scheme — please test it and give feedback on

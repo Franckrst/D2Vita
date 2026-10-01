@@ -305,7 +305,13 @@ void Assist::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             const bool hov = x.selValid && x.selId == cu.id && x.selType == cu.type;
             if (hov) { coldId_ = 0; coldTicks_ = 0; }
             else if (coldId_ == cu.id && coldType_ == cu.type) {
-                if (++coldTicks_ >= kColdTicks) { rej_.add(cu); coldId_ = 0; coldTicks_ = 0; }
+                if (++coldTicks_ >= kColdTicks) {
+                    // A selectable object the game is merely slow to hover (12 fps)
+                    // must never be written off for good: only the untargetable
+                    // ones are learned here.
+                    if (!cu.selectable) rej_.add(cu);
+                    coldId_ = 0; coldTicks_ = 0;
+                }
             } else { coldId_ = cu.id; coldType_ = cu.type; coldTicks_ = 1; }
         }
     }
@@ -352,6 +358,14 @@ void Assist::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
         // intent there is, so it comes before the cone (console, 21/09: the
         // stash was unreachable however carefully it was pointed at).
         if (ii < 0) { ii = pick_at(u, n, cx_, cy_, &rej_); if (ii >= 0) branch = 1; }
+        // The game itself says the cursor is on a static object: that beats
+        // any box of ours (the feet-anchored box misses the visible sprite of
+        // a stash or a waypoint). The cursor is then held where it is.
+        bool pin = false;
+        if (ii < 0 && x.selValid && (x.selType == 2 || x.selType == 4)) {
+            const int si = findId(u, n, x.selId, (int)x.selType);
+            if (si >= 0 && u[si].selectable && !rej_.has(u[si])) { ii = si; branch = 5; pin = true; }
+        }
         if (ii < 0 && aimed) { ii = ti; if (ii >= 0) branch = 2; }   // ti already skips the rejects
         if (ii < 0) {
             // Not aiming at anything: take whichever is actually NEAREST,
@@ -368,6 +382,7 @@ void Assist::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
         if (ii >= 0) {
             interact_ = true; interId_ = u[ii].id; interType_ = u[ii].type; interCls_ = u[ii].cls;
             interAttempt_ = 0; interArm_ = 1;
+            interPin_ = pin; pinX_ = cx_; pinY_ = cy_;
             userX_ = cx_; userY_ = cy_;          // an interaction borrows the cursor
             interH_ = interType_ == 4 ? 6 : hover_.get(interType_, interCls_, interType_ == 2 ? 20 : cfg_.hoverH);
             if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; lsClick_ = false; }
@@ -376,6 +391,7 @@ void Assist::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             // so pressing in this same breath makes the game act on nothing,
             // which it sends as "walk to that spot" instead of interacting.
             int px, py; hoverPoint(u[ii], interH_, v, &px, &py);
+            if (interPin_) { px = pinX_; py = pinY_; }
             cx_ = px; cy_ = py; out.push(A_MOVE, px, py);
         }
     } else if (interact_) {
@@ -397,7 +413,7 @@ void Assist::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
                 if (ni >= 0 && !(u[ni].id == interId_ && u[ni].type == interType_)) {
                     if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
                     interId_ = u[ni].id; interType_ = u[ni].type; interCls_ = u[ni].cls;
-                    interAttempt_ = 0; interArm_ = 1;
+                    interAttempt_ = 0; interArm_ = 1; interPin_ = false;
                     interH_ = hover_.get(interType_, interCls_, cfg_.hoverH);
                 }
             }
@@ -405,6 +421,7 @@ void Assist::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             if (ii < 0) interArm_ = 0;                        // gone: pressing now would be a walk order
             else {
                 int px, py; hoverPoint(u[ii], interH_, v, &px, &py);
+                if (interPin_) { px = pinX_; py = pinY_; }
                 moveTo(px, py, out);
                 const bool hovered = x.selValid && x.selId == interId_ && x.selType == interType_;
                 // The button is down ONLY while the game confirms it hovers
@@ -421,8 +438,8 @@ void Assist::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
                     // Two full sweeps of the height table with no hover at
                     // all: this unit is not selectable. Remember it and let
                     // go, so the next press reaches what is behind it.
-                    if (interArm_ > (interType_ == 2 ? kHoverGiveUpObj : kHoverGiveUp)) {
-                        rej_.add(u[ii]);
+                    if (interArm_ > (interType_ == 2 && !u[ii].selectable ? kHoverGiveUpObj : kHoverGiveUp)) {
+                        if (interType_ != 2 || !u[ii].selectable) rej_.add(u[ii]);   // a selectable object is only ever slow
                         if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
                         interact_ = false; interId_ = 0; interArm_ = 0;
                         interAttempt_ = 0;
@@ -432,7 +449,7 @@ void Assist::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
                     // hover means the height is wrong. Keep cycling, one
                     // candidate every 3 ticks since each needs a rendered
                     // frame before the game can answer.
-                    else if (interType_ != 4 && interArm_ % 3 == 0) {
+                    else if (interType_ != 4 && !interPin_ && interArm_ % 3 == 0) {
                         interAttempt_ = interAttempt_ >= 4 ? 1 : interAttempt_ + 1;
                         interH_ = HoverTable::try_seq(interAttempt_, hover_.get(interType_, interCls_, interType_ == 2 ? 20 : cfg_.hoverH));
                     }

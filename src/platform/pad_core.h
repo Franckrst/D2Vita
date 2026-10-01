@@ -78,7 +78,7 @@ bool in_unit_box(const Unit& u, int x, int y);
 // the nearest such creature captured every Cross press and blocked the real
 // target behind it (console, 21/09).
 struct Reject {
-    enum { NID = 8, NCLS = 32 };
+    enum { NID = 32, NCLS = 32 };
     // Creatures are rejected per INSTANCE: a vulture still in the air will
     // land and become a target. Scenery is rejected per CLASS: a torch class
     // is never operable, so learning it once spares every other torch on the
@@ -151,6 +151,7 @@ public:
     // and hands back to.
     void setCursor(int x, int y) { cx_ = x; cy_ = y; userX_ = x; userY_ = y; }
     bool interacting() const { return interact_; }
+    uint32_t interactId() const { return interId_; }
     // Why the left stick did or did not produce a walk this tick. Two wrong
     // diagnoses of "stuck in a melee" were reasoned out and both missed; this
     // reports the state instead of inferring it.
@@ -213,6 +214,8 @@ private:
     // interArm_ > 0: the cursor is on the target and we are waiting for the
     // game to report the hover before pressing (see the aim block).
     int      interAttempt_ = 0, interH_ = 0, interArm_ = 0;
+    bool     interPin_ = false;      // the game already hovers it: hold the cursor where it is
+    int      pinX_ = 0, pinY_ = 0;
     Walk     walk_;
     Pick     pick_;
     Reject   rej_;                     // units the game would not hover
