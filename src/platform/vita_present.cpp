@@ -2306,14 +2306,14 @@ bool aim_tick(const SceCtrlData& cd, bool aimHeld, bool* walking, bool* curMoved
         // death and dead animations.
         const bool corpseMode = (q.mode == 0 || q.mode == 12 || q.mode == 17);
         if (q.type == 0 && q.id == s.playerId && !corpseMode) continue;
-        if (q.type == 3 || q.type == 5) continue;                     // missiles, tiles
+        if (q.type == 3) continue;                                     // missiles
         pad::Unit& o = units[n]; o = pad::Unit{};
         o.id = q.id; o.type = q.type; o.cls = q.cls;
         pad::world_to_screen(v, q.fx, q.fy, &o.sx, &o.sy);
         if (q.type == 1) {
             const bool alive = q.mode != 0 && q.mode != 12;             // 0 = dying, 12 = dead
             const bool ours  = q.ownerType == 0 && q.ownerId != 0 && q.ownerId == s.playerId;   // ownerType 0 = owned by a PLAYER
-            o.hostile  = alive && !town && !ours && !pad_is_merc(q.cls);
+            o.hostile  = alive && !town && !ours && !pad_is_merc(q.cls) && pad::game_targetable(q.flags);
             // Town NPCs, filtered by the same targetable bit. The console log
             // of 21/09 split Lut Gholein's type-1 units cleanly in two:
             // classes 175/199/201/202/331 carry bit 1 (real, clickable NPCs)
@@ -2344,6 +2344,7 @@ bool aim_tick(const SceCtrlData& cd, bool aimHeld, bool* walking, bool* curMoved
             o.selectable = (q.flags & 0x00200002u) == 0x00000002u;   // offered by proximity
         }
         else if (q.type == 4) { o.interact = true; o.selectable = true; }   // ground items
+        else if (q.type == 5) { o.interact = true; o.selectable = false; }   // level exits
         ++n;
     }
     pad::Ctl c;

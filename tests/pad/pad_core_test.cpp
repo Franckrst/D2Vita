@@ -693,6 +693,18 @@ static void test_a_crowd_of_untargetable_critters_does_not_hide_the_real_monster
     CHECK(reached);
 }
 
+static void test_game_targetable_flag_separates_dummies_from_monsters() {
+    // Console 02/10, flags read from live units in the Den of Evil.
+    CHECK(pad::game_targetable(0x0000000fu));    // Fallen / Zombie, idle
+    CHECK(pad::game_targetable(0x3000000fu));
+    CHECK(pad::game_targetable(0x3000400fu));    // Fallen Shaman casting
+    CHECK(pad::game_targetable(0x0000000bu));    // Akara
+    CHECK(!pad::game_targetable(0x00600009u));   // class 151/159 "dummy" markers
+    CHECK(!pad::game_targetable(0x30600009u));
+    CHECK(!pad::game_targetable(0x00000009u));   // decorative townsperson
+    CHECK(!pad::game_targetable(0x3001002du));   // dead
+}
+
 static void test_walking_out_of_a_crowd_finds_clear_ground() {
     // Console, 21/09: "in a group of monsters, impossible to get out with the
     // stick, my barbarian keeps launching attacks". The walk click landed ON a
@@ -848,6 +860,101 @@ static void test_cross_clicks_the_hud() {
 
 
 static bool scan(const char* s) { return ctl::binds_aim(s, std::strlen(s)); }
+static void test_the_interaction_ends_when_its_target_dies_with_the_button_held() {
+    // Console, 02/10: "I can't move until I press L again, and the right stick
+    // freezes". The target died, but the interaction (which gates the left
+    // stick and borrows the right one) lived for as long as the button did.
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1] = { mkMon(70, 460, 300) };
+    c.aim = true; s.tick(c, x, v, u, 1, a);
+    x.selValid = 1; x.selId = 70; x.selType = 1;
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(s.interacting() && hasAct(a, pad::A_LDOWN));
+    u[0].hostile = false; x.selValid = 0;                           // it dies, the hover goes with it
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(!s.interacting());
+    CHECK(hasAct(a, pad::A_LUP));                                   // no click left held on a corpse
+    c.lx = 1.f;                                                     // left stick: the walk is back, button still down
+    int clicks = 0;
+    for (int i = 0; i < 10; ++i) { a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); if (hasAct(a, pad::A_LDOWN)) ++clicks; }
+    CHECK(clicks >= 1);
+    c.lx = 0.f; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);   // release: the stop click, cursor back at the feet
+    c.rx = 1.f; int before = s.cx();                                // right stick: the cursor moves again
+    for (int i = 0; i < 5; ++i) { a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); }
+    CHECK(s.cx() > before);
+}
+
+static void test_the_interaction_ends_when_its_target_vanishes_with_the_button_held() {
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1] = { mkMon(70, 460, 300) };
+    c.aim = true; s.tick(c, x, v, u, 1, a);
+    x.selValid = 1; x.selId = 70; x.selType = 1;
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(s.interacting());
+    x.selValid = 0;                                                 // picked up / despawned
+    a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(!s.interacting());
+    CHECK(hasAct(a, pad::A_LUP));
+}
+
+static void test_a_settled_interaction_that_loses_the_hover_for_good_is_let_go() {
+    // An opened chest stops being hoverable; the unit is still there.
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1]; u[0].id = 9; u[0].type = 2; u[0].cls = 5; u[0].sx = 450; u[0].sy = 300; u[0].interact = true;
+    c.aim = true; s.tick(c, x, v, u, 1, a);
+    x.selValid = 1; x.selId = 9; x.selType = 2;
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(s.interacting());
+    x.selValid = 0;
+    for (int i = 0; i < 20; ++i) { a = pad::Actions{}; s.tick(c, x, v, u, 1, a); }
+    CHECK(s.interacting());                                         // a short loss is only a slow frame
+    for (int i = 0; i < 20; ++i) { a = pad::Actions{}; s.tick(c, x, v, u, 1, a); }
+    CHECK(!s.interacting());
+}
+
+static pad::Unit mkExit(uint32_t id, int sx, int sy) {
+    pad::Unit u; u.id = id; u.type = 5; u.cls = 3; u.sx = sx; u.sy = sy; u.interact = true; u.selectable = false; return u;
+}
+
+static void test_the_button_walks_into_a_level_exit() {
+    // Console, 02/10: "in front of the first cave of act 1, L does nothing".
+    // Exits are tiles the game never hovers: the button is a walk order there.
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1] = { mkExit(7, 470, 320) };
+    c.aim = true; s.tick(c, x, v, u, 1, a);
+    CHECK(s.interacting() && s.lastPick().branch == 6 && s.lastPick().type == 5);
+    CHECK(!hasAct(a, pad::A_LDOWN));                    // move first, press once the game has re-read
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_LDOWN));                     // nothing hovered: press at once
+    CHECK(s.cx() == 470);
+    u[0].sx = 440; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(s.cx() == 440);                               // the point follows the tile as the camera scrolls
+    for (int i = 0; i < 50; ++i) { a = pad::Actions{}; s.tick(c, x, v, u, 1, a); }
+    CHECK(s.interacting());                             // no hover is needed to keep walking
+    a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); // new level: the exit is gone
+    CHECK(!s.interacting() && hasAct(a, pad::A_LUP));
+}
+
+static void test_an_exit_is_the_last_resort() {
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    pad::Unit u[2] = { mkExit(7, 430, 310), mkMon(2, 600, 300) };
+    c.aim = true; s.tick(c, x, v, u, 2, a);
+    CHECK(s.interacting() && s.lastPick().type == 1);   // a monster in range outranks the exit
+    pad::Assist s2(cfg); pad::Unit far1[1] = { mkExit(7, 790, 580) };
+    a = pad::Actions{}; s2.tick(c, x, v, far1, 1, a);
+    CHECK(!s2.interacting());                           // out of reach: not offered
+}
+
+static void test_an_exit_has_a_hit_box() {
+    pad::Unit e = mkExit(7, 700, 200);
+    CHECK(pad::in_unit_box(e, 700, 200) && !pad::in_unit_box(e, 760, 200));
+}
+
 static void test_controls_scan() {
     CHECK(scan(""));                                   // built-in default: l=aim
     CHECK(scan("square=items\nr+up=f5\n"));
@@ -954,6 +1061,7 @@ int main() {
     test_scenery_the_game_never_hovers_is_learned_by_class();
     test_a_hovered_object_is_never_learned_as_scenery();
     test_untargetable_scenery_is_not_offered_by_proximity();
+    test_game_targetable_flag_separates_dummies_from_monsters();
     test_walking_out_of_a_crowd_finds_clear_ground();
     test_left_stick_switches_target_while_cross_is_held();
     test_right_stick_switches_target_while_cross_is_held();
@@ -964,6 +1072,12 @@ int main() {
     test_cross_clicks_the_hud();
     test_interact_reach_is_configurable();
     test_offscreen_units_are_not_targets();
+    test_the_button_walks_into_a_level_exit();
+    test_an_exit_is_the_last_resort();
+    test_an_exit_has_a_hit_box();
+    test_the_interaction_ends_when_its_target_dies_with_the_button_held();
+    test_the_interaction_ends_when_its_target_vanishes_with_the_button_held();
+    test_a_settled_interaction_that_loses_the_hover_for_good_is_let_go();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

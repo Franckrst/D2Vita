@@ -46,6 +46,8 @@ void clamp_point(const View& v, const Config& cfg, int* px, int* py) {
 bool in_unit_box(const Unit& u, int x, int y) {
     if (u.type == 0 || u.type == 1)
         return x >= u.sx - 16 && x <= u.sx + 16 && y >= u.sy - 48 && y <= u.sy + 4;
+    if (u.type == 5)
+        return x >= u.sx - 24 && x <= u.sx + 24 && y >= u.sy - 24 && y <= u.sy + 16;
     if (u.type == 2 || u.type == 4)
         return x >= u.sx - 20 && x <= u.sx + 20 && y >= u.sy - 16 && y <= u.sy + 8;
     return false;
@@ -106,6 +108,19 @@ int pick_interact(const Unit* u, int n, const View& v, const Config& cfg, const 
         if (!t.selectable) continue;                  // proximity offers only what the game owns
         if (!on_screen(v, t.sx, t.sy)) continue;
         if (rej && rej->has(t)) continue;
+        const float d = iso_len((float)(t.sx - psx), (float)(t.sy - psy));
+        if (d > (float)cfg.reach) continue;
+        if (best < 0 || d < bd) { best = i; bd = d; }
+    }
+    return best;
+}
+
+int pick_exit(const Unit* u, int n, const View& v, const Config& cfg) {
+    int psx, psy; world_to_screen(v, v.playerFx, v.playerFy, &psx, &psy);
+    int best = -1; float bd = 0.f;
+    for (int i = 0; i < n; ++i) {
+        const Unit& t = u[i];
+        if (t.type != 5 || !t.interact || !on_screen(v, t.sx, t.sy)) continue;
         const float d = iso_len((float)(t.sx - psx), (float)(t.sy - psy));
         if (d > (float)cfg.reach) continue;
         if (best < 0 || d < bd) { best = i; bd = d; }
@@ -212,6 +227,7 @@ bool orbit_point(const View& v, const Ctl& c, const Config& cfg, const Unit* u, 
 static const int kHoverGiveUp = 24, kHoverGiveUpObj = 9;
 // Frames of cursor-inside-the-box with no hover before scenery is written off.
 static const int kColdTicks = 5;
+static const int kUnhoverEnd = 30;   // ticks (~1 s) a settled interaction may go unhovered
 
 void Assist::stickDelta(float sx, float sy, const View& v, float* dx, float* dy) const {
     if (std::fabs(sx) <= cfg_.deadzone && std::fabs(sy) <= cfg_.deadzone) return;
@@ -251,8 +267,14 @@ void Assist::hoverPoint(const Unit& t, int h, const View& v, int* px, int* py) c
 
 void Assist::releaseAll(Actions& out) {
     if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; lsClick_ = false; }
-    interact_ = false; interId_ = 0; interArm_ = 0;
+    interact_ = false; interId_ = 0; interArm_ = 0; unhovered_ = 0;
     lsOn_ = false; lsArm_ = 0; tgt_ = Target{}; tgtId_ = 0; hudClick_ = false;
+}
+
+void Assist::endInteract(Actions& out) {
+    if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
+    interact_ = false; interId_ = 0; interArm_ = 0; interAttempt_ = 0; unhovered_ = 0;
+    moveTo(userX_, userY_, out);                        // give the aim back
 }
 
 void Assist::leave(Actions& out) { releaseAll(out); walk_ = Walk{}; mode_ = M_NONE; prevAim_ = false; }
@@ -375,16 +397,17 @@ void Assist::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             else if (io >= 0)            ii = io;
             else                         ii = ti;
             if (ii >= 0) branch = (ii == io) ? 3 : 4;
+            else { ii = pick_exit(u, n, v, cfg_); if (ii >= 0) branch = 6; }
         }
         pick_ = Pick{};
         pick_.branch = branch;
         if (ii >= 0) { pick_.id = u[ii].id; pick_.type = u[ii].type; pick_.dist = (int)dist(ii); }
         if (ii >= 0) {
             interact_ = true; interId_ = u[ii].id; interType_ = u[ii].type; interCls_ = u[ii].cls;
-            interAttempt_ = 0; interArm_ = 1;
+            interAttempt_ = 0; interArm_ = 1; unhovered_ = 0;
             interPin_ = pin; pinX_ = cx_; pinY_ = cy_;
             userX_ = cx_; userY_ = cy_;          // an interaction borrows the cursor
-            interH_ = interType_ == 4 ? 6 : hover_.get(interType_, interCls_, interType_ == 2 ? 20 : cfg_.hoverH);
+            interH_ = interType_ == 5 ? 0 : interType_ == 4 ? 6 : hover_.get(interType_, interCls_, interType_ == 2 ? 20 : cfg_.hoverH);
             if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; lsClick_ = false; }
             // Move ONLY, then press once the game reports the hover: a click
             // acts on the hover computed during the PREVIOUS rendered frame,
@@ -413,12 +436,30 @@ void Assist::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
                 if (ni >= 0 && !(u[ni].id == interId_ && u[ni].type == interType_)) {
                     if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
                     interId_ = u[ni].id; interType_ = u[ni].type; interCls_ = u[ni].cls;
-                    interAttempt_ = 0; interArm_ = 1; interPin_ = false;
+                    interAttempt_ = 0; interArm_ = 1; interPin_ = false; unhovered_ = 0;
                     interH_ = hover_.get(interType_, interCls_, cfg_.hoverH);
                 }
             }
             const int ii = findId(u, n, interId_, interType_);
-            if (ii < 0) interArm_ = 0;                        // gone: pressing now would be a walk order
+            // Gone, dead, or no longer something this button can act on: the
+            // interaction is over even though the button is still down. Left
+            // alive it gates the left stick and borrows the right one until
+            // the player lets go and presses again ("can't move until L").
+            const bool lost = ii < 0 || (interType_ == 1 && !u[ii].hostile && !u[ii].interact)
+                                     || (interType_ == 0 && !u[ii].interact);
+            if (lost) endInteract(out);
+            else if (interType_ == 5) {
+                // A level exit is entered by WALKING onto it: the game never
+                // hovers it, so the press is an ordinary walk order at the
+                // tile, repeated until the level changes (the unit is then
+                // gone and the branch above lets go).
+                int px, py; hoverPoint(u[ii], 0, v, &px, &py);
+                moveTo(px, py, out);
+                if (!lmb_) {
+                    if (!x.selValid || interArm_ >= 4) { out.push(A_LDOWN, px, py); lmb_ = true; }
+                    else ++interArm_;
+                }
+            }
             else {
                 int px, py; hoverPoint(u[ii], interH_, v, &px, &py);
                 if (interPin_) { px = pinX_; py = pinY_; }
@@ -433,6 +474,11 @@ void Assist::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
                 if (hovered) {
                     if (interType_ != 4) hover_.learn(interType_, interCls_, interH_);
                     interArm_ = 0;                                // settled on a height that works
+                    unhovered_ = 0;
+                } else if (interArm_ == 0) {
+                    // Settled earlier, hover gone since: a chest that is now
+                    // open, a monster behind cover. Nothing left to hold.
+                    if (++unhovered_ > kUnhoverEnd) endInteract(out);
                 } else if (interArm_ > 0) {
                     ++interArm_;
                     // Two full sweeps of the height table with no hover at

@@ -5,6 +5,20 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## Non publié
+
+- **Le bouton de visée entre dans les sorties de niveau** (entrées de
+  grotte, escaliers) : la sortie la plus proche est la cible de dernier
+  recours quand aucun monstre, objet ou item n'est à portée. Confirmé sur
+  console à l'entrée du Repaire du Mal.
+- **Le bouton de visée ne poursuit plus les marqueurs invisibles** dans les
+  donjons (les unités `dummy` du jeu, dont le Repaire du Mal est plein) : un
+  monstre n'est une cible que si le jeu le déclare lui-même ciblable.
+  Confirmé sur console.
+- **Plus de marche automatique sans fin** : quand la cible meurt ou
+  disparaît bouton de visée maintenu, le personnage s'arrête au lieu de
+  continuer à marcher.
+
 ## v0.1.19-beta — 2026-10-01
 
 - **Coffre-fort, point de passage, coffres, portail de ville et portes sont

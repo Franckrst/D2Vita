@@ -4,6 +4,17 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## Unreleased
+
+- **The aim button walks into level exits** (cave mouths, stairs): the
+  nearest exit is the last-resort target when no monster, object or item is
+  in reach. Confirmed on console at the Den of Evil entrance.
+- **The aim button no longer chases invisible markers** in dungeons (the
+  game's `dummy` units, which the Den of Evil is full of): a monster is only
+  a target if the game itself flags it targetable. Confirmed on console.
+- **No more endless auto-walk**: when the target dies or vanishes while the
+  aim button is held, the character stops instead of walking on.
+
 ## v0.1.19-beta — 2026-10-01
 
 - **Stash, waypoint, chests, town portal and doors are targeted by the aim

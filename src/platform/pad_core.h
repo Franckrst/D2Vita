@@ -49,6 +49,12 @@ struct Unit {
     bool selectable = true;
 };
 
+// UnitAny+0xC4 as the game maintains it: bit 1 = targetable, bit 21 = hover
+// suppression. Console 02/10, Den of Evil: every living monster read ...0f/0b,
+// while the invisible "dummy" markers (classes 151/159) read 0x00600009 and
+// were being chased as if they were bats.
+inline bool game_targetable(uint32_t flags) { return (flags & 0x00200002u) == 0x00000002u; }
+
 struct Ctx {
     bool inGame = false, panelOpen = false;
     uint32_t selValid = 0, selId = 0, selType = 0;   // unit the GAME hovers (previous frame)
@@ -106,6 +112,9 @@ int  pick_hostile(const Unit* u, int n, const View& v, float ax, float ay, bool 
 // Ground items are deliberately NOT candidates -- the item-assist action
 // already browses and picks them up. Returns -1 if none.
 int  pick_interact(const Unit* u, int n, const View& v, const Config& cfg, const Reject* rej = nullptr);
+// Nearest level exit (type 5: cave mouth, stairs, town gate) within reach.
+// Last resort of the aim button: it is taken only when nothing else is.
+int  pick_exit(const Unit* u, int n, const View& v, const Config& cfg);
 // The unit whose hit box contains (cx, cy): what the player is literally
 // pointing at, which beats any cone. Interactables and hostiles only; ties go
 // to the nearest anchor. -1 if the cursor is over nothing.
@@ -168,7 +177,7 @@ public:
     struct Pick {
         uint32_t id = 0, type = 0; int dist = 0;
         int branch = -1;     // 0 corpse, 1 under cursor, 2 aim cone, 3 nearest object,
-                             // 4 nearest hostile, -1 nothing
+                             // 4 nearest hostile, 6 nearest level exit, -1 nothing
     };
     Pick lastPick() const { return pick_; }
 
@@ -187,6 +196,7 @@ private:
     void worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u, int n, bool down, Actions& out);
     void panelTick(const Ctl& c, const View& v, bool down, bool up, Actions& out);
     void releaseAll(Actions& out);
+    void endInteract(Actions& out);
     int  findId(const Unit* u, int n, uint32_t id, uint32_t type) const;
     void hoverPoint(const Unit& t, int h, const View& v, int* px, int* py) const;
 
@@ -214,6 +224,7 @@ private:
     // interArm_ > 0: the cursor is on the target and we are waiting for the
     // game to report the hover before pressing (see the aim block).
     int      interAttempt_ = 0, interH_ = 0, interArm_ = 0;
+    int      unhovered_ = 0;         // ticks a settled interaction has gone without the game's hover
     bool     interPin_ = false;      // the game already hovers it: hold the cursor where it is
     int      pinX_ = 0, pinY_ = 0;
     Walk     walk_;

@@ -303,6 +303,19 @@ the source of truth for the public repository.
       2026-09-21): no skill-cast snapping or `slot1..7` ground/corpse
       choice, no panel-mode face buttons, no L = stand-still; those stay in
       git history and `manette/pad-core-port`.
+- [ ] **Aim assist: level exits, targetable gate, auto-walk fix (unreleased,
+      2026-10-02)**: the aim button walks into the nearest level exit
+      (`pick_exit`, unit type 5, branch 6, last resort after monsters,
+      objects and items); hostiles must carry the game's targetable bit
+      (`pad::game_targetable`, `UnitAny+0xC4` bit 1 set / bit 21 clear —
+      the invisible `dummy` classes 151/159 of the Den of Evil read
+      `0x00600009`, living monsters `...0f`); an interaction ends when its
+      target dies, vanishes or stays unhovered (`endInteract`, `unhovered_`).
+      **Validation: host tests (232 passed, ASan/UBSan) plus the maintainer's
+      hands-on play on a console in the Den of Evil (entrance, 3 runs). Not
+      benchmarked, not run on qemu-arm/Vita3K. Only two exit classes seen
+      (3 = cave mouth, 4 = cave exit); stairs and other level types are
+      unobserved.**
 - [ ] **Warden / anti-cheat fidelity**: no structured exception handling at
       all (a guest fault kills the thread), no PEB/LDR, no per-region
       `VirtualProtect` tracking, self `OpenProcess` still denied — detailed
