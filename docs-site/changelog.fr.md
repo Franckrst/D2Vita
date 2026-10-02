@@ -5,6 +5,22 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.21-beta — 2026-10-02
+
+- **Les menus ne sont plus rognés après une partie en 640×480.** Le menu
+  principal, le choix du personnage et le lobby Battle.net sont toujours en
+  800×600, mais quitter une partie dont le dernier mode vidéo était 640×480
+  (ou y passer en cours de partie, puis quitter) remettait l'écran en
+  640×480 : la droite et le bas des menus étaient coupés (plus de bouton
+  *Exit Diablo II*). Confirmé sur console hors ligne (Sauvegarder et quitter
+  depuis une partie en 640×480) ; le lobby Battle.net lui-même n'est pas
+  encore re-testé en ligne.
+- **Le bouton de visée atteint votre cadavre depuis n'importe où à
+  l'écran.** Il n'était proposé qu'à portée, donc rien ne se passait de
+  plus loin. Il reste la priorité la plus basse : un monstre, un objet, un
+  item ou une sortie de niveau à portée passe toujours avant. Pas encore
+  testé sur console (tests hôte seulement).
+
 ## v0.1.20-beta — 2026-10-02
 
 - **Le bouton de visée entre dans les sorties de niveau** (entrées de

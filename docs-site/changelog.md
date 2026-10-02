@@ -4,6 +4,20 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.21-beta — 2026-10-02
+
+- **Menus no longer cropped after a game played at 640×480.** The main
+  menu, character select and Battle.net lobby are always 800×600, but
+  leaving a game whose last video mode was 640×480 (or switching down to it
+  mid-game, then leaving) put the screen back at 640×480: the right and
+  bottom of the menus were cut off (no *Exit Diablo II* button). Confirmed
+  on console offline (Save and Exit from a 640×480 game); the Battle.net
+  lobby itself is not re-tested online yet.
+- **The aim button reaches your corpse from anywhere on screen.** It used
+  to be offered only within reach, so from farther away nothing happened.
+  It stays the lowest priority: a monster, object, item or level exit in
+  reach still wins. Not tested on console yet (host tests only).
+
 ## v0.1.20-beta — 2026-10-02
 
 - **The aim button walks into level exits** (cave mouths, stairs): the

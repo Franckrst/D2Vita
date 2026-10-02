@@ -100,7 +100,7 @@ While `aim` is bound (the default), the **sticks** run in aim mode, in game:
 |---|---|
 | Left stick | **Move only**: the character walks in the stick's direction (radius follows tilt), never attacking, talking or picking anything up by accident; release = hard stop |
 | Right stick | **Free cursor**, as on PC: it clicks nothing by itself, and it reaches the HUD (belt, skill buttons) |
-| `aim` button (held) | Acts on the best target: your own corpse within reach, else whatever the cursor sits on, else the enemy inside a ±35° cone around the cursor, else the nearest chest / door / portal / NPC (or, outside a town, the nearest enemy) |
+| `aim` button (held) | Acts on the best target: your own corpse within reach, else whatever the cursor sits on, else the enemy inside a ±35° cone around the cursor, else the nearest chest / door / portal / NPC (or, outside a town, the nearest enemy), else a level exit, else your own corpse anywhere on screen |
 
 Without `aim` bound (opt-out), the sticks keep the earlier plain behaviour
 (left stick = direct movement: the cursor orbits the character with a held

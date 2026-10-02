@@ -316,6 +316,16 @@ the source of truth for the public repository.
       benchmarked, not run on qemu-arm/Vita3K. Only two exit classes seen
       (3 = cave mouth, 4 = cave exit); stairs and other level types are
       unobserved.**
+- [ ] **Front-end window after a 640 game; far corpse (0.1.21-beta,
+      2026-10-02)**: `unapply` now always restores the 800x600 front-end
+      window (menu, character select, lobby — D2Launch opens it through
+      `GetResolutionSize(mode 2)` even with `Resolution=0`); before, the
+      last game mode picked 640x480 and cropped the menus. The own corpse is
+      the last-resort target anywhere on screen (branch 7, before
+      `pick_exit`). **Validation: console, offline only (Save and Exit from
+      a 640x480 game, menu complete in a capture); online lobby not
+      re-tested. The corpse change: host tests (238 passed, ASan/UBSan),
+      never run on a console.**
 - [ ] **Warden / anti-cheat fidelity**: no structured exception handling at
       all (a guest fault kills the thread), no PEB/LDR, no per-region
       `VirtualProtect` tracking, self `OpenProcess` still denied — detailed

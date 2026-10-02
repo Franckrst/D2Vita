@@ -397,7 +397,13 @@ void Assist::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             else if (io >= 0)            ii = io;
             else                         ii = ti;
             if (ii >= 0) branch = (ii == io) ? 3 : 4;
-            else { ii = pick_exit(u, n, v, cfg_); if (ii >= 0) branch = 6; }
+            else {
+                // Nothing else to act on: our own body, anywhere on screen
+                // (console 02/10: beyond `reach` it was never offered at all).
+                for (int k = 0; k < n && ii < 0; ++k)
+                    if (u[k].ownCorpse && on_screen(v, u[k].sx, u[k].sy) && !rej_.has(u[k])) { ii = k; branch = 7; }
+                if (ii < 0) { ii = pick_exit(u, n, v, cfg_); if (ii >= 0) branch = 6; }
+            }
         }
         pick_ = Pick{};
         pick_.branch = branch;

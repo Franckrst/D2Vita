@@ -103,7 +103,7 @@ Tant qu'`aim` est lié (le défaut), les **sticks** sont en mode visée, en jeu 
 |---|---|
 | Stick gauche | **Déplacement seul** : le personnage marche dans la direction du stick (le rayon suit l'inclinaison), sans jamais attaquer, parler ni ramasser quoi que ce soit par accident ; relâcher = arrêt net |
 | Stick droit | **Curseur libre**, comme sur PC : il ne clique rien tout seul, et il atteint le HUD (ceinture, boutons de compétences) |
-| Bouton `aim` (maintenu) | Agit sur la meilleure cible : votre propre cadavre à portée, sinon ce que survole le curseur, sinon l'ennemi dans un cône de ±35° autour du curseur, sinon le coffre / la porte / le portail / le PNJ le plus proche (ou, hors ville, l'ennemi le plus proche) |
+| Bouton `aim` (maintenu) | Agit sur la meilleure cible : votre propre cadavre à portée, sinon ce que survole le curseur, sinon l'ennemi dans un cône de ±35° autour du curseur, sinon le coffre / la porte / le portail / le PNJ le plus proche (ou, hors ville, l'ennemi le plus proche), sinon une sortie de niveau, sinon votre propre cadavre où qu'il soit à l'écran |
 
 Sans `aim` lié (désactivation), les sticks gardent l'ancien comportement simple
 (stick gauche = déplacement direct : le curseur orbite autour du personnage

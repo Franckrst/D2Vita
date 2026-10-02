@@ -592,6 +592,28 @@ static void test_own_corpse_outranks_everything() {
     CHECK(hasAct(a, pad::A_MOVE, 620, 272));          // the corpse wins anyway
 }
 
+static void test_far_own_corpse_is_the_last_resort_target() {
+    // Console 02/10 (Discord): the corpse was never targeted from farther than
+    // `reach`. It stays low priority -- a monster or an object in reach wins --
+    // but with nothing else to do the button walks to it.
+    pad::Config cfg; pad::View v = mkView();
+    pad::Unit corpse; corpse.id = 7; corpse.type = 0; corpse.cls = 4; corpse.sx = 780; corpse.sy = 300;   // ~380 px away: beyond reach 300
+    corpse.interact = true; corpse.ownCorpse = true;
+    { pad::Assist s(cfg); pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+      pad::Unit u[1] = { corpse };
+      s.tick(c, x, v, u, 1, a); c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+      CHECK(s.interacting()); CHECK(s.interactId() == 7); CHECK(s.lastPick().branch == 7); }
+    { pad::Assist s(cfg); pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;     // a monster in range still wins
+      pad::Unit u[2] = { corpse, mkMon(1, 470, 300) };
+      s.tick(c, x, v, u, 2, a); c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
+      CHECK(s.interacting()); CHECK(s.interactId() == 1); }
+    { pad::Assist s(cfg); pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;     // off screen: not offered
+      pad::Unit off = corpse; off.sx = 1200;
+      pad::Unit u[1] = { off };
+      s.tick(c, x, v, u, 1, a); c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+      CHECK(!s.interacting()); }
+}
+
 static void test_interact_reach_is_configurable() {
     // Measuring in world units halved the vertical reach that the old screen
     // metric gave, so the default has to be re-stated rather than inherited.
@@ -1070,6 +1092,7 @@ int main() {
     test_the_nearest_wins_between_an_object_and_a_monster();
     test_the_cursor_overrides_the_targetable_filter();
     test_cross_clicks_the_hud();
+    test_far_own_corpse_is_the_last_resort_target();
     test_interact_reach_is_configurable();
     test_offscreen_units_are_not_targets();
     test_the_button_walks_into_a_level_exit();

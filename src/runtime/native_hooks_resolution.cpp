@@ -340,25 +340,29 @@ void apply(Cpu& c) {
                c.read_u32(g_base + G_W), c.read_u32(g_base + G_H), shx, shy); }
 }
 
-// Retour au menu : les menus ont un art fixe (800x600, ou 640x480 en mode 0)
-// et le presentateur les centre lui-meme tant que d2res_active() est faux —
-// exactement l'etat du premier boot. On retablit donc les globals que
-// SetResolution aurait laisses pour ce mode et on desarme la bascule ; la
-// prochaine entree en partie (SetResolution depuis D2Client) la rearme.
-void unapply(Cpu& c, uint32_t mode) {
-    const uint32_t w = mode == 0 ? 640u : 800u, h = mode == 0 ? 480u : 600u;
+// Retour au menu : le front-end (menu, choix du personnage, lobby Battle.net)
+// a un art fixe en 800x600, quel que soit le mode de la partie qui vient de
+// finir : D2Launch l'ouvre toujours via GetResolutionSize(mode 2), meme avec
+// la cle « Resolution » a 0 (console 02/10/2026 : lobby et menu principal
+// rognes a 640x480 apres une partie en 640, y compris hors ligne). Le
+// presentateur le centre lui-meme tant que d2res_active() est faux —
+// exactement l'etat du premier boot. On retablit donc les globals 800x600 et
+// on desarme la bascule ; la prochaine entree en partie (SetResolution depuis
+// D2Client) la rearme.
+void unapply(Cpu& c) {
+    const uint32_t w = 800u, h = 600u;
     c.write_u32(g_base + G_W,    w);
     c.write_u32(g_base + G_H,    h);
     c.write_u32(g_base + G_WCPY, w);
     c.write_u32(g_base + G_WCP2, w);
     c.write_u32(g_base + G_HM40, h - 40u);
-    c.write_u32(g_base + G_SHX,  mode == 0 ? 0u : 80u);
-    c.write_u32(g_base + G_SHY,  mode == 0 ? 0u : (uint32_t)(int32_t)-60);
+    c.write_u32(g_base + G_SHX,  80u);
+    c.write_u32(g_base + G_SHY,  (uint32_t)(int32_t)-60);
     c.write_u32(g_base + G_GLW,  w);
     c.write_u32(g_base + G_GLH,  h);
     g_applied = 0; g_appliedMode = ~0u;
     set_window((int)w, (int)h);
-    jpline("res: menu — %ux%u natif retabli, bascule desarmee jusqu'a la prochaine partie (mode %u)", w, h, mode);
+    jpline("res: menu — %ux%u natif retabli, bascule desarmee jusqu'a la prochaine partie (dernier mode de jeu %u)", w, h, s_setMode);
 }
 
 // Pose un trap de sortie sur l'adresse de retour invitee, puis rejoue le
@@ -565,7 +569,7 @@ extern "C" int d2res_active(void) { return g_on && g_applied; }
 // appele — retablir le natif et la fenetre. L'entree en partie suivante
 // (SetResolution -> apply) rearme tout.
 extern "C" void d2res_menu_tick(void) {
-    if (g_on && g_applied && g_cpuRes) unapply(*g_cpuRes, s_setMode);
+    if (g_on && g_applied && g_cpuRes) unapply(*g_cpuRes);
 }
 extern "C" int d2res_w(void)      { return W(s_setMode); }
 extern "C" int d2res_h(void)      { return H(s_setMode); }
