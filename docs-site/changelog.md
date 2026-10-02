@@ -4,7 +4,7 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
-## Unreleased
+## v0.1.20-beta — 2026-10-02
 
 - **The aim button walks into level exits** (cave mouths, stairs): the
   nearest exit is the last-resort target when no monster, object or item is

@@ -303,7 +303,7 @@ the source of truth for the public repository.
       2026-09-21): no skill-cast snapping or `slot1..7` ground/corpse
       choice, no panel-mode face buttons, no L = stand-still; those stay in
       git history and `manette/pad-core-port`.
-- [ ] **Aim assist: level exits, targetable gate, auto-walk fix (unreleased,
+- [ ] **Aim assist: level exits, targetable gate, auto-walk fix (0.1.20-beta,
       2026-10-02)**: the aim button walks into the nearest level exit
       (`pick_exit`, unit type 5, branch 6, last resort after monsters,
       objects and items); hostiles must carry the game's targetable bit

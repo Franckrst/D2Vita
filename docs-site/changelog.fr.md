@@ -5,7 +5,7 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
-## Non publié
+## v0.1.20-beta — 2026-10-02
 
 - **Le bouton de visée entre dans les sorties de niveau** (entrées de
   grotte, escaliers) : la sortie la plus proche est la cible de dernier
