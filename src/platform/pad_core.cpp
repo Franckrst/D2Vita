@@ -402,11 +402,20 @@ void Assist::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
                 // (console 02/10: beyond `reach` it was never offered at all).
                 for (int k = 0; k < n && ii < 0; ++k)
                     if (u[k].ownCorpse && on_screen(v, u[k].sx, u[k].sy) && !rej_.has(u[k])) { ii = k; branch = 7; }
-                if (ii < 0) { ii = pick_exit(u, n, v, cfg_); if (ii >= 0) branch = 6; }
+                // A level exit is only offered while the cursor is idle: a cursor
+                // the player pointed somewhere is an intent of its own.
+                if (ii < 0 && !aimed) { ii = pick_exit(u, n, v, cfg_); if (ii >= 0) branch = 6; }
             }
         }
         pick_ = Pick{};
         pick_.branch = branch;
+        if (ii < 0) {
+            // Nothing to act on: a plain left click where the cursor is, held
+            // with the button (cast or walk there; the right stick keeps aiming).
+            if (!lmb_) out.push(A_LDOWN, cx_, cy_);
+            lmb_ = true; lsClick_ = false; hudClick_ = true;
+            pick_.branch = 8;
+        }
         if (ii >= 0) { pick_.id = u[ii].id; pick_.type = u[ii].type; pick_.dist = (int)dist(ii); }
         if (ii >= 0) {
             interact_ = true; interId_ = u[ii].id; interType_ = u[ii].type; interCls_ = u[ii].cls;

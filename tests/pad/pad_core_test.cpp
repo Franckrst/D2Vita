@@ -185,11 +185,11 @@ static void test_aim_interact() {
     x.selValid = 0; x.selId = 0; x.selType = 0;
     c.aim = false; a = pad::Actions{}; s.tick(c, x, v, u, 2, a);
     CHECK(hasAct(a, pad::A_LUP));
-    // aim with nothing around and no target: no click at all
+    // aim with nothing around and no target: a plain click at the cursor, lifted on release
     a = pad::Actions{}; c.aim = true; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(a.n == 0);
+    CHECK(hasAct(a, pad::A_LDOWN));
     c.aim = false; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
-    CHECK(a.n == 0);
+    CHECK(hasAct(a, pad::A_LUP));
 }
 
 // Every A_LDOWN must have a lift on EVERY exit, not just the button's own
@@ -977,6 +977,31 @@ static void test_an_exit_has_a_hit_box() {
     CHECK(pad::in_unit_box(e, 700, 200) && !pad::in_unit_box(e, 760, 200));
 }
 
+static void test_with_no_target_the_button_clicks_at_the_cursor() {
+    // Discord 03/10: a ranged character wants L to cast/walk at the cursor.
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; pad::Ctl c; pad::Actions a;
+    c.rx = 1.f; for (int i = 0; i < 6; ++i) { a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); }
+    c.rx = 0.f; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    const int px = s.cx(), py = s.cy();
+    c.aim = true; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(!s.interacting() && s.lastPick().branch == 8);
+    CHECK(hasAct(a, pad::A_LDOWN) && s.cx() == px && s.cy() == py);   // the click is where the cursor is
+    c.rx = 1.f; int before = s.cx();                                   // the right stick still aims while held
+    for (int i = 0; i < 3; ++i) { a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a); }
+    CHECK(s.cx() > before);
+    c.aim = false; c.rx = 0.f; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
+    CHECK(hasAct(a, pad::A_LUP));
+    // an exit still wins while the cursor is idle on the player, but not once it is pointed away
+    pad::Assist s2(cfg); pad::Unit e[1] = { mkExit(7, 470, 320) };
+    c = pad::Ctl{}; c.aim = true; a = pad::Actions{}; s2.tick(c, x, v, e, 1, a);
+    CHECK(s2.lastPick().branch == 6);
+    pad::Assist s3(cfg); c = pad::Ctl{}; c.ry = -1.f;
+    for (int i = 0; i < 6; ++i) { a = pad::Actions{}; s3.tick(c, x, v, e, 1, a); }
+    c.ry = 0.f; c.aim = true; a = pad::Actions{}; s3.tick(c, x, v, e, 1, a);
+    CHECK(s3.lastPick().branch == 8);
+}
+
 static void test_controls_scan() {
     CHECK(scan(""));                                   // built-in default: l=aim
     CHECK(scan("square=items\nr+up=f5\n"));
@@ -1101,6 +1126,7 @@ int main() {
     test_the_interaction_ends_when_its_target_dies_with_the_button_held();
     test_the_interaction_ends_when_its_target_vanishes_with_the_button_held();
     test_a_settled_interaction_that_loses_the_hover_for_good_is_let_go();
+    test_with_no_target_the_button_clicks_at_the_cursor();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

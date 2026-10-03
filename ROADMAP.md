@@ -326,6 +326,13 @@ the source of truth for the public repository.
       a 640x480 game, menu complete in a capture); online lobby not
       re-tested. The corpse change: host tests (238 passed, ASan/UBSan),
       never run on a console.**
+- [ ] **Aim assist: left click when there is no target (unreleased,
+      2026-10-03)**: when the aim button finds nothing (branch 8), it sends
+      a plain left click at the cursor, held with the button (cast or walk
+      there; the right stick keeps aiming). A level exit is only offered
+      while the cursor is idle — a cursor pointed somewhere is an intent of
+      its own. **Validation: host tests (244 passed, ASan/UBSan) and a
+      pad::Assist fuzz (0 bad of 2000); never run on a console.**
 - [ ] **Warden / anti-cheat fidelity**: no structured exception handling at
       all (a guest fault kills the thread), no PEB/LDR, no per-region
       `VirtualProtect` tracking, self `OpenProcess` still denied — detailed

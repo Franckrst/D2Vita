@@ -177,7 +177,8 @@ public:
     struct Pick {
         uint32_t id = 0, type = 0; int dist = 0;
         int branch = -1;     // 0 corpse, 1 under cursor, 2 aim cone, 3 nearest object,
-                             // 4 nearest hostile, 6 nearest level exit, -1 nothing
+                             // 4 nearest hostile, 6 nearest level exit, 7 own corpse
+                             // beyond reach, 8 plain click at the cursor, -1 never
     };
     Pick lastPick() const { return pick_; }
 
