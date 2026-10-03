@@ -2092,6 +2092,7 @@ void load_controls_txt(){
                 else if (!strcasecmp(k,"hover_h"))   g_padcfg.hoverH=(int)d;
                 else if (!strcasecmp(k,"hud_h"))     g_padcfg.hudH=(int)d;
                 else if (!strcasecmp(k,"reach"))     g_padcfg.reach=(int)d;
+                else if (!strcasecmp(k,"hostile_reach")) g_padcfg.hostileReach=(int)d;
                 n++; continue;
             }
         }

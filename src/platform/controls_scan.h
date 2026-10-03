@@ -95,7 +95,7 @@ inline int numeric_key(const char* k, const char* v, double* out, double* lo, do
     static const E T[] = {
         {"orbit",10,400},{"sens",1,100},{"deadzone",0,0.9},{"anchor_y",100,900},
         {"orbit_min",5,400},{"orbit_max",5,400},{"cone",5,90},{"hover_h",0,150},
-        {"hud_h",0,300},{"reach",50,2000} };
+        {"hud_h",0,300},{"reach",50,2000},{"hostile_reach",100,2000} };
     for (const E& t : T) if (!strcasecmp(k, t.n)) {
         *lo = t.lo; *hi = t.hi;
         char* e = nullptr; const double d = strtod(v, &e);

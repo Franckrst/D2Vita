@@ -100,7 +100,7 @@ While `aim` is bound (the default), the **sticks** run in aim mode, in game:
 |---|---|
 | Left stick | **Move only**: the character walks in the stick's direction (radius follows tilt), never attacking, talking or picking anything up by accident; release = hard stop |
 | Right stick | **Free cursor**, as on PC: it clicks nothing by itself, and it reaches the HUD (belt, skill buttons) |
-| `aim` button (held) | Acts on the best target: your own corpse within reach, else whatever the cursor sits on, else the enemy inside a ±35° cone around the cursor, else the nearest chest / door / portal / NPC (or, outside a town, the nearest enemy), else a level exit, else your own corpse anywhere on screen, else a plain left click at the cursor (held with the button; the right stick keeps aiming) |
+| `aim` button (held) | Acts on the best target: your own corpse within reach, else whatever the cursor sits on, else the enemy closest to the axis inside a ±35° cone around the cursor (never one outside it), else the nearest chest / door / portal / NPC (or, outside a town, the nearest enemy), else a level exit, else your own corpse anywhere on screen, else a plain left click at the cursor (held with the button; the right stick keeps aiming) |
 
 Without `aim` bound (opt-out), the sticks keep the earlier plain behaviour
 (left stick = direct movement: the cursor orbits the character with a held
@@ -142,6 +142,7 @@ diamond=on          # off = hide the aim marker (the aim still works)
 hud_h=60           # bottom band ASSISTED clicks never enter, px (the cursor
                    # you drive does go there, or the belt would be unreachable)
 reach=300          # how far `aim` reaches for a chest/door/NPC, world units
+hostile_reach=800  # how far `aim` reaches for a monster (in or out of the cone), world units
 ```
 
 **Not carried over from the earlier `scheme=aim` experiment**: skill slots that
@@ -249,7 +250,7 @@ diamond=off      # hide the aim assist's diamond (default on)
 default stays) and reported in `boot_progress.txt`: `orbit` 10–400, `sens`
 1–100, `deadzone` 0–0.9 (a fraction: `0.15`, not `15`), `anchor_y` 100–900,
 `orbit_min`/`orbit_max` 5–400, `cone` 5–90, `hover_h` 0–150, `hud_h` 0–300,
-`reach` 50–2000. In particular `orbit=1000`, which some older builds used,
+`reach` 50–2000, `hostile_reach` 100–2000. In particular `orbit=1000`, which some older builds used,
 is refused: it would push the walk point off the screen and nothing could be
 controlled any more. A UTF-8 byte-order mark at the start of the file (added
 by some Windows editors) is ignored.

@@ -23,6 +23,10 @@ struct Config {
     // units. Stated explicitly because measuring in world units rather than
     // screen pixels halved what the old 220 gave vertically.
     int   reach    = 300;
+    // How far the aim button reaches for a monster, same units. One distance
+    // for both modes: inside the cone when the cursor gives a direction,
+    // anywhere around the player when it does not.
+    int   hostileReach = 800;
     float sens     = 10.f;                 // free-cursor speed in panels
 };
 
@@ -102,10 +106,12 @@ struct Reject {
 // rather than the stick itself: the stick is only one of the ways to move it.
 bool aim_from_cursor(const View& v, int cx, int cy, float* ax, float* ay);
 
-// Hostile target: aimed -> nearest-ish inside a +-coneDeg cone around (ax,ay)
-// (score = distance + 300*(1-cos)), <= 500 px; not aimed -> nearest <= 420 px.
+// Hostile target, never farther than cfg.hostileReach (world units): aimed ->
+// the one closest to the axis (ax,ay) among those inside the +-coneDeg cone,
+// nothing outside it; not aimed -> the nearest.
 // `current` = index of the current target in `u` (or -1); kept while it
-// qualifies and its score <= 1.25*best + 20 (hysteresis). Returns -1 if none.
+// qualifies and stays within 4 degrees of the best (aimed) or its distance is
+// <= 1.25*best + 20 (not aimed). Returns -1 if none.
 int  pick_hostile(const Unit* u, int n, const View& v, float ax, float ay, bool aimed,
                   const Config& cfg, int current, const Reject* rej = nullptr);
 // Nearest interactable chest / door / town NPC within cfg.reach (world units).

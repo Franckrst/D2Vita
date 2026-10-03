@@ -78,6 +78,27 @@ static void test_pick_hostile() {
     CHECK(pad::pick_hostile(far2, 1, v, 1.f, 0.f, true, cfg, -1) == -1);   // aimed right: out of the cone
     // an unnormalized direction is normalized for us
     CHECK(pad::pick_hostile(u, 4, v, 250.f, 0.f, true, cfg, -1) == 1);
+    // aimed: the monster closest to the axis wins, even when another is nearer
+    {
+        float cax, cay;
+        CHECK(pad::aim_from_cursor(v, 700, 300, &cax, &cay));
+        pad::Unit m[3] = { mkMon(1, 470, 330), mkMon(2, 780, 300), mkMon(3, 400, 100) };
+        CHECK(pad::pick_hostile(m, 3, v, cax, cay, true, cfg, -1) == 1);     // far but dead centre
+        // never outside the cone, however close and however alone
+        pad::Unit o[1] = { mkMon(4, 400, 250) };
+        CHECK(pad::pick_hostile(o, 1, v, cax, cay, true, cfg, -1) == -1);
+        // the current target holds against a marginally better one, not a clearly better one
+        pad::Unit h[2] = { mkMon(5, 600, 306), mkMon(6, 600, 300) };
+        CHECK(pad::pick_hostile(h, 2, v, cax, cay, true, cfg, 0) == 0);
+        pad::Unit g[2] = { mkMon(5, 600, 360), mkMon(6, 600, 300) };
+        CHECK(pad::pick_hostile(g, 2, v, cax, cay, true, cfg, 0) == 1);
+        // one distance for both modes, set by cfg.hostileReach
+        pad::Config sm; sm.hostileReach = 300;
+        pad::Unit f[1] = { mkMon(7, 790, 300) };
+        CHECK(pad::pick_hostile(f, 1, v, cax, cay, true, sm, -1) == -1);
+        CHECK(pad::pick_hostile(f, 1, v, 0.f, 0.f, false, sm, -1) == -1);
+        CHECK(pad::pick_hostile(f, 1, v, cax, cay, true, cfg, -1) == 0);
+    }
     // the cursor sitting on the player gives no direction to read
     float ax = 9.f, ay = 9.f;
     CHECK(!pad::aim_from_cursor(v, 400, 300, &ax, &ay));
@@ -1060,6 +1081,8 @@ static void test_controls_parse() {
     CHECK(ctl::numeric_key("deadzone", "15", &d, &lo, &hi) == -1);                          // a percentage, not 0..1
     CHECK(ctl::numeric_key("deadzone", "0.15", &d, &lo, &hi) == 1);
     CHECK(ctl::numeric_key("sens", "40", &d, &lo, &hi) == 1);
+    CHECK(ctl::numeric_key("hostile_reach", "900", &d, &lo, &hi) == 1 && d == 900);
+    CHECK(ctl::numeric_key("hostile_reach", "5000", &d, &lo, &hi) == -1);
     CHECK(ctl::numeric_key("sens", "abc", &d, &lo, &hi) == -1);
     CHECK(ctl::numeric_key("sens", "", &d, &lo, &hi) == -1);
     CHECK(ctl::numeric_key("sens", "18px", &d, &lo, &hi) == -1);

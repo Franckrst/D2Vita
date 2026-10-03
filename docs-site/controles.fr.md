@@ -103,7 +103,7 @@ Tant qu'`aim` est lié (le défaut), les **sticks** sont en mode visée, en jeu 
 |---|---|
 | Stick gauche | **Déplacement seul** : le personnage marche dans la direction du stick (le rayon suit l'inclinaison), sans jamais attaquer, parler ni ramasser quoi que ce soit par accident ; relâcher = arrêt net |
 | Stick droit | **Curseur libre**, comme sur PC : il ne clique rien tout seul, et il atteint le HUD (ceinture, boutons de compétences) |
-| Bouton `aim` (maintenu) | Agit sur la meilleure cible : votre propre cadavre à portée, sinon ce que survole le curseur, sinon l'ennemi dans un cône de ±35° autour du curseur, sinon le coffre / la porte / le portail / le PNJ le plus proche (ou, hors ville, l'ennemi le plus proche), sinon une sortie de niveau, sinon votre propre cadavre où qu’il soit à l’écran, sinon un simple clic gauche sur le curseur (maintenu avec le bouton ; le stick droit continue de viser) |
+| Bouton `aim` (maintenu) | Agit sur la meilleure cible : votre propre cadavre à portée, sinon ce que survole le curseur, sinon l'ennemi le plus proche de l'axe dans un cône de ±35° autour du curseur (jamais un ennemi hors du cône), sinon le coffre / la porte / le portail / le PNJ le plus proche (ou, hors ville, l'ennemi le plus proche), sinon une sortie de niveau, sinon votre propre cadavre où qu’il soit à l’écran, sinon un simple clic gauche sur le curseur (maintenu avec le bouton ; le stick droit continue de viser) |
 
 Sans `aim` lié (désactivation), les sticks gardent l'ancien comportement simple
 (stick gauche = déplacement direct : le curseur orbite autour du personnage
@@ -145,6 +145,7 @@ diamond=on         # off = masque le losange de visée (la visée marche toujour
 hud_h=60           # bande basse où les clics ASSISTÉS n'entrent jamais, px (le curseur
                    # que vous pilotez, lui, y va, sinon la ceinture serait inatteignable)
 reach=300          # portée de `aim` vers un coffre/une porte/un PNJ, unités du monde
+hostile_reach=800  # portée de `aim` vers un monstre (dans ou hors du cône), unités du monde
 ```
 
 **Non repris de l'ancienne expérience `scheme=aim`** : les emplacements de
@@ -255,7 +256,7 @@ diamond=off      # masque le losange de la visée assistée (défaut on)
 refusée (le défaut reste) et signalée dans `boot_progress.txt` : `orbit`
 10–400, `sens` 1–100, `deadzone` 0–0,9 (une fraction : `0.15`, pas `15`),
 `anchor_y` 100–900, `orbit_min`/`orbit_max` 5–400, `cone` 5–90, `hover_h`
-0–150, `hud_h` 0–300, `reach` 50–2000. En particulier `orbit=1000`, utilisé
+0–150, `hud_h` 0–300, `reach` 50–2000, `hostile_reach` 100–2000. En particulier `orbit=1000`, utilisé
 par d'anciennes versions, est refusé : il enverrait le point de marche hors
 de l'écran et plus rien ne répondrait. Un BOM UTF-8 en début de fichier
 (ajouté par certains éditeurs Windows) est ignoré.

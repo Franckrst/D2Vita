@@ -74,7 +74,9 @@ int pick_hostile(const Unit* u, int n, const View& v, float ax, float ay, bool a
         if (am > 1e-6f) { ax /= am; ay /= am; } else aimed = false;
     }
     const float cosMin = std::cos(cfg.coneDeg * kPi / 180.f);
-    const float maxD = aimed ? 500.f : 420.f;
+    const float maxD = (float)cfg.hostileReach;
+    const float kHystDeg = 4.f;
+    // aimed: degrees off the axis (distance only breaks ties); else distance.
     auto score = [&](int i, float* s) -> bool {
         const Unit& t = u[i];
         if (!t.hostile) return false;
@@ -86,7 +88,7 @@ int pick_hostile(const Unit* u, int n, const View& v, float ax, float ay, bool a
         if (aimed) {
             const float cs = d > 1.f ? (dx * ax + dy * ay) / d : 1.f;
             if (cs < cosMin) return false;
-            *s = d + 300.f * (1.f - cs);
+            *s = std::acos(std::min(1.f, cs)) * 180.f / kPi + d * 1e-4f;
         } else *s = d;
         return true;
     };
@@ -94,7 +96,7 @@ int pick_hostile(const Unit* u, int n, const View& v, float ax, float ay, bool a
     for (int i = 0; i < n; ++i) { float s; if (score(i, &s) && (best < 0 || s < bs)) { best = i; bs = s; } }
     if (current >= 0 && current < n) {
         float s;
-        if (score(current, &s) && (best < 0 || s <= bs * 1.25f + 20.f)) return current;
+        if (score(current, &s) && (best < 0 || s <= (aimed ? bs + kHystDeg : bs * 1.25f + 20.f))) return current;
     }
     return best;
 }

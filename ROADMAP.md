@@ -333,6 +333,16 @@ the source of truth for the public repository.
       while the cursor is idle — a cursor pointed somewhere is an intent of
       its own. **Validation: host tests (244 passed, ASan/UBSan) and a
       pad::Assist fuzz (0 bad of 2000); never run on a console.**
+- [ ] **Aim assist: monster target = closest to the cone axis, `hostile_reach`
+      (unreleased, 2026-10-03)**: with a cursor direction, `aim` takes the
+      monster nearest the axis inside the cone (score = angle, distance only
+      breaks ties; 4° hysteresis on the current target), never one outside
+      it; before, distance + angle were mixed and reach was hard-coded
+      (500 aimed / 420 not). One distance now, `hostile_reach` in
+      `controls.txt` (default 800, range 100–2000 world units), for both
+      modes. **Validation: host tests (254 passed, ASan/UBSan) and the
+      pad::Assist fuzz (0 bad of 2000); never run on a console. The default
+      800 is a guess, not a measured value.**
 - [ ] **Warden / anti-cheat fidelity**: no structured exception handling at
       all (a guest fault kills the thread), no PEB/LDR, no per-region
       `VirtualProtect` tracking, self `OpenProcess` still denied — detailed
