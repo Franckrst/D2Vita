@@ -58,3 +58,8 @@ enable_testing()
 add_executable(pad_core_test tests/pad/pad_core_test.cpp src/platform/pad_core.cpp)
 target_include_directories(pad_core_test PRIVATE src)
 add_test(NAME pad_core COMMAND pad_core_test)
+
+# Title-screen Controls panel: model, touch zones, controls.txt rewrite, render smoke test.
+add_executable(controls_editor_test tests/pad/controls_editor_test.cpp)
+target_include_directories(controls_editor_test PRIVATE src third_party/winx86/src)
+add_test(NAME controls_editor COMMAND controls_editor_test)

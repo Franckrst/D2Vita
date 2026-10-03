@@ -220,14 +220,38 @@ Le rendu du clavier virtuel lui-même (police, disposition) vient du moteur
 générique winx86 (`src/platform/vita_kb.h`/`vita_kb_font.h`). Le
 déclenchement, lui, est spécifique à d2vita : R + Triangle.
 
-## Panneau d'aide aux contrôles (écran-titre)
+## Panneau Controls (écran-titre)
 
 Un petit onglet « Controls » se trouve dans la bande gauche de
-l'écran-titre. Tap ou clic dessus ouvre un panneau plein écran listant
-tous les bindings **réellement en vigueur** (défauts + ce que
-`controls.txt` a changé) — D-pad ou glisser pour défiler, Rond/Start pour
-fermer. Il relit `controls.txt` plutôt que de répéter cette page : il ne
-peut donc jamais être en décalage avec votre propre fichier.
+l'écran-titre. Un tap dessus ouvre un éditeur plein écran à deux onglets :
+
+- **Buttons** — une grille de tous les boutons (L, R, Select, boutons de
+  face, croix directionnelle, Start) par couche : seul, avec R maintenu,
+  avec L maintenu. Chaque case est l'action déclenchée. Les trois
+  combinaisons fixes (R+Select = Espace, R+Triangle = clavier,
+  L+Start = capture) sont grisées.
+- **Tuning** — cône de visée, portée monstres et objets, hauteur de
+  survol, bande HUD, marqueur de visée, vitesse du curseur, zone morte et
+  anneaux de marche, avec défaut et plage.
+
+Couleurs : blanc = défaut, or = personnalisé, vert = modifié, pas encore
+enregistré. Les changements s'appliquent tout de suite ; à la fermeture,
+**seul ce que vous avez changé** est écrit dans
+`ux0:data/d2vita/controls.txt` (vos commentaires et vos autres lignes sont
+conservés ; un ancien alias comme `croix=` est remplacé, pas dupliqué).
+
+| Entrée | Effet |
+|---|---|
+| Croix directionnelle | Buttons : se déplacer dans la grille. Tuning : Haut/Bas choisir, Gauche/Droite changer (maintenir = répétition) |
+| Croix / Carré | Action (ou valeur) suivante / précédente, maintenir = répétition |
+| Triangle | Remet l'élément sélectionné à son défaut |
+| L / R | Changer d'onglet |
+| Rond / Start | Enregistrer et fermer |
+| Tactile | Tap sur une case = la sélectionner, second tap = la faire tourner ; les bouts `<` `>` d'une case la font avancer (maintenir = répétition) ; tap sur un onglet ou sur les boutons du bas |
+
+Lier `aim` à un bouton alors qu'aucun ne l'était au lancement demande de
+relancer le jeu (les crochets de visée sont armés au démarrage) ; le
+panneau le signale.
 
 ## Remappage sans rebuild
 

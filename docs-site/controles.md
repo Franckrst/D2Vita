@@ -215,14 +215,35 @@ The virtual keyboard's own rendering (font, layout) comes from the generic
 winx86 engine (`src/platform/vita_kb.h`/`vita_kb_font.h`). The trigger is
 d2vita-specific: R + Triangle.
 
-## Controls-help overlay (title screen)
+## Controls panel (title screen)
 
 A small "Controls" tab sits in the left letterbox band of the title
-screen. Tap or click it to open a full-screen panel listing every
-binding **as currently in effect** (defaults plus whatever
-`controls.txt` changed) — D-pad or drag to scroll, Circle/Start to
-close. It reads `controls.txt` back rather than repeating this page, so
-it never goes stale relative to your own file.
+screen. Tap it to open a full-screen editor with two tabs:
+
+- **Buttons** — a grid of every button (L, R, Select, face buttons, D-pad,
+  Start) by layer: plain, with R held, with L held. Each cell is the action
+  that combination fires. The three fixed ones (R+Select = Space,
+  R+Triangle = keyboard, L+Start = screenshot) are shown greyed out.
+- **Tuning** — the aim cone, monster and object reach, hover height, HUD
+  band, aim marker, cursor speed, deadzone and walk-ring sizes, each with
+  its default and range.
+
+Colours: white = default, gold = customised, green = changed and not saved
+yet. Changes apply at once; closing the panel writes **only what you
+changed** into `ux0:data/d2vita/controls.txt` (your comments and other
+lines are kept; an old alias such as `croix=` is replaced, not duplicated).
+
+| Input | Effect |
+|---|---|
+| D-pad | Buttons: move in the grid. Tuning: Up/Down pick, Left/Right change (hold to repeat) |
+| Cross / Square | Next / previous action (or value +/−), hold to repeat |
+| Triangle | Put the focused item back to its default |
+| L / R | Switch tab |
+| Circle / Start | Save and close |
+| Touch | Tap a cell to focus it, tap again to cycle; the `<` `>` ends of a cell step it (hold to repeat); tap a tab or the footer buttons |
+
+Binding `aim` to a button when none was bound at launch needs a restart of
+the game (the aim hooks are armed at boot); the panel says so.
 
 ## Remapping without a rebuild
 

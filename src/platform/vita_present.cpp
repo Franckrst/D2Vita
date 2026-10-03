@@ -33,6 +33,7 @@ extern "C" int d2_tlswrap_dump(char*, unsigned);
 #include <cstdlib>
 #include <cstring>
 #include <cstdio>
+#include <string>
 #include <psp2/display.h>
 #include <psp2/kernel/sysmem.h>
 #include <psp2/kernel/processmgr.h>
@@ -241,15 +242,7 @@ uint32_t g_kb_last_focus = 0;         // ouverture auto du clavier : dernier foc
 // this overlay and are defined ABOVE the anonymous namespace that holds
 // g_ctl_prev/g_btn[], so declaring it there would leave those two draw
 // sites referencing it before its declaration.
-d2ch::State g_ch;
-char g_ch_labels[64][64];
-// d2ch::draw() takes one array of row pointers (const char* const*), not a
-// 2D char array -- char[64][64] does NOT convert to that (different memory
-// layout: one is a flat block of bytes, the other an array of pointers).
-// This is populated to mirror g_ch_labels right after format_controls_help()
-// fills it, and is what the draw call sites below actually pass.
-const char* g_ch_lines[64];
-int  g_ch_count = 0;
+ced::State g_ch;
 bool d2ch_title_active_cached = false;   // recomputed every ~4 ticks by
                                           // d2vita_input_tick; read by that
                                           // same gate and by the draw calls
@@ -623,7 +616,7 @@ void d2vita_overlay(uint32_t* fb) {
     // draw here; doing so would blend it a second time.
     // Controls-help icon/panel: only ever active on D2's literal title
     // screen (d2ch_title_active_cached, maintained by d2vita_input_tick).
-    if (d2ch_title_active_cached) d2ch::draw(g_ch, fb, SCR_W, SCR_H, g_ch_count ? g_ch_lines : nullptr);
+    if (d2ch_title_active_cached) d2ch::draw(g_ch, fb, SCR_W, SCR_H);
 }
 
 const d2kb::State* d2vita_kb_state() { return g_kb.open ? &g_kb : nullptr; }
@@ -840,7 +833,7 @@ void do_scale_and_flip(const PresentSlot* sfr) {
     // (d2vita_overlay) — this is the GDI/historical presentation path's own
     // copy, needed so the overlay is visible whichever path is actually
     // presenting the title screen.
-    if (d2ch_title_active_cached) d2ch::draw(g_ch, dst, SCR_W, SCR_H, g_ch_count ? g_ch_lines : nullptr);
+    if (d2ch_title_active_cached) d2ch::draw(g_ch, dst, SCR_W, SCR_H);
     SceDisplayFrameBuf fb;
     std::memset(&fb, 0, sizeof fb);
     fb.size        = sizeof fb;
@@ -2130,77 +2123,105 @@ void load_controls_txt(){
     else       snprintf(m,sizeof m,"input: controls.txt applique (%d entrees)",n);
     d2vita_progress(m);
 }
-// Human-readable label for one Act, for the controls-help panel. Mirrors the
-// vk-code choices already made in g_btn[]'s own comments (line 1576+).
-const char* act_label(const Act& a) {
-    if (a.kind == A_NONE) return "-";
-    if (a.kind == A_LMB)  return "Left click";
-    if (a.kind == A_RMB)  return "Right click";
-    if (a.kind == A_ITEMS) return "Item assist (D-pad/Cross)";
-    if (a.kind == A_AIM)  return "Aim assist (hold)";
-    switch (a.vk) {
-        case 0x52: return "R (walk/run)";
-        case 0x10: return "Shift";
-        case 0x12: return "Alt";
-        case 0x57: return "W (weapon swap)";
-        case 0x31: return "Potion 1"; case 0x32: return "Potion 2";
-        case 0x33: return "Potion 3"; case 0x34: return "Potion 4";
-        case 0x70: return "F1"; case 0x71: return "F2";
-        case 0x72: return "F3"; case 0x73: return "F4";
-        case 0x74: return "F5"; case 0x75: return "F6";
-        case 0x76: return "F7"; case 0x77: return "F8";
-        case 0x1B: return "Escape";
-        case 0x20: return "Space";
-        case 0x09: return "Tab / Automap";
-        case 0x49: return "Inventory";
-        case 0x43: return "Character";
-        case 0x54: return "Skills";
-        case 0x51: return "Quests";
-        case 0x0D: return "Enter";
-        default:   return "?";
-    }
+// ---- Controls panel (title screen): ced::Settings <-> the live globals -----
+// Row order of ced::row_def(): L, R, Select, then the g_btn[] buttons.
+uint32_t ch_row_bit(int r){ return ctl::button_bit(ced::row_def(r).key); }
+double ch_tune_get(const char* k){
+    if (!strcmp(k,"cone"))          return g_padcfg.coneDeg;
+    if (!strcmp(k,"hostile_reach")) return g_padcfg.hostileReach;
+    if (!strcmp(k,"reach"))         return g_padcfg.reach;
+    if (!strcmp(k,"hover_h"))       return g_padcfg.hoverH;
+    if (!strcmp(k,"hud_h"))         return g_padcfg.hudH;
+    if (!strcmp(k,"diamond"))       return g_diamond ? 1.0 : 0.0;
+    if (!strcmp(k,"sens"))          return g_sens;
+    if (!strcmp(k,"deadzone"))      return g_dz;
+    if (!strcmp(k,"orbit_min"))     return g_padcfg.orbitMin;
+    if (!strcmp(k,"orbit_max"))     return g_padcfg.orbitMax;
+    if (!strcmp(k,"orbit"))         return g_orbit;
+    if (!strcmp(k,"anchor_y"))      return g_anchor_y_pm;
+    return 0.0;
 }
-const char* bit_label(uint32_t bit) {
-    if (bit == B_CROSS)  return "Cross";
-    if (bit == B_CIR)    return "Circle";
-    if (bit == B_SQR)    return "Square";
-    if (bit == B_TRI)    return "Triangle";
-    if (bit == B_UP)     return "D-pad Up";
-    if (bit == B_DOWN)   return "D-pad Down";
-    if (bit == B_LEFT)   return "D-pad Left";
-    if (bit == B_RIGHT)  return "D-pad Right";
-    if (bit == B_START)  return "Start";
-    return "?";
+void ch_tune_set(const char* k, double v){
+    if      (!strcmp(k,"cone"))          g_padcfg.coneDeg=(float)v;
+    else if (!strcmp(k,"hostile_reach")) g_padcfg.hostileReach=(int)v;
+    else if (!strcmp(k,"reach"))         g_padcfg.reach=(int)v;
+    else if (!strcmp(k,"hover_h"))       g_padcfg.hoverH=(int)v;
+    else if (!strcmp(k,"hud_h"))         g_padcfg.hudH=(int)v;
+    else if (!strcmp(k,"diamond"))       g_diamond = v != 0.0;
+    else if (!strcmp(k,"sens"))          g_sens=(float)v;
+    else if (!strcmp(k,"deadzone"))      g_dz=(float)v;
+    else if (!strcmp(k,"orbit_min"))     g_padcfg.orbitMin=(int)v;
+    else if (!strcmp(k,"orbit_max"))     g_padcfg.orbitMax=(int)v;
+    else if (!strcmp(k,"orbit"))         g_orbit=(int)v;
+    else if (!strcmp(k,"anchor_y"))      g_anchor_y_pm=(int)v;
 }
-// Fills `out[i]` with up to `max` "<button>: <action>" lines: every g_btn[]
-// entry with a bound base action, its R+ layer if bound, then the fixed set
-// that is NOT remappable via controls.txt (kept in sync here, by hand, on
-// purpose — see design doc section 4: these six never move).
-int format_controls_help(char out[][64], int max) {
-    int n = 0;
-    if (n < max) snprintf(out[n++], 64, "L: %s", act_label(g_l_act));
-    if (n < max) snprintf(out[n++], 64, "R: %s", act_label(g_r_act));
-    if (n < max) snprintf(out[n++], 64, "Select: %s",
-        g_select_act.kind == A_NONE ? "Radial menu" : act_label(g_select_act));
-    for (const BtnMap& m : g_btn) {
-        if (n >= max) break;
-        if (m.base.kind != A_NONE)
-            snprintf(out[n++], 64, "%s: %s", bit_label(m.bit), act_label(m.base));
-        if (n < max && m.layer.kind != A_NONE)
-            snprintf(out[n++], 64, "R+%s: %s", bit_label(m.bit), act_label(m.layer));
-        if (n < max && m.llayer.kind != A_NONE)
-            snprintf(out[n++], 64, "L+%s: %s", bit_label(m.bit), act_label(m.llayer));
+void ch_gather(ced::Settings& o){
+    memset(&o,0,sizeof o);
+    o.b[0][0]={g_l_act.kind,g_l_act.vk}; o.b[1][0]={g_r_act.kind,g_r_act.vk}; o.b[2][0]={g_select_act.kind,g_select_act.vk};
+    for (int r=3;r<ced::NROW;++r)
+        for (const BtnMap& m : g_btn) if (m.bit==ch_row_bit(r)) {
+            o.b[r][ced::S_PLAIN]={m.base.kind,m.base.vk};
+            o.b[r][ced::S_R]={m.layer.kind,m.layer.vk};
+            o.b[r][ced::S_L]={m.llayer.kind,m.llayer.vk};
+        }
+    for (int i=0;i<ced::NTUNE;++i) if (ced::tune(i).type!=ced::T_HEAD) o.v[i]=ch_tune_get(ced::tune(i).key);
+}
+void ch_apply(const ced::Settings& s){
+    g_l_act={s.b[0][0].kind,s.b[0][0].vk}; g_r_act={s.b[1][0].kind,s.b[1][0].vk};
+    g_select_act={s.b[2][0].kind,s.b[2][0].vk};
+    for (int r=3;r<ced::NROW;++r)
+        for (BtnMap& m : g_btn) if (m.bit==ch_row_bit(r)) {
+            if (!ced::cell_lock(r,ced::S_PLAIN)) m.base={s.b[r][ced::S_PLAIN].kind,s.b[r][ced::S_PLAIN].vk};
+            if (!ced::cell_lock(r,ced::S_R))     m.layer={s.b[r][ced::S_R].kind,s.b[r][ced::S_R].vk};
+            if (!ced::cell_lock(r,ced::S_L))     m.llayer={s.b[r][ced::S_L].kind,s.b[r][ced::S_L].vk};
+        }
+    for (int i=0;i<ced::NTUNE;++i) if (ced::tune(i).type!=ced::T_HEAD) ch_tune_set(ced::tune(i).key,s.v[i]);
+    g_padcfg.deadzone=g_dz; g_padcfg.sens=g_sens;
+    // The assist copies its Config when built: drop it so the next game rebuilds it.
+    // (On the title screen it is never active; if it somehow is, leave it alone.)
+    if (g_assist && !g_assist_active) { delete g_assist; g_assist=nullptr; }
+    g_aim_bound = ced::aim_bound(s) && padst::on();
+}
+ced::Settings g_ch_def;      // the built-in defaults, captured before controls.txt is read
+void ch_open(){
+    ced::State& s = g_ch;
+    ced::init(s);
+    ch_gather(s.cur);
+    s.base = s.cur; s.def = g_ch_def;
+    s.open = 1;
+}
+bool ch_write_file(const std::string& text){
+    const char* path = "ux0:data/d2vita/controls.txt";
+    const char* tmp  = "ux0:data/d2vita/controls.txt.tmp";
+    if (FILE* f = fopen(tmp,"wb")) {
+        const bool ok = fwrite(text.data(),1,text.size(),f)==text.size();
+        const bool cl = fclose(f)==0;
+        if (ok && cl && rename(tmp,path)==0) return true;
+        remove(tmp);
     }
-    static const char* const kFixed[] = {
-        "R+Select: Space",
-        "R+Triangle: Virtual keyboard",
-        "L+Start: Screenshot",
-    };
-    for (const char* f : kFixed) {
-        if (n >= max) break;
-        snprintf(out[n++], 64, "%s", f);
+    // rename can refuse to replace an existing file on this FS: write in place instead.
+    FILE* f = fopen(path,"wb");
+    if (!f) return false;
+    const bool ok = fwrite(text.data(),1,text.size(),f)==text.size();
+    return fclose(f)==0 && ok;
+}
+// Closing: write only what changed back into controls.txt, comments intact.
+void ch_save_and_close(){
+    ced::State& s = g_ch;
+    ced::KV kv[64]; const int n = ced::diff(s, kv, 64);
+    if (n > 0) {
+        std::string in;
+        if (FILE* f = fopen("ux0:data/d2vita/controls.txt","rb")) {
+            char buf[1024]; size_t r;
+            while ((r=fread(buf,1,sizeof buf,f))>0) in.append(buf,r);
+            fclose(f);
+        }
+        char m[96];
+        if (ch_write_file(ced::merge(in, kv, n))) snprintf(m,sizeof m,"input: panneau controles enregistre (%d reglages)",n);
+        else snprintf(m,sizeof m,"input: panneau controles: ecriture de controls.txt impossible");
+        d2vita_progress(m);
     }
-    return n;
+    s.open = 0;
 }
 void lmb_update(){
     bool want = g_lmb_stick || g_lmb_btn || g_ia_lmb || g_aim_lmb || g_aim_menu_lmb;
@@ -2374,6 +2395,7 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
         g_ctl_init=true;
         sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
         sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
+        ch_gather(g_ch_def);   // the panel's "default" column: before the file overrides anything
         load_controls_txt();
         g_padcfg.deadzone = g_dz; g_padcfg.sens = g_sens;
         d2vita_progress(g_aim_bound ? "input: aim assist actif (sticks en mode vise)" : "input: clic simple (aucune action aim liee)");
@@ -2612,24 +2634,53 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
               ch_ty = cht.report[0].y*SCR_H/1088;
           } }
 
+        // A touch that closed the panel (or began on it) stays ours until the finger
+        // lifts: otherwise the next tick would hand it to D2 as a click on the
+        // title button that happens to sit under the Save button.
+        static bool ch_latch=false, ch_prev_touch=false; static int ch_rep_key=-2;
+        if (ch_latch) { if (!ch_touched) ch_latch=false; ch_prev_touch=ch_touched; return; }
+
         if (g_ch.open) {
-            // Panel open: D-pad scroll, Circle/Start close, and this
-            // frame's touch (if any) drives drag-scroll instead of the D2
-            // cursor. Unconditionally consumed below: nothing reaches D2.
-            ch_tap_at = -1;   // any pending closed-panel tap tracking is now moot
-            auto ch_edge=[&](uint32_t bit){ return (b&bit)&&!(was&bit); };
-            if (ch_edge(B_UP))   d2ch::scroll_dpad(g_ch, -1);
-            if (ch_edge(B_DOWN)) d2ch::scroll_dpad(g_ch, +1);
-            if (ch_edge(B_CIR) || ch_edge(B_START)) d2ch::close(g_ch);
+            // Panel open: pad and touch drive the editor; nothing reaches D2.
+            ch_tap_at = -1;
+            const int hz = g_in_hz > 0 ? g_in_hz : 30;
+            const int rep_delay = hz*2/5 > 1 ? hz*2/5 : 1, rep_period = hz/10 > 1 ? hz/10 : 1;
+            static int ch_rep_n=0; static ced::Zone ch_zone={ced::Z_NONE,0,0,0};
+            auto edge=[&](uint32_t bit){ return (b&bit)&&!(was&bit); };
+            auto held_key=[&]()->int{
+                if (b&B_UP) return ced::K_UP;      if (b&B_DOWN) return ced::K_DOWN;
+                if (b&B_LEFT) return ced::K_LEFT;  if (b&B_RIGHT) return ced::K_RIGHT;
+                if (b&B_CROSS) return ced::K_NEXT; if (b&B_SQR) return ced::K_PREV;
+                return -1; };
+            ced::Res res = ced::R_NONE;
+            auto fold=[&](ced::Res r){ if (r > res) res = r; };
+            if (ch_rep_key == -2) ch_rep_key = held_key();     // just opened: a key already held does not fire
+            const int hk = held_key();
+            if (hk != ch_rep_key) { ch_rep_key = hk; ch_rep_n = 0; if (hk >= 0) fold(ced::press(g_ch,(ced::Key)hk)); }
+            else if (hk >= 0 && ++ch_rep_n >= rep_delay && (ch_rep_n-rep_delay) % rep_period == 0) fold(ced::press(g_ch,(ced::Key)hk));
+            if (edge(B_TRI))   fold(ced::press(g_ch, ced::K_DEFAULT));
+            if (edge(B_L))     fold(ced::press(g_ch, ced::K_TAB_L));
+            if (edge(B_R))     fold(ced::press(g_ch, ced::K_TAB_R));
+            if (edge(B_CIR) || edge(B_START)) fold(ced::R_CLOSE);
             if (ch_touched) {
-                if (ch_drag_have_prev) d2ch::scroll_drag(g_ch, ch_ty - ch_drag_prev_y);
-                ch_drag_prev_y = ch_ty; ch_drag_have_prev = true;
-            } else {
-                ch_drag_have_prev = false;
+                if (!ch_prev_touch) {
+                    ch_zone = ced::hit(g_ch, ch_tx, ch_ty); ch_rep_n = 0;
+                    fold(ced::touch(g_ch, ch_zone));
+                } else if (ced::repeats(ch_zone) && ++ch_rep_n >= rep_delay && (ch_rep_n-rep_delay) % rep_period == 0) {
+                    fold(ced::touch(g_ch, ch_zone));
+                }
+            } else ch_zone = ced::Zone{ced::Z_NONE,0,0,0};
+            ch_prev_touch = ch_touched;
+            if (res == ced::R_CHANGED) {
+                ch_apply(g_ch.cur);
+                if (ced::aim_bound(g_ch.cur) && !padst::on())
+                    snprintf(g_ch.note, sizeof g_ch.note, "Aim assist is armed at launch: restart the game for it to take effect.");
+                else g_ch.note[0] = 0;
             }
+            if (res == ced::R_CLOSE) { ch_save_and_close(); ch_latch = ch_touched; ch_rep_key = -2; }
             return;   // consumed: nothing this frame reaches D2's own input path
         }
-        ch_drag_have_prev = false;   // panel not open: no drag state to keep
+        ch_prev_touch = ch_touched;
 
         // Panel closed: a touch gesture is "claimed" by d2ch (and from then
         // on never reaches D2) only if it BEGAN inside the icon band --
@@ -2651,16 +2702,7 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
             const bool claimed   = ch_tap_claimed;
             ch_tap_at = -1;
             if (claimed) {
-                if (tap_short) {
-                    d2ch::tap(g_ch, ch_tap_x0, ch_tap_y0);
-                    if (g_ch.open) {
-                        g_ch_count = format_controls_help(g_ch_labels, 64);
-                        for (int i = 0; i < g_ch_count; ++i) g_ch_lines[i] = g_ch_labels[i];
-                        g_ch.row_count = g_ch_count;
-                        g_ch.visible_rows = 20;   // tuned on-device in Task 8
-                        g_ch.row_px = d2ch::DEFAULT_ROW_PX;   // matches text() glyph height in draw(); see final-review Bug 1
-                    }
-                }
+                if (tap_short && d2ch::icon_hit(ch_tap_x0, ch_tap_y0)) { ch_open(); ch_rep_key = -2; }
                 return;   // consumed: this release belonged to a claimed touch
             }
             // not claimed: fall through, D2's own release-tap-click logic

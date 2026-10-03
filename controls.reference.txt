@@ -23,7 +23,8 @@
 #
 # A number outside its range is refused and reported in boot_progress.txt:
 #   orbit 10..400, sens 1..100, deadzone 0..0.9, anchor_y 100..900, orbit_min/
-#   orbit_max 5..400, cone 5..90, hover_h 0..150, hud_h 0..300, reach 50..2000
+#   orbit_max 5..400, cone 5..90, hover_h 0..150, hud_h 0..300, reach 50..2000,
+#   hostile_reach 100..2000
 #   (orbit=1000 from older builds is NOT valid: it breaks the walking).
 
 # ---------------------------------------------------------------------------
@@ -123,4 +124,5 @@
 #hover_h=28        # default hover height above a unit's feet, px
 #hud_h=60          # bottom band assisted clicks never enter, px
 #reach=300         # reach for chests/doors/NPCs, world units
+#hostile_reach=800 # reach for monsters, world units (closest to the cone axis wins)
 # ---------------------------------------------------------------------------

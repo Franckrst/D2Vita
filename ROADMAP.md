@@ -333,6 +333,18 @@ the source of truth for the public repository.
       while the cursor is idle — a cursor pointed somewhere is an intent of
       its own. **Validation: host tests (244 passed, ASan/UBSan) and a
       pad::Assist fuzz (0 bad of 2000); never run on a console.**
+- [ ] **Title-screen Controls panel is now an editor (unreleased, 2026-10-03)**:
+      the read-only help overlay became an opaque two-tab panel (Buttons
+      grid by layer; Tuning list incl. `cone`, `hostile_reach`, `reach`,
+      `sens`, `deadzone`, walk rings) with defaults shown, finger-sized
+      touch zones, D-pad/Cross editing with hold-repeat, live apply, and
+      save-on-close that rewrites only the changed lines of `controls.txt`
+      (`src/platform/controls_editor.h` model, `controls_help.h` drawing,
+      glue in `vita_present.cpp`). Validated at host level only: 722 checks
+      (ASan/UBSan, `tools/oracle_controls_help.sh`, CMake `controls_editor`),
+      a host render of both tabs, and the Vita VPK builds and links. **Not
+      run on Vita3K, qemu or console**: touch feel, hold-repeat timing and
+      legibility on the real screen have no device evidence yet.
 - [ ] **Aim assist: monster target = closest to the cone axis, `hostile_reach`
       (unreleased, 2026-10-03)**: with a cursor direction, `aim` takes the
       monster nearest the axis inside the cone (score = angle, distance only
