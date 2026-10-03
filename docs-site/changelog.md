@@ -4,6 +4,21 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.22-beta — 2026-10-03
+
+- **The Controls panel on the title screen is now an editor.** Reassign any
+  button (plain, with R held, with L held) and tune the aim cone, reach,
+  cursor speed, deadzone and walk rings, by touch or with the D-pad and
+  Cross. Changes apply at once; closing the panel saves only what you
+  changed into `controls.txt`, comments kept. Binding `aim` when it was not
+  bound at launch needs a game restart. Host tests and a host render only:
+  not yet tried on console.
+- **The aim button targets the monster closest to the centre of the cone**,
+  never one outside it, with a longer reach that you can set
+  (`hostile_reach`, default 800, 100–2000). Not tested on console yet.
+- **With no target, the aim button now does a plain left click at the
+  cursor** instead of nothing. Not tested on console yet.
+
 ## v0.1.21-beta — 2026-10-02
 
 - **Menus no longer cropped after a game played at 640×480.** The main

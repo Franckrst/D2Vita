@@ -5,6 +5,22 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.1.22-beta — 2026-10-03
+
+- **Le panneau Controls de l'écran-titre est devenu un éditeur.** Réaffectez
+  n'importe quel bouton (seul, avec R, avec L) et réglez le cône de visée,
+  la portée, la vitesse du curseur, la zone morte et les anneaux de marche,
+  au tactile ou à la croix directionnelle + Croix. Les changements
+  s'appliquent tout de suite ; à la fermeture, seul ce que vous avez changé
+  est enregistré dans `controls.txt`, commentaires conservés. Lier `aim`
+  alors qu'il ne l'était pas au lancement demande de relancer le jeu.
+  Tests hôte et rendu hôte seulement : pas encore essayé sur console.
+- **Le bouton de visée prend le monstre le plus proche du centre du cône**,
+  jamais un monstre hors du cône, avec une portée plus longue et réglable
+  (`hostile_reach`, défaut 800, 100–2000). Pas encore testé sur console.
+- **Sans cible, le bouton de visée fait maintenant un clic gauche au
+  curseur** au lieu de ne rien faire. Pas encore testé sur console.
+
 ## v0.1.21-beta — 2026-10-02
 
 - **Les menus ne sont plus rognés après une partie en 640×480.** Le menu
