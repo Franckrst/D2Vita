@@ -5,6 +5,42 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.2.0 — 2026-10-03
+
+Première version de la ligne 0.2 : le nouveau schéma manette et la visée
+assistée ne sont plus expérimentaux. Ce qui suit est la somme des bêtas
+0.1.14–0.1.22 depuis la dernière version stable (0.1.13) ; le détail est
+dans l'entrée de chaque bêta.
+
+- **Un nouveau schéma manette avec visée assistée.** Le stick droit est un
+  curseur libre ; L (le bouton de visée) va vers la meilleure cible et
+  l'attaque — monstre le plus proche du centre du cône, objet, item, sortie
+  de niveau ou votre cadavre — et fait un simple clic gauche quand il n'y en
+  a pas. Carré maintenu + L ramasse l'item en surbrillance. Remappable, avec
+  une couche `l+`.
+- **Le panneau Controls de l'écran-titre est un éditeur.** Réaffectez
+  n'importe quel bouton (seul, avec R, avec L) et réglez le cône de visée,
+  la portée monstres et objets (`hostile_reach`), la vitesse du curseur, la
+  zone morte et les anneaux de marche au tactile ou à la croix ; à la
+  fermeture, seul ce que vous avez changé est enregistré dans
+  `controls.txt`.
+- **`controls.txt` plus accueillant :** une copie de référence entièrement
+  commentée est livrée dans le VPK, une ligne invalide est signalée dans
+  `boot_progress.txt`, les nombres hors plage sont refusés, `diamond=off`
+  masque le marqueur de visée.
+- **Corrections d'affichage :** panneaux inventaire, coffre et personnage
+  centrés par défaut, ceintures multi-lignes qui ne scintillent plus, menus
+  plus rognés après une partie en 640×480, décalage tactile corrigé en jeu.
+- **Deux options solo facultatives** (désactivées par défaut) — voir
+  v0.1.17-beta.
+
+Validation : la logique manette et le panneau sont couverts par des tests
+hôte (ASan / UBSan) et le runtime par les portes de démarrage qemu-arm ; la
+visée assistée a été confirmée sur console dans la Tanière du Mal
+seulement, et l'éditeur Controls, le ciblage au cône et le clic
+sans cible n'ont **pas** encore été lancés sur console. Vos retours sont les
+bienvenus.
+
 ## v0.1.22-beta — 2026-10-03
 
 - **Le panneau Controls de l'écran-titre est devenu un éditeur.** Réaffectez

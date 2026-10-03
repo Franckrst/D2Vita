@@ -4,6 +4,36 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.2.0 — 2026-10-03
+
+First release of the 0.2 line: the new controller scheme and the aim assist
+are no longer experimental. Everything below is the sum of the 0.1.14–0.1.22
+betas since the last stable release (0.1.13); the details are in each beta's
+entry.
+
+- **A new controller scheme with an aim assist.** The right stick is a free
+  cursor; L (the aim button) walks to and attacks the best target — monster
+  nearest the centre of the aim cone, object, item, level exit or your
+  corpse — and does a plain left click when there is none. Hold Square and
+  press L to pick up the highlighted item. Remappable, with an `l+` layer.
+- **The Controls panel on the title screen is an editor.** Reassign any
+  button (plain, with R, with L) and tune the aim cone, monster and object
+  reach (`hostile_reach`), cursor speed, deadzone and walk rings by touch or
+  D-pad; closing it saves only what you changed into `controls.txt`.
+- **`controls.txt` is friendlier:** a fully-commented reference copy ships
+  in the VPK, a bad line is named in `boot_progress.txt`, out-of-range
+  numbers are refused, `diamond=off` hides the aim marker.
+- **Display fixes:** inventory, stash and character panels centered by
+  default, multi-row belts no longer flicker, menus no longer cropped after
+  a game played at 640×480, touch offset fixed in game.
+- **Two optional single-player options** (off by default) — see v0.1.17-beta.
+
+Validation: the pad logic and the panel are covered by host tests (ASan /
+UBSan) and the runtime by the qemu-arm boot gates; the aim assist was
+confirmed on console in the Den of Evil only, and the Controls
+editor, the cone targeting and the no-target click have **not** been run on
+console yet. Feedback welcome.
+
 ## v0.1.22-beta — 2026-10-03
 
 - **The Controls panel on the title screen is now an editor.** Reassign any
