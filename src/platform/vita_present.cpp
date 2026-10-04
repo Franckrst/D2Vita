@@ -2183,21 +2183,34 @@ void ch_apply(const ced::Settings& s){
     g_aim_bound = ced::aim_bound(s) && padst::on();
 }
 ced::Settings g_ch_def;      // the built-in defaults, captured before controls.txt is read
+std::string ch_read_file(const char* path){
+    std::string in;
+    if (FILE* f = fopen(path,"rb")) {
+        char buf[1024]; size_t r;
+        while ((r=fread(buf,1,sizeof buf,f))>0) in.append(buf,r);
+        fclose(f);
+    }
+    return in;
+}
+const char* const CH_CONTROLS_PATH = "ux0:data/d2vita/controls.txt";
+const char* const CH_ENV_PATH      = "ux0:data/d2vita/env.txt";
 void ch_open(){
     ced::State& s = g_ch;
     ced::init(s);
     ch_gather(s.cur);
-    s.base = s.cur; s.def = g_ch_def;
+    s.def = g_ch_def;
+    ced::env_defaults(s.cur); ced::env_defaults(s.def);
+    ced::env_parse(ch_read_file(CH_ENV_PATH), s.cur);   // env.txt's own text: it is only read at boot
+    s.base = s.cur;
     s.open = 1;
 }
-bool ch_write_file(const std::string& text){
-    const char* path = "ux0:data/d2vita/controls.txt";
-    const char* tmp  = "ux0:data/d2vita/controls.txt.tmp";
-    if (FILE* f = fopen(tmp,"wb")) {
+bool ch_write_file(const char* path, const std::string& text){
+    const std::string tmp = std::string(path) + ".tmp";
+    if (FILE* f = fopen(tmp.c_str(),"wb")) {
         const bool ok = fwrite(text.data(),1,text.size(),f)==text.size();
         const bool cl = fclose(f)==0;
-        if (ok && cl && rename(tmp,path)==0) return true;
-        remove(tmp);
+        if (ok && cl && rename(tmp.c_str(),path)==0) return true;
+        remove(tmp.c_str());
     }
     // rename can refuse to replace an existing file on this FS: write in place instead.
     FILE* f = fopen(path,"wb");
@@ -2205,20 +2218,20 @@ bool ch_write_file(const std::string& text){
     const bool ok = fwrite(text.data(),1,text.size(),f)==text.size();
     return fclose(f)==0 && ok;
 }
-// Closing: write only what changed back into controls.txt, comments intact.
+// Closing: write only what changed back into controls.txt and env.txt, comments intact.
 void ch_save_and_close(){
     ced::State& s = g_ch;
+    char m[96];
     ced::KV kv[64]; const int n = ced::diff(s, kv, 64);
     if (n > 0) {
-        std::string in;
-        if (FILE* f = fopen("ux0:data/d2vita/controls.txt","rb")) {
-            char buf[1024]; size_t r;
-            while ((r=fread(buf,1,sizeof buf,f))>0) in.append(buf,r);
-            fclose(f);
-        }
-        char m[96];
-        if (ch_write_file(ced::merge(in, kv, n))) snprintf(m,sizeof m,"input: panneau controles enregistre (%d reglages)",n);
-        else snprintf(m,sizeof m,"input: panneau controles: ecriture de controls.txt impossible");
+        if (ch_write_file(CH_CONTROLS_PATH, ced::merge(ch_read_file(CH_CONTROLS_PATH), kv, n))) snprintf(m,sizeof m,"input: panneau reglages enregistre (%d reglages)",n);
+        else snprintf(m,sizeof m,"input: panneau reglages: ecriture de controls.txt impossible");
+        d2vita_progress(m);
+    }
+    ced::KV ev[32]; const int ne = ced::env_diff(s, ev, 32);
+    if (ne > 0) {
+        if (ch_write_file(CH_ENV_PATH, ced::env_merge(ch_read_file(CH_ENV_PATH), ev, ne))) snprintf(m,sizeof m,"input: panneau reglages: env.txt enregistre (%d options)",ne);
+        else snprintf(m,sizeof m,"input: panneau reglages: ecriture de env.txt impossible");
         d2vita_progress(m);
     }
     s.open = 0;
@@ -2675,6 +2688,8 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
                 ch_apply(g_ch.cur);
                 if (ced::aim_bound(g_ch.cur) && !padst::on())
                     snprintf(g_ch.note, sizeof g_ch.note, "Aim assist is armed at launch: restart the game for it to take effect.");
+                else if (ced::env_dirty(g_ch))
+                    snprintf(g_ch.note, sizeof g_ch.note, "Game options take effect the next time the game starts.");
                 else g_ch.note[0] = 0;
             }
             if (res == ced::R_CLOSE) { ch_save_and_close(); ch_latch = ch_touched; ch_rep_key = -2; }

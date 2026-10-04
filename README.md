@@ -134,7 +134,8 @@ On Vita, the boot diagnostic screen tells you what is missing from `ux0:data/d2v
 
 Remappable without a rebuild via `ux0:data/d2vita/controls.txt` — a fully
 commented reference copy is seeded there on first boot. A title-screen
-"Controls" tab (left letterbox band) shows the bindings actually in effect.
+"Settings" tab (left letterbox band) edits the bindings and the aim tuning, and
+the functional game options kept in `env.txt` (resolution, sound, keyboard...).
 Full detail: [Controller and keyboard](https://franckrst.github.io/D2Vita/controles/).
 
 ## Reference D2 binaries

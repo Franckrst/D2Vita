@@ -333,6 +333,21 @@ the source of truth for the public repository.
       while the cursor is idle — a cursor pointed somewhere is an intent of
       its own. **Validation: host tests (244 passed, ASan/UBSan) and a
       pad::Assist fuzz (0 bad of 2000); never run on a console.**
+- [ ] **Settings panel gets a "Game" tab for `env.txt` (unreleased, 2026-10-04)**:
+      the title-screen panel (icon renamed "Settings") has a third tab with
+      the functional options only: `D2_RES`, `D2_RES640`, `D2_ASPECT`,
+      `D2_HUDFILL`, `D2_RUNEWORDS_LADDER`, `D2_RESPEC_UNLIMITED`, `D2_SON`,
+      `D2_KBAUTO`, `D2_KBALPHA`, `D2_LOCAL_ONLY` (no perf/debug variable).
+      The current state is read from `env.txt`'s own text, mirroring the
+      boot loader (no trimming, no trailing comments, last line wins); on
+      close only changed options are written (back to default = the line is
+      removed), every other line untouched. `env.txt` is read at boot, so
+      all of it applies at the next launch. Validated at host level only:
+      1323 checks (ASan/UBSan, `tools/oracle_controls_help.sh`), including
+      a save/re-open round trip for every option, and the Vita VPK builds
+      and links. **Not run on Vita3K, qemu or console**: the `env.txt`
+      write on the device, and each option's effect at the next boot, have
+      no device evidence yet.
 - [ ] **Title-screen Controls panel is now an editor (unreleased, 2026-10-03)**:
       the read-only help overlay became an opaque two-tab panel (Buttons
       grid by layer; Tuning list incl. `cone`, `hostile_reach`, `reach`,

@@ -80,7 +80,7 @@ inline void draw_icon(uint32_t* fb, int W, int H) {
     using namespace draw_detail;
     rect(fb, W, H, ICON_X0, ICON_Y0, ICON_X1 - ICON_X0, ICON_Y1 - ICON_Y0, pal::chip());
     frame(fb, W, H, ICON_X0, ICON_Y0, ICON_X1 - ICON_X0, ICON_Y1 - ICON_Y0, pal::gold());
-    text_c(fb, W, H, "Controls", ICON_X0, ICON_X1 - ICON_X0, ICON_Y0, 1, pal::gold());
+    text_c(fb, W, H, "Settings", ICON_X0, ICON_X1 - ICON_X0, ICON_Y0, 1, pal::gold());
 }
 
 inline uint32_t bind_color(const ced::State& s, int r, int c) {
@@ -117,11 +117,12 @@ inline void draw_buttons_tab(const ced::State& s, uint32_t* fb, int W, int H) {
     }
 }
 
-inline void draw_tune_tab(const ced::State& s, uint32_t* fb, int W, int H) {
+// One list tab: the tuning values (controls.txt) or the game options (env.txt).
+inline void draw_list_tab(const ced::State& s, uint32_t* fb, int W, int H, int first, int count) {
     using namespace draw_detail; using namespace ced::lay;
-    for (int i = 0; i < ced::NTUNE; ++i) {
-        const ced::Tune& t = ced::tune(i);
-        const int y = tune_row_y(i);
+    for (int i = first; i < first + count; ++i) {
+        const ced::Tune& t = ced::item(i);
+        const int y = ced::lay::item_row_y(i);
         if (t.type == ced::T_HEAD) {
             text(fb, W, H, t.label, PAD + 8, y + 5, 1, pal::gold());
             rect(fb, W, H, PAD + 8 + text_w(t.label) + 10, y + 13, W - 2 * PAD - text_w(t.label) - 18, 1, pal::lock());
@@ -150,16 +151,17 @@ inline void draw_panel(const ced::State& s, uint32_t* fb, int W, int H) {
     using namespace draw_detail; using namespace ced::lay;
     rect(fb, W, H, 0, 0, W, H, pal::bg());
     rect(fb, W, H, 0, 0, W, 38, pal::band());
-    text(fb, W, H, "CONTROLS", PAD, 3, 2, pal::gold());
-    const char* path = "ux0:data/d2vita/controls.txt";
+    text(fb, W, H, "SETTINGS", PAD, 3, 2, pal::gold());
+    const char* path = s.tab == ced::TAB_GAME ? "ux0:data/d2vita/env.txt" : "ux0:data/d2vita/controls.txt";
     text(fb, W, H, path, W - PAD - text_w(path), 12, 1, pal::dim());
     rect(fb, W, H, 0, 38, W, 2, pal::gold());
 
-    static const char* const tabs[ced::NTAB] = { "Buttons", "Tuning" };
+    static const char* const tabs[ced::NTAB] = { "Buttons", "Tuning", "Game" };
     for (int i = 0; i < ced::NTAB; ++i) button(fb, W, H, tab_x(i), TAB_Y, TAB_W, TAB_H, tabs[i], s.tab == i);
     text(fb, W, H, "L / R", tab_x(ced::NTAB) + 6, TAB_Y + 6, 1, pal::lock());
 
-    if (s.tab == ced::TAB_BUTTONS) draw_buttons_tab(s, fb, W, H); else draw_tune_tab(s, fb, W, H);
+    if (s.tab == ced::TAB_BUTTONS) draw_buttons_tab(s, fb, W, H);
+    else draw_list_tab(s, fb, W, H, ced::first_item(s.tab), ced::n_items(s.tab));
 
     // The line under the list: what the focused item is, and its default.
     rect(fb, W, H, PAD, HINT_Y - 6, W - 2 * PAD, 1, pal::lock());
@@ -174,12 +176,16 @@ inline void draw_panel(const ced::State& s, uint32_t* fb, int W, int H) {
         else std::snprintf(l1, sizeof l1, "%s: the action this button fires", key);
         std::snprintf(l2, sizeof l2, "Default: %s", s.row == 2 && s.def.b[2][0].kind == ctl::ACT_NONE ? "Radial menu" : d);
     } else {
-        const ced::Tune& t = ced::tune(s.row);
+        const ced::Tune& t = ced::item(s.row);
         std::snprintf(l1, sizeof l1, "%s", t.hint);
         char dv[24], lo[24], hi[24];
         ced::value_text(t, s.def.v[s.row], dv, sizeof dv);
         ced::value_text(t, t.lo, lo, sizeof lo); ced::value_text(t, t.hi, hi, sizeof hi);
-        if (t.type == ced::T_SWITCH) std::snprintf(l2, sizeof l2, "Default: %s", dv);
+        if (s.tab == ced::TAB_GAME && t.type == ced::T_SWITCH)
+            std::snprintf(l2, sizeof l2, "Default: %s   (takes effect at the next launch)", dv);
+        else if (s.tab == ced::TAB_GAME)
+            std::snprintf(l2, sizeof l2, "Default: %s   (range %s to %s, takes effect at the next launch)", dv, lo, hi);
+        else if (t.type == ced::T_SWITCH) std::snprintf(l2, sizeof l2, "Default: %s", dv);
         else std::snprintf(l2, sizeof l2, "Default: %s   (range %s to %s)", dv, lo, hi);
     }
     text(fb, W, H, l1, PAD, HINT_Y, 1, pal::text());

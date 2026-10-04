@@ -220,10 +220,11 @@ Le rendu du clavier virtuel lui-même (police, disposition) vient du moteur
 générique winx86 (`src/platform/vita_kb.h`/`vita_kb_font.h`). Le
 déclenchement, lui, est spécifique à d2vita : R + Triangle.
 
-## Panneau Controls (écran-titre)
+## Panneau Settings (écran-titre)
 
-Un petit onglet « Controls » se trouve dans la bande gauche de
-l'écran-titre. Un tap dessus ouvre un éditeur plein écran à deux onglets :
+Un petit onglet « Settings » (appelé « Controls » jusqu'à la 0.2.0) se
+trouve dans la bande gauche de l'écran-titre. Un tap dessus ouvre un
+éditeur plein écran à trois onglets :
 
 - **Buttons** — une grille de tous les boutons (L, R, Select, boutons de
   face, croix directionnelle, Start) par couche : seul, avec R maintenu,
@@ -233,16 +234,28 @@ l'écran-titre. Un tap dessus ouvre un éditeur plein écran à deux onglets :
 - **Tuning** — cône de visée, portée monstres et objets, hauteur de
   survol, bande HUD, marqueur de visée, vitesse du curseur, zone morte et
   anneaux de marche, avec défaut et plage.
+- **Game** — les réglages fonctionnels qui vivent dans
+  `ux0:data/d2vita/env.txt` : rendu 960×544 natif, zoom 640×480, forme des
+  menus (4:3 ou étirés), remplissage des vides du HUD, les deux options
+  solo (runewords ladder, reset Akara illimité — désactivées, elles
+  s'écartent du jeu d'origine), son, clavier automatique et son opacité,
+  serveurs privés uniquement. Les variables de performance et de debug ne
+  sont volontairement pas proposées. `env.txt` n'est lu qu'au démarrage du
+  jeu : ces changements s'appliquent **au prochain lancement** (le panneau
+  le dit) ; une option remise à son défaut perd simplement sa ligne, et le
+  reste du fichier (dont `D2SCHED=`, `D2WRITE=` et vos propres lignes) est
+  laissé tel quel.
 
 Couleurs : blanc = défaut, or = personnalisé, vert = modifié, pas encore
-enregistré. Les changements s'appliquent tout de suite ; à la fermeture,
-**seul ce que vous avez changé** est écrit dans
+enregistré. Les changements de Buttons et Tuning s'appliquent tout de
+suite ; à la fermeture, **seul ce que vous avez changé** est écrit dans
 `ux0:data/d2vita/controls.txt` (vos commentaires et vos autres lignes sont
-conservés ; un ancien alias comme `croix=` est remplacé, pas dupliqué).
+conservés ; un ancien alias comme `croix=` est remplacé, pas dupliqué), et
+les changements de l'onglet Game dans `env.txt`.
 
 | Entrée | Effet |
 |---|---|
-| Croix directionnelle | Buttons : se déplacer dans la grille. Tuning : Haut/Bas choisir, Gauche/Droite changer (maintenir = répétition) |
+| Croix directionnelle | Buttons : se déplacer dans la grille. Tuning et Game : Haut/Bas choisir, Gauche/Droite changer (maintenir = répétition) |
 | Croix / Carré | Action (ou valeur) suivante / précédente, maintenir = répétition |
 | Triangle | Remet l'élément sélectionné à son défaut |
 | L / R | Changer d'onglet |

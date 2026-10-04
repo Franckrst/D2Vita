@@ -8,6 +8,12 @@
 // vita_kb.h). The numeric ranges are NOT a second copy of the truth: a host
 // test checks every key against ctl::numeric_key(), which stays the single
 // authority the loader enforces.
+//
+// The panel has a third tab, "Game", for the functional switches that live in
+// ux0:data/d2vita/env.txt rather than controls.txt (resolution, sound,
+// single-player options...). env.txt is only read at boot, so those changes
+// apply at the next launch; the model reads the file's own text to show the
+// current state and rewrites only the lines the player changed.
 #pragma once
 #include <cmath>
 #include <cstddef>
@@ -141,9 +147,74 @@ inline const Tune& tune(int i) {
     return T[i];
 }
 
+// ---- the game options tab (env.txt) ---------------------------------------------
+// One row per option, parallel to game(i): how the boot loader reads the
+// value (so the panel shows what the game will do) and what a non-default
+// state writes. A state equal to the default REMOVES the line, so an untouched
+// install keeps no env.txt entry for it.
+enum { E_NONE = 0, E_OFFLIST = 1, E_ONSET = 2, E_INT = 3 };
+struct EnvSem {
+    const char* key;
+    int         kind;
+    const char* offs;     // E_OFFLIST: '|'-separated values that mean "off"; an empty token matches an empty value
+    const char* wr;       // switches: the value that states the non-default
+    double      dflt;     // 1 / 0 for switches, the number for E_INT
+};
+constexpr int NGAME = 14;
+inline const Tune& game(int i) {
+    static const Tune T[NGAME] = {
+        {T_HEAD,   "", "DISPLAY", "", 0, 0, 0, 0},
+        {T_SWITCH, "D2_RES",        "Native 960x544 in game",
+         "Off draws the game at its own 800x600 with side bars. Applies at the next launch.", 0, 1, 1, 0},
+        {T_SWITCH, "D2_RES640",     "640x480 zoomed to screen",
+         "The in-game 640x480 option fills the screen. Off keeps the original bordered 640x480.", 0, 1, 1, 0},
+        {T_SWITCH, "D2_ASPECT",     "Menus keep 4:3 shape",
+         "Off stretches the menus to the full screen width instead of bordering them.", 0, 1, 1, 0},
+        {T_SWITCH, "D2_HUDFILL",    "Fill HUD gaps",
+         "Fills the gaps the 800-wide HUD art leaves on a 960-wide screen, and between open panels.", 0, 1, 1, 0},
+        {T_HEAD,   "", "SINGLE PLAYER (differs from the original game)", "", 0, 0, 0, 0},
+        {T_SWITCH, "D2_RUNEWORDS_LADDER", "Ladder runewords",
+         "Lets single-player games make the 23 runewords 1.14d reserves to the ladder. Not in online games.", 0, 1, 1, 0},
+        {T_SWITCH, "D2_RESPEC_UNLIMITED", "Unlimited Akara reset",
+         "Akara's stat and skill reset stays available once earned (Den of Evil). Single player only.", 0, 1, 1, 0},
+        {T_HEAD,   "", "SOUND AND KEYBOARD", "", 0, 0, 0, 0},
+        {T_SWITCH, "D2_SON",        "Sound",
+         "Off presents the game with no sound card, as a silent machine would. Applies at the next launch.", 0, 1, 1, 0},
+        {T_SWITCH, "D2_KBAUTO",     "Keyboard opens by itself",
+         "The virtual keyboard opens when a text field gets focus. R + Triangle still opens it by hand.", 0, 1, 1, 0},
+        {T_NUM,    "D2_KBALPHA",    "Keyboard opacity",
+         "How opaque the virtual keyboard is, in percent. 100 is solid, lower lets the screen show through.", 0, 100, 5, 0},
+        {T_HEAD,   "", "NETWORK", "", 0, 0, 0, 0},
+        {T_SWITCH, "D2_LOCAL_ONLY", "Private servers only",
+         "Blocks official Battle.net: only a private or local server can be reached.", 0, 1, 1, 0},
+    };
+    return T[i];
+}
+inline const EnvSem& envsem(int i) {
+    static const EnvSem T[NGAME] = {
+        {"", E_NONE, "", "", 0},
+        {"D2_RES",              E_OFFLIST, "0|non|off|", "0",      1},
+        {"D2_RES640",           E_OFFLIST, "0",          "0",      1},
+        {"D2_ASPECT",           E_OFFLIST, "etire|stretch|0", "etire", 1},
+        {"D2_HUDFILL",          E_OFFLIST, "0|off",      "0",      1},
+        {"", E_NONE, "", "", 0},
+        {"D2_RUNEWORDS_LADDER", E_ONSET,   "",           "1",      0},
+        {"D2_RESPEC_UNLIMITED", E_ONSET,   "",           "1",      0},
+        {"", E_NONE, "", "", 0},
+        {"D2_SON",              E_OFFLIST, "0",          "0",      1},
+        {"D2_KBAUTO",           E_OFFLIST, "0",          "0",      1},
+        {"D2_KBALPHA",          E_INT,     "",           "",       80},
+        {"", E_NONE, "", "", 0},
+        {"D2_LOCAL_ONLY",       E_ONSET,   "",           "1",      0},
+    };
+    return T[i];
+}
+constexpr int NITEM = NTUNE + NGAME;     // every editable value: controls.txt tuning, then env.txt options
+inline const Tune& item(int i) { return i < NTUNE ? tune(i) : game(i - NTUNE); }
+
 struct Settings {
     Bind   b[NROW][NSLOT];
-    double v[NTUNE];
+    double v[NITEM];
 };
 inline bool aim_bound(const Settings& s) {
     for (int r = 0; r < NROW; ++r)
@@ -158,11 +229,56 @@ inline double clamp_round(const Tune& t, double v) {
     return std::floor(v * p + 0.5) / p;
 }
 
+// The defaults of the env.txt options, as the boot code applies them when the
+// file says nothing.
+inline void env_defaults(Settings& o) {
+    for (int i = 0; i < NGAME; ++i) if (game(i).type != T_HEAD) o.v[NTUNE + i] = envsem(i).dflt;
+}
+inline bool env_is_off(const char* offs, const char* val) {
+    const size_t vl = std::strlen(val);
+    const char* p = offs;
+    for (;;) {
+        const char* e = std::strchr(p, '|');
+        const size_t n = e ? (size_t)(e - p) : std::strlen(p);
+        if (n == vl && std::strncmp(p, val, n) == 0) return true;
+        if (!e) return false;
+        p = e + 1;
+    }
+}
+inline double env_value(const EnvSem& e, const char* val) {
+    switch (e.kind) {
+        case E_OFFLIST: return env_is_off(e.offs, val) ? 0.0 : 1.0;
+        case E_ONSET:   return (*val && std::strcmp(val, "0") != 0) ? 1.0 : 0.0;
+        case E_INT: {   int v = std::atoi(val); return v < 0 ? 0 : v > 100 ? 100 : v; }
+    }
+    return 0.0;
+}
+// Reads env.txt the way the boot loader does -- one KEY=VALUE per line, no
+// trimming, no trailing comments, a later line wins -- and sets the option
+// values the file names. Options it does not name keep what `o` holds.
+inline void env_parse(const std::string& text, Settings& o) {
+    size_t pos = 0;
+    while (pos < text.size()) {
+        size_t e = text.find('\n', pos);
+        std::string line = text.substr(pos, e == std::string::npos ? std::string::npos : e - pos);
+        pos = e == std::string::npos ? text.size() : e + 1;
+        const size_t cut = line.find_first_of("\r");
+        if (cut != std::string::npos) line.resize(cut);
+        const size_t eq = line.find('=');
+        if (eq == std::string::npos || eq == 0 || line[0] == '#') continue;
+        for (int i = 0; i < NGAME; ++i) {
+            const EnvSem& s = envsem(i);
+            if (s.kind != E_NONE && line.compare(0, eq, s.key) == 0 && std::strlen(s.key) == eq)
+                o.v[NTUNE + i] = env_value(s, line.c_str() + eq + 1);
+        }
+    }
+}
+
 // ---- the panel's state --------------------------------------------------------
-enum { TAB_BUTTONS = 0, TAB_TUNE = 1, NTAB = 2 };
+enum { TAB_BUTTONS = 0, TAB_TUNE = 1, TAB_GAME = 2, NTAB = 3 };
 struct State {
     int      open;
-    int      tab, row, col;           // focus; on the tuning tab `row` indexes tune()
+    int      tab, row, col;           // focus; on the list tabs `row` indexes item()
     Settings cur;                      // what is applied right now
     Settings base;                     // what was applied when the panel opened (diff = to save)
     Settings def;                      // the built-in defaults (Triangle puts these back)
@@ -180,23 +296,26 @@ inline void snap_col(State& s) {
         if (s.col + d < NSLOT && !cell_lock(s.row, s.col + d)) { s.col += d; return; }
     }
 }
+// The rows a list tab shows: item() indices [first_item, first_item + n_items).
+inline int first_item(int tab) { return tab == TAB_GAME ? NTUNE : 0; }
+inline int n_items(int tab) { return tab == TAB_BUTTONS ? NROW : tab == TAB_TUNE ? NTUNE : NGAME; }
 inline void set_tab(State& s, int t) {
     t = ((t % NTAB) + NTAB) % NTAB;
     if (t == s.tab && s.row >= 0) return;
     s.tab = t; s.col = 0;
-    s.row = t == TAB_BUTTONS ? 0 : 1;      // tune(0) is a heading
+    s.row = t == TAB_BUTTONS ? 0 : first_item(t) + 1;      // the first row of a list is a heading
 }
 inline void focus_row(State& s, int r) {
     if (s.tab == TAB_BUTTONS) { if (r >= 0 && r < NROW) { s.row = r; snap_col(s); } }
-    else if (r >= 0 && r < NTUNE && tune(r).type != T_HEAD) s.row = r;
+    else if (r >= first_item(s.tab) && r < first_item(s.tab) + n_items(s.tab) && item(r).type != T_HEAD) s.row = r;
 }
 inline void move(State& s, int dr, int dc) {
     if (dr) {
-        const int n = s.tab == TAB_BUTTONS ? NROW : NTUNE;
+        const int lo = first_item(s.tab), n = n_items(s.tab);
         int r = s.row;
         for (int i = 0; i < n; ++i) {
-            r = ((r + dr) % n + n) % n;
-            if (s.tab == TAB_BUTTONS || tune(r).type != T_HEAD) break;
+            r = lo + ((r - lo + dr) % n + n) % n;
+            if (s.tab == TAB_BUTTONS || item(r).type != T_HEAD) break;
         }
         s.row = r;
         if (s.tab == TAB_BUTTONS) snap_col(s);
@@ -219,7 +338,7 @@ inline bool step(State& s, int dir) {
         b = Bind{c.kind, c.vk};
         return true;
     }
-    const Tune& t = tune(s.row);
+    const Tune& t = item(s.row);
     if (t.type == T_HEAD) return false;
     double& v = s.cur.v[s.row];
     const double nv = t.type == T_SWITCH ? (v != 0.0 ? 0.0 : 1.0) : clamp_round(t, v + dir * t.step);
@@ -235,7 +354,7 @@ inline bool reset_focus(State& s) {
         if (same(b, d)) return false;
         b = d; return true;
     }
-    if (tune(s.row).type == T_HEAD || s.cur.v[s.row] == s.def.v[s.row]) return false;
+    if (item(s.row).type == T_HEAD || s.cur.v[s.row] == s.def.v[s.row]) return false;
     s.cur.v[s.row] = s.def.v[s.row];
     return true;
 }
@@ -267,8 +386,13 @@ inline bool dirty(const State& s) {
     for (int r = 0; r < NROW; ++r)
         for (int c = 0; c < NSLOT; ++c)
             if (!cell_lock(r, c) && !same(s.cur.b[r][c], s.base.b[r][c])) return true;
-    for (int i = 0; i < NTUNE; ++i)
-        if (tune(i).type != T_HEAD && s.cur.v[i] != s.base.v[i]) return true;
+    for (int i = 0; i < NITEM; ++i)
+        if (item(i).type != T_HEAD && s.cur.v[i] != s.base.v[i]) return true;
+    return false;
+}
+inline bool env_dirty(const State& s) {
+    for (int i = NTUNE; i < NITEM; ++i)
+        if (item(i).type != T_HEAD && s.cur.v[i] != s.base.v[i]) return true;
     return false;
 }
 
@@ -294,6 +418,24 @@ inline int diff(const State& s, KV* out, int max) {
         if (t.type == T_HEAD || s.cur.v[i] == s.base.v[i] || n >= max) continue;
         snprintf(out[n].key, sizeof out[n].key, "%s", t.key);
         value_text(t, s.cur.v[i], out[n].val, sizeof out[n].val);
+        ++n;
+    }
+    return n;
+}
+
+// The env.txt lines to change. An empty val means "remove the line": the
+// option went back to what the game does without one.
+inline int env_diff(const State& s, KV* out, int max) {
+    int n = 0;
+    for (int i = 0; i < NGAME && n < max; ++i) {
+        const Tune& t = game(i);
+        const EnvSem& e = envsem(i);
+        const double cur = s.cur.v[NTUNE + i];
+        if (t.type == T_HEAD || cur == s.base.v[NTUNE + i]) continue;
+        snprintf(out[n].key, sizeof out[n].key, "%s", e.key);
+        if (cur == e.dflt) out[n].val[0] = 0;
+        else if (e.kind == E_INT) snprintf(out[n].val, sizeof out[n].val, "%d", (int)cur);
+        else snprintf(out[n].val, sizeof out[n].val, "%s", e.wr);
         ++n;
     }
     return n;
@@ -362,8 +504,50 @@ inline std::string merge(const std::string& in, const KV* kv, int nkv) {
         const char* eol = crlf ? "\r\n" : "\n";
         if (!out.empty() && out.back() != '\n') out += eol;
         if (!out.empty()) out += eol;
-        out += "# Set from the in-game Controls panel"; out += eol;
+        out += "# Set from the in-game Settings panel"; out += eol;
         for (int i = 0; i < nkv; ++i) if (!done[i]) { out += kv[i].key; out += '='; out += kv[i].val; out += eol; }
+    }
+    return out;
+}
+
+// The env.txt counterpart of merge(): keys match exactly (they are
+// environment variable names), a line is `KEY=VALUE` to its end with no
+// trailing comment (the boot loader keeps everything after the `=`), a key
+// with an empty value loses its line, and the rest of the file is untouched.
+inline std::string env_merge(const std::string& in, const KV* kv, int nkv,
+                             const char* header = "# Set from the in-game Settings panel") {
+    bool done[32] = {};
+    if (nkv > 32) nkv = 32;
+    const bool crlf = in.find("\r\n") != std::string::npos;
+    std::string out;
+    size_t pos = 0;
+    while (pos < in.size()) {
+        const size_t e = in.find('\n', pos);
+        const bool hasNl = e != std::string::npos;
+        std::string line = in.substr(pos, hasNl ? e - pos : std::string::npos);
+        pos = hasNl ? e + 1 : in.size();
+        const bool cr = !line.empty() && line.back() == '\r';
+        if (cr) line.pop_back();
+        int hit = -1;
+        const size_t eq = line.find('=');
+        if (!line.empty() && line[0] != '#' && eq != std::string::npos && eq != 0)
+            for (int i = 0; i < nkv; ++i)
+                if (std::strlen(kv[i].key) == eq && line.compare(0, eq, kv[i].key) == 0) { hit = i; break; }
+        if (hit < 0) { out += line; if (hasNl) out += cr ? "\r\n" : "\n"; continue; }
+        if (done[hit]) continue;
+        done[hit] = true;
+        if (!kv[hit].val[0]) continue;
+        out += kv[hit].key; out += '='; out += kv[hit].val;
+        if (hasNl) out += cr ? "\r\n" : "\n";
+    }
+    bool any = false;
+    for (int i = 0; i < nkv; ++i) if (!done[i] && kv[i].val[0]) any = true;
+    if (any) {
+        const char* eol = crlf ? "\r\n" : "\n";
+        if (!out.empty() && out.back() != '\n') out += eol;
+        if (!out.empty()) out += eol;
+        out += header; out += eol;
+        for (int i = 0; i < nkv; ++i) if (!done[i] && kv[i].val[0]) { out += kv[i].key; out += '='; out += kv[i].val; out += eol; }
     }
     return out;
 }
@@ -389,6 +573,7 @@ inline int tab_x(int i) { return PAD + i * (TAB_W + TAB_GAP); }
 inline int grid_cell_x(int slot) { return GRID_X0 + slot * (GRID_CELL_W + GRID_GAP); }
 inline int grid_row_y(int r) { return GRID_Y0 + r * ROW_H; }
 inline int tune_row_y(int i) { return TUNE_Y0 + i * ROW_H; }
+inline int item_row_y(int i) { return tune_row_y(i < NTUNE ? i : i - NTUNE); }
 }
 
 enum ZoneKind { Z_NONE = 0, Z_TAB, Z_CELL, Z_RESET, Z_SAVE };
@@ -421,8 +606,8 @@ inline Zone hit(const State& s, int x, int y) {
         }
         return z;
     }
-    for (int i = 0; i < NTUNE; ++i) {
-        if (tune(i).type == T_HEAD || y < tune_row_y(i) || y >= tune_row_y(i) + ROW_H) continue;
+    for (int i = first_item(s.tab); i < first_item(s.tab) + n_items(s.tab); ++i) {
+        if (item(i).type == T_HEAD || y < item_row_y(i) || y >= item_row_y(i) + ROW_H) continue;
         if (x >= PAD && x < BAR_X0 + BAR_W) {
             z.kind = Z_CELL; z.a = i; z.b = 0;
             if (x >= TUNE_X0 && x < TUNE_X0 + TUNE_CELL_W) z.dir = arrow(TUNE_X0, TUNE_CELL_W);

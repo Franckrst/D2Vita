@@ -215,10 +215,11 @@ The virtual keyboard's own rendering (font, layout) comes from the generic
 winx86 engine (`src/platform/vita_kb.h`/`vita_kb_font.h`). The trigger is
 d2vita-specific: R + Triangle.
 
-## Controls panel (title screen)
+## Settings panel (title screen)
 
-A small "Controls" tab sits in the left letterbox band of the title
-screen. Tap it to open a full-screen editor with two tabs:
+A small "Settings" tab (called "Controls" up to 0.2.0) sits in the left
+letterbox band of the title screen. Tap it to open a full-screen editor
+with three tabs:
 
 - **Buttons** — a grid of every button (L, R, Select, face buttons, D-pad,
   Start) by layer: plain, with R held, with L held. Each cell is the action
@@ -227,15 +228,26 @@ screen. Tap it to open a full-screen editor with two tabs:
 - **Tuning** — the aim cone, monster and object reach, hover height, HUD
   band, aim marker, cursor speed, deadzone and walk-ring sizes, each with
   its default and range.
+- **Game** — the functional switches that live in
+  `ux0:data/d2vita/env.txt`: native 960×544 drawing, 640×480 zoom, menu
+  shape (4:3 or stretched), HUD gap filling, the two single-player options
+  (ladder runewords, unlimited Akara reset — both off, they differ from the
+  original game), sound, automatic keyboard and its opacity, and
+  private-servers-only. Performance and debug variables are deliberately
+  not offered. `env.txt` is only read when the game starts, so these
+  changes apply **at the next launch** (the panel says so); an option set
+  back to its default simply loses its line, and the rest of the file
+  (including `D2SCHED=`, `D2WRITE=` and any line you added) is left alone.
 
 Colours: white = default, gold = customised, green = changed and not saved
-yet. Changes apply at once; closing the panel writes **only what you
-changed** into `ux0:data/d2vita/controls.txt` (your comments and other
-lines are kept; an old alias such as `croix=` is replaced, not duplicated).
+yet. Buttons and Tuning changes apply at once; closing the panel writes
+**only what you changed** into `ux0:data/d2vita/controls.txt` (your
+comments and other lines are kept; an old alias such as `croix=` is
+replaced, not duplicated) and the Game tab's changes into `env.txt`.
 
 | Input | Effect |
 |---|---|
-| D-pad | Buttons: move in the grid. Tuning: Up/Down pick, Left/Right change (hold to repeat) |
+| D-pad | Buttons: move in the grid. Tuning and Game: Up/Down pick, Left/Right change (hold to repeat) |
 | Cross / Square | Next / previous action (or value +/−), hold to repeat |
 | Triangle | Put the focused item back to its default |
 | L / R | Switch tab |
