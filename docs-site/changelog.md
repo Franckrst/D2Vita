@@ -4,6 +4,25 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.2.1-beta2 — 2026-10-06
+
+Two fixes on top of 0.2.1-beta:
+
+- **The music volume is kept.** It was reset to 0 at every launch (D2
+  "restored" a volume it had never saved when the window got activated).
+  If yours is at 0, set it once more in Options → Sound; it now stays.
+- **An old kubridge no longer crashes the game at startup.** kubridge
+  before 0.3 is loaded under the same name but lacks what D2Vita uses: the
+  game closed with a C2 error right after launch. D2Vita now shows
+  "KUBRIDGE PLUGIN TOO OLD (needs v0.3 or later)" and runs without it.
+  Install kubridge 0.3.1 and reboot to get the full JIT cache back.
+
+Validation: the music fix is checked on console (volume 50 kept, reset to 0
+before) and with qemu (keyboard still works). The kubridge check is
+confirmed on console with kubridge 0.3.1 (still detected and used); the
+old-kubridge case comes from a player's crash dump and was not reproduced
+on hardware.
+
 ## v0.2.1-beta — 2026-10-06
 
 - **Smoother heavy spell scenes.** A level-99 Sorceress casting Frozen Orb

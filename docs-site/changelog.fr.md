@@ -5,6 +5,27 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.2.1-beta2 — 2026-10-06
+
+Deux corrections par-dessus la 0.2.1-beta :
+
+- **Le volume de la musique est conservé.** Il revenait à 0 à chaque
+  lancement (D2 « restaurait » à l'activation de la fenêtre un volume qu'il
+  n'avait jamais mémorisé). Si le vôtre est à 0, réglez-le une dernière fois
+  dans Options → Son ; il reste désormais.
+- **Un kubridge ancien ne fait plus planter le jeu au démarrage.** Un
+  kubridge antérieur à la 0.3 se charge sous le même nom mais n'a pas ce
+  qu'utilise D2Vita : le jeu se fermait sur une erreur C2 juste après le
+  lancement. D2Vita affiche maintenant « KUBRIDGE PLUGIN TOO OLD (needs v0.3
+  or later) » et tourne sans lui. Installer kubridge 0.3.1 et redémarrer
+  pour retrouver le grand cache JIT.
+
+Validation : la correction du volume est vérifiée sur console (volume 50
+conservé, remis à 0 avant) et sous qemu (le clavier fonctionne toujours).
+La détection de kubridge est confirmée sur console avec kubridge 0.3.1
+(toujours détecté et utilisé) ; le cas d'un kubridge ancien vient du dump
+d'un joueur et n'a pas été reproduit sur matériel.
+
 ## v0.2.1-beta — 2026-10-06
 
 - **Scènes de sorts chargées plus fluides.** Une sorcière niveau 99 qui

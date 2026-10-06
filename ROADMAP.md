@@ -51,6 +51,13 @@ the source of truth for the public repository.
       see below).
       New measurement flavour `D2VPK_BLKSAMP=1` gives the first reliable
       time-per-function profile (`tools/bancs/blksamp_fonctions.py`).
+- [x] Old kubridge (< 0.3) no longer crashes at startup (2026-10-06, a
+      player's C2 dump: pc=0 right after kuKernelRegisterExceptionHandler).
+      It is loaded under the same name without the 0.3 entry points; the
+      engine now requires every entry point it uses to be resolved, else
+      runs without the plugin and the boot notice says "TOO OLD". Console
+      with 0.3.1: still detected and used; the old case is not reproduced
+      on hardware.
 - [x] Music volume no longer reset to 0 at every launch (2026-10-06,
       reported on Discord): the runtime's synthetic window activation was
       queued and reached D2Client's WM_ACTIVATEAPP handler, which "restores"
