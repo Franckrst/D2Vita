@@ -48,7 +48,10 @@ def click(f, x, y):
     return [f"{f}:move:{x}:{y}", f"{f+5}:ldown:{x}:{y}", f"{f+15}:lup:{x}:{y}"]
 
 def script(explore=False):
-    ev = ["300:activate"]
+    # No scripted "activate": the runtime activates the window itself
+    # (ShowWindow), and an extra WM_ACTIVATEAPP makes D2 "restore" a music
+    # volume it never saved, writing 0 to the registry.
+    ev = []
     for f, x, y in BOOT:
         ev += click(f, x, y)
     ev.append("2499:snap")

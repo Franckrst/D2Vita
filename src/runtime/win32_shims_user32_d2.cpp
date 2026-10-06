@@ -178,7 +178,30 @@ void win32_shims_user32_d2_install(Bridge& br){
     // while it is 0. The mouse doesn't consult that flag, which is why
     // keyboard input alone was dead. Only sent once, on first show: Windows
     // doesn't re-activate on every call.
-    U("ShowWindow",2,[](Cpu&c){ if(c.arg(1)!=0 /* SW_HIDE */) win_activate_once(); return 1u; });
+    //
+    // The three messages are delivered SYNCHRONOUSLY, inside ShowWindow, as
+    // Windows sends them -- not queued for the next pump. Queued, they
+    // arrived once D2 was already in its menus, where D2Client's handler for
+    // WM_ACTIVATEAPP (Game+0xf9f20, table Game+0x32dda0) "restores" the music
+    // volume it saves on DEACTIVATION ([0x7d55f8]) -- never saved, so 0 --
+    // and writes it to the registry: the music volume was reset to 0 at
+    // every launch (Discord, 06/10/2026; qemu: Music Volume 50 -> 0 with the
+    // queued message, kept at 50 without it). The first pump stays a safety
+    // net if the game never calls ShowWindow.
+    U("ShowWindow",2,[&br](Cpu&c)->uint32_t{
+        if(c.arg(1)==0 /* SW_HIDE */) return 1u;
+        if(!g_wndProc || !win_activate_claim()){ win_activate_once(); return 1u; }
+        if(g_d2base) g_wndCallEcx=c.read_u32(g_d2base+0x3d55d8);   // as DispatchMessageA
+        const uint32_t ra=c.read_u32(c.reg(R_ESP));
+        // wndproc(WM_ACTIVATEAPP,TRUE) -> wndproc(WM_ACTIVATE,WA_ACTIVE)
+        // -> wndproc(WM_SETFOCUS) -> back to the caller. EAX = the last
+        // wndproc's result (0): ShowWindow returns 0 for a window that was
+        // hidden, which this one was.
+        const uint32_t s3=guest_call_stub(c,g_wndProc,g_hwnd,0x0007,0,0,ra);
+        const uint32_t s2=guest_call_stub(c,g_wndProc,g_hwnd,0x0006,1,0,s3);
+        const uint32_t s1=guest_call_stub(c,g_wndProc,g_hwnd,0x001C,1,0,s2);
+        br.redirect_next(s1);
+        return 0u; });
     U("SetFocus",1,[](Cpu&){ return g_hwnd; });
     // Real message pump: injected events queue in g_msgQ; the game's own
     // Peek/Get/Dispatch loop delivers them to the captured Blizzard wndproc.

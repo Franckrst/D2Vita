@@ -51,6 +51,15 @@ the source of truth for the public repository.
       see below).
       New measurement flavour `D2VPK_BLKSAMP=1` gives the first reliable
       time-per-function profile (`tools/bancs/blksamp_fonctions.py`).
+- [x] Music volume no longer reset to 0 at every launch (2026-10-06,
+      reported on Discord): the runtime's synthetic window activation was
+      queued and reached D2Client's WM_ACTIVATEAPP handler, which "restores"
+      a music volume it only saves on deactivation (never, so 0) and writes
+      it to the registry. The three activation messages are now delivered
+      synchronously inside ShowWindow, as Windows does. Console: Music
+      Volume 50 -> 0 with 0.1.20, kept at 50 with the fix; qemu: keyboard
+      focus intact (a character name typed and created). Players whose
+      volume was already saved as 0 set it once more.
 - [x] Heavy-missile frames (2026-10-06, console, new Frozen Orb bench
       `tools/bancs/orbe_givre.sh`: a level-99 Sorceress casting Frozen Orb
       non-stop in the Frigid Highlands, 2 interleaved passes per variant):

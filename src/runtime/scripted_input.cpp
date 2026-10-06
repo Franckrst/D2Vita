@@ -38,8 +38,16 @@ static std::vector<InjEv> g_inj; static size_t g_injIx=0;
 // WINDOW ACTIVATION (see the comment on ShowWindow). Idempotent: called by
 // ShowWindow (the faithful path) AND by the first message pump (a safety net
 // in case the game never calls ShowWindow). The first call wins.
+static bool g_activated=false;
+// Claims the one activation for a SYNCHRONOUS delivery (ShowWindow): true
+// the first time, then false; win_activate_once() then queues nothing.
+bool win_activate_claim(){
+    if(g_activated) return false; g_activated=true;
+    d2vita_progress("fenetre: activee (WM_ACTIVATEAPP/ACTIVATE/SETFOCUS, synchrone dans ShowWindow)");
+    return true;
+}
 void win_activate_once(){
-    static bool done=false; if(done) return; done=true;
+    bool& done=g_activated; if(done) return; done=true;
     g_msgQ.push_back({0x001C,1,0});   // WM_ACTIVATEAPP, fActive=TRUE
     g_msgQ.push_back({0x0006,1,0});   // WM_ACTIVATE,    WA_ACTIVE
     g_msgQ.push_back({0x0007,0,0});   // WM_SETFOCUS

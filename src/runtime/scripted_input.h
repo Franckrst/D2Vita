@@ -20,6 +20,7 @@ extern "C" { __attribute__((weak)) void d2vita_input_tick(d2rt::Cpu* cpu); }
 extern "C" void d2vita_vpad_get(uint32_t* buttons, uint8_t axes[4]);   // virtual pad (padb/pada commands)
 
 void win_activate_once();               // WM_ACTIVATEAPP/ACTIVATE/SETFOCUS, idempotent
+bool win_activate_claim();              // takes the activation for a synchronous delivery (ShowWindow)
 void inj_parse(const char* s);          // parses D2SCRIPT into the scheduled event list
 unsigned long inj_count();              // number of scheduled D2SCRIPT events (g_inj.size())
 void inj_queue(const std::string& act, int a, int b);   // queues/executes one action now
