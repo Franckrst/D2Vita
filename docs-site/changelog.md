@@ -4,6 +4,31 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.2.1-beta — 2026-10-06
+
+- **Smoother heavy spell scenes.** A level-99 Sorceress casting Frozen Orb
+  non-stop (dozens of orbs and ice shards on screen, each with its own light)
+  went from ~22 to the game's 25 fps cap on a real console, with ~3 ms of
+  headroom left per frame. Four more pieces of the game's own code now run
+  natively instead of translated x86: the Perspective floor tiles (was
+  opt-in, now on by default), the lighting of missiles, the light-grid
+  rebuild, and the floor texture bind. Every one is checked byte for byte
+  against the game's own result. If something looks wrong, each can be
+  turned off in `env.txt`: `D2_F3NATIF=0`, `NATIVELIGHTDISC=0`,
+  `NATIVELIGHTDYN=0`, `D2_GRIDCACHE=0`, `D2_F3TEXNAT=0`.
+- **Settings panel on the title screen** (the "Controls" tab is renamed
+  "Settings") gets a third tab, **Game**: resolution, 640 zoom, menu shape,
+  HUD fill, ladder runewords, Akara reset, sound, auto keyboard and its
+  opacity, private servers. Only the options you change are written to
+  `env.txt`; they apply at the next launch.
+
+Install the whole VPK: the speed-up of the floor texture bind needs the
+`glide3x.dll` shipped inside it (an old one simply falls back, slower).
+Validation: the performance figures are console measurements on the new
+Frozen Orb bench only — the Act V patrol was not re-run with these
+defaults. The Settings "Game" tab is tested on the host only and has **not**
+been run on a console yet. Feedback welcome.
+
 ## v0.2.0 — 2026-10-03
 
 First release of the 0.2 line: the new controller scheme and the aim assist

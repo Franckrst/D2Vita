@@ -349,7 +349,7 @@ the source of truth for the public repository.
       while the cursor is idle — a cursor pointed somewhere is an intent of
       its own. **Validation: host tests (244 passed, ASan/UBSan) and a
       pad::Assist fuzz (0 bad of 2000); never run on a console.**
-- [ ] **Settings panel gets a "Game" tab for `env.txt` (unreleased, 2026-10-04)**:
+- [ ] **Settings panel gets a "Game" tab for `env.txt` (0.2.1-beta, 2026-10-04)**:
       the title-screen panel (icon renamed "Settings") has a third tab with
       the functional options only: `D2_RES`, `D2_RES640`, `D2_ASPECT`,
       `D2_HUDFILL`, `D2_RUNEWORDS_LADDER`, `D2_RESPEC_UNLIMITED`, `D2_SON`,

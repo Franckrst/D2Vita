@@ -5,6 +5,34 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.2.1-beta — 2026-10-06
+
+- **Scènes de sorts chargées plus fluides.** Une sorcière niveau 99 qui
+  lance l'Orbe de givre sans arrêt (des dizaines d'orbes et d'éclats à
+  l'écran, chacun avec sa lumière) passe de ~22 img/s au plafond du jeu,
+  25 img/s, sur console réelle, avec ~3 ms de marge par image. Quatre
+  morceaux du code du jeu tournent maintenant en natif au lieu d'être
+  traduits : les dalles de sol Perspective (optionnel jusqu'ici, désormais
+  par défaut), l'éclairage des missiles, la reconstruction de la grille de
+  lumière et la liaison des textures du sol. Chacun est vérifié octet par
+  octet contre le résultat du jeu lui-même. En cas de souci, chacun se
+  coupe dans `env.txt` : `D2_F3NATIF=0`, `NATIVELIGHTDISC=0`,
+  `NATIVELIGHTDYN=0`, `D2_GRIDCACHE=0`, `D2_F3TEXNAT=0`.
+- **Panneau Settings de l'écran-titre** (l'onglet « Controls » s'appelle
+  désormais « Settings ») : un troisième onglet, **Game** — résolution, zoom
+  640, forme des menus, remplissage du HUD, runewords ladder, reset d'Akara,
+  son, clavier automatique et son opacité, serveurs privés. Seules les
+  options modifiées sont écrites dans `env.txt` ; elles s'appliquent au
+  lancement suivant.
+
+Installer le VPK complet : l'accélération de la liaison des textures a
+besoin du `glide3x.dll` qu'il contient (une ancienne DLL retombe simplement
+sur le chemin plus lent). Validation : les chiffres de performance sont des
+mesures console sur le nouveau banc Orbe de givre uniquement — la patrouille
+de l'acte V n'a pas été repassée avec ces défauts. L'onglet « Game » est
+testé côté hôte seulement et n'a **pas** encore tourné sur console. Retours
+bienvenus.
+
 ## v0.2.0 — 2026-10-03
 
 Première version de la ligne 0.2 : le nouveau schéma manette et la visée
