@@ -400,6 +400,7 @@ extern "C" int  dyn86_vita_guard_guest(uint32_t gva, uint32_t len);
 extern "C" void dyn86_vita_smc_exclude(uint32_t gva, uint32_t len);
 extern "C" void dyn86_set_protectdb(int on);
 extern "C" int  dyn86_vita_kubridge(void);
+extern "C" int  dyn86_vita_kubridge_old(void);   // loaded but < 0.3 (mman_vita.c)
 extern "C" void dyn86_seh_set_hooks(int (*exit_requested)(void), void (*terminate)(const char*), void (*before_dispatch)(uint32_t), uint32_t sentinel_va);
 extern "C" int  dyn86_vita_unguard_guest(uint32_t gva, uint32_t len);
 static uint32_t g_sehTestPage=0;   // D2_SEHTEST: the page the knob made unreadable, reopened before the game's handlers run
@@ -2327,8 +2328,10 @@ int main(int argc,char**argv){
       // kubridge is optional but recommended (JIT 32 MiB, fault handler,
       // guard pages, SMC barrier, game-side Crash.txt): say so at boot when
       // it is missing. The log already carries the same fact.
-      if(!dyn86_vita_kubridge()){ d2vita_progress("kubridge: ABSENT — avis affiche a l'ecran (X ou 10 s), le jeu continue avec la piscine JIT de 16 Mo et sans handler de faute");
-                                 d2vita_show_kubridge_notice_screen(); }
+      if(!dyn86_vita_kubridge()){ const bool old=dyn86_vita_kubridge_old()!=0;
+                                 d2vita_progress(old? "kubridge: TROP ANCIEN (< 0.3) — avis affiche a l'ecran (X ou 10 s), le jeu continue avec la piscine JIT de 16 Mo et sans handler de faute"
+                                                    : "kubridge: ABSENT — avis affiche a l'ecran (X ou 10 s), le jeu continue avec la piscine JIT de 16 Mo et sans handler de faute");
+                                 d2vita_show_kubridge_notice_screen(old); }
 #endif
       }
     // Hardware runs at real speed — but only once the scheduler starts: the

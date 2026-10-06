@@ -213,7 +213,7 @@ void d2vita_show_version_warning_screen(const std::string& dir, const std::vecto
     present(fb);
     sceDisplayWaitVblankStart();
 }
-void d2vita_show_kubridge_notice_screen() {
+void d2vita_show_kubridge_notice_screen(bool tooOld) {
     using namespace d2kb::draw_detail;
     SceUID uid;
     void* base = alloc_fb(&uid);
@@ -226,7 +226,8 @@ void d2vita_show_kubridge_notice_screen() {
     frame(fb, kScrW, kScrH, panelX, panelY, panelW, panelH, rgb(0x60, 0xA0, 0xE0));
 
     int y = panelY + 20, x = panelX + 24;
-    text(fb, kScrW, kScrH, "KUBRIDGE PLUGIN NOT FOUND", x, y, 1, rgb(0x80, 0xC0, 0xFF)); y += 32;
+    text(fb, kScrW, kScrH, tooOld ? "KUBRIDGE PLUGIN TOO OLD (needs v0.3 or later)" : "KUBRIDGE PLUGIN NOT FOUND",
+         x, y, 1, rgb(0x80, 0xC0, 0xFF)); y += 32;
     text(fb, kScrW, kScrH, "D2Vita runs without it, with these limits:", x, y, 1, rgb(0xE0, 0xE0, 0xE0)); y += 26;
     text(fb, kScrW, kScrH, "- JIT cache capped at 16 MiB (kernel VM quota): more re-translation", x, y, 1, rgb(0xD0, 0xD0, 0xD0)); y += 20;
     text(fb, kScrW, kScrH, "  in long sessions", x, y, 1, rgb(0xD0, 0xD0, 0xD0)); y += 20;
@@ -265,5 +266,5 @@ void d2vita_show_kubridge_notice_screen() {
 void d2vita_show_missing_files_screen(const std::string&, const std::vector<std::string>&) {}
 void d2vita_show_version_error_screen(const std::string&, const std::string&) {}
 void d2vita_show_version_warning_screen(const std::string&, const std::vector<std::string>&) {}
-void d2vita_show_kubridge_notice_screen() {}
+void d2vita_show_kubridge_notice_screen(bool) {}
 #endif
