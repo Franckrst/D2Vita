@@ -22,6 +22,14 @@
 //       colour LUT per vertex; two grDrawVertexArray(4, 10, ptrs).
 //   returns EAX = 1 if a cell was drawn, else 0.
 //
+// TEXTURE BIND, NATIVE (D2_F3TEXNAT, default on with F3 natif): when the
+// cell's texture is already resident, 0x50fbd0 is reproduced here -- LRU
+// update, grTexSource and grTexCombine records written through the DLL's own
+// dedup cache (tex_native). Console, Frozen Orb bench, 06/10/2026: ~2.5 M
+// binds served per pass, ~1 300 left to the guest (uploads); c0 96 -> 91 %.
+// Proof: the cumulative ring fingerprint (every record, states included) is
+// identical with and without it, and a one-argument sabotage changes it.
+//
 // HOW. An `alternate` hook on the entry. The engine cannot nest the emulator
 // inside a shim, so the texture call is a CONTINUATION: the shim runs cells
 // natively until one needs 0x50fbd0, points the return address at a
@@ -43,7 +51,9 @@
 // ORACLE: D2_F3NATIF=2 computes every cell natively WITHOUT writing
 // anything, lets the original F3 run behind a return trap, then compares the
 // draw records the guest appended to the ring (vertex bytes included) and the
-// return value. D2_F3NATIF=1 serves natively. Default 0 (not armed).
+// return value. D2_F3NATIF=1 serves natively, the DEFAULT since 06/10/2026
+// (Frozen Orb bench, console: 22.3 -> 23.7 fps alone); D2_F3NATIF=0 keeps
+// the translated F3.
 #include "glide_ring/gx_host.h"
 #include "glide_ring/glide_ring.h"
 #include "runtime/bridge.h"
@@ -66,7 +76,7 @@ extern "C" void wx86_intrinline_counts(int* on, unsigned long long* stubs, unsig
 // dead weight outside the flavour (dyn86_blksamp_built is 0).
 extern "C" { extern volatile uint32_t dyn86_blksamp_ip; extern const int dyn86_blksamp_built; }
 static inline void PH(uint32_t ph){ if(dyn86_blksamp_built) dyn86_blksamp_ip = 0xFFFE0000u | ph; }
-enum { PH_ACCEPT=1, PH_FRONT=2, PH_CORNERS=3, PH_MID=4, PH_GRID=5, PH_WVTX=6, PH_DRAW=7, PH_STEP=8 };
+enum { PH_ACCEPT=1, PH_FRONT=2, PH_CORNERS=3, PH_MID=4, PH_GRID=5, PH_WVTX=6, PH_DRAW=7, PH_STEP=8, PH_TEX=9 };
 
 namespace {
 
@@ -85,6 +95,14 @@ constexpr uint32_t RVA_CAMY    = 0x480b68;
 constexpr uint32_t RVA_TBL     = 0x480b6c;   // [ ] = 8192-entry table
 constexpr uint32_t RVA_LUT     = 0x480b5c;   // [ ] = 256x256 colour table
 constexpr uint32_t VTX_STRIDE  = 0x1c;
+// 0x50fbd0's cached branch (texture already resident): see tex_native.
+constexpr uint32_t RVA_TEXCACHE= 0x47eb48;   // the sprite texture cache object (LRU list)
+constexpr uint32_t RVA_TEXSLOTS= 0x47eb64;   // [ ] = slot table, 20-byte entries
+constexpr uint32_t RVA_TMU     = 0x480bf8;   // current TMU
+constexpr uint32_t RVA_TEXINFO = 0x32f6a8;   // the GrTexInfo passed to grTexSource
+constexpr uint32_t RVA_LASTTMU = 0x32f254;   // 0x509460's last TMU
+constexpr uint32_t RVA_GLTEXSRC= 0x47eb98;   // [ ] = grTexSource (Glide table)
+constexpr uint32_t RVA_GLTEXCMB= 0x47ead0;   // [ ] = grTexCombine (Glide table)
 
 static int g_mode = 0;                       // D2_F3NATIF: 0 off, 1 serve, 2 oracle
 static Cpu* g_cpu = nullptr;
@@ -92,6 +110,8 @@ static uint32_t g_trapCont = 0, g_trapVerify = 0;
 
 // counters (published by f3_line)
 static uint64_t n_calls=0, n_served=0, n_cells=0, n_drawn=0;
+static uint64_t n_tex_nat=0, n_tex_guest=0;      // texture binds served natively / left to the guest
+static bool g_texNat=true;                        // D2_F3TEXNAT=0: always the guest call
 static uint64_t n_fb_type=0, n_fb_sub=0, n_fb_glide=0, n_fb_ring=0, n_fb_busy=0;
 // D2_F3PROF=1: where the native time goes, by phase (one clock read per
 // phase boundary, i.e. per cell, so ~1 us/cell of its own — diagnostic only).
@@ -341,6 +361,135 @@ static void draw_strip(Cpu& c, uint32_t rvaPtrs, uint32_t stride){
             if(n_chk_bad<=4) jpline("F3 natif CONTROLE: enregistrement de bande different (#%llu)",(unsigned long long)n_chk_bad); }
     }
 }
+// ---- 0x50fbd0, cached branch, natively -----------------------------------
+// The texture bind F3 calls for every visible cell (ECX = cell). When the
+// cell's texture is resident ([cell+4] = slot > 0) the original only:
+//   1. moves the slot to the tail of the cache's LRU list
+//      (0x50f0f0 -> 0x50efe0 [-> 0x50ef80] -> 0x50ef40);
+//   2. calls grTexSource(tmu, [slots + slot*20 - 0x10], 3, 0x72f6a8) through
+//      the Glide table -- our DLL's ST7(TEXSOURCE, ...), dedup included;
+//   3. tail-calls 0x509460(tmu): grTexCombine(...) only if the TMU changed.
+// All three are reproduced here: the LRU writes on the same fields in the
+// same order, the state records through gr_state_native (the DLL's own
+// dedup cache). Every reason to refuse is decided BEFORE the first write:
+// slot 0 (upload path: grTexDownloadMipMap, D2's allocator), a negative slot
+// or an out-of-range one (the original asserts), a Glide table that does not
+// point at our DLL, an older DLL, a null link the original would dereference.
+// Refused = the guest runs 0x50fbd0 as before (continuation).
+// The LRU writes are first SIMULATED into a small log (reads see earlier
+// writes), so a refusal can never leave half a list behind.
+// Every address is checked against the arena (hostptr) before it is read or
+// written through the direct view: a wild link fails the bind over to the
+// guest instead of faulting the host.
+// The links can only point into two places: the cache object itself
+// (C..C+0x20) and its node array ([C+0x1c], [C+4] entries of 20 bytes). The
+// node array is validated ONCE per (base, count) with hostptr; after that an
+// access is an interval test, not a virtual call per word. A link anywhere
+// else is refused (the original would follow it; we let it).
+struct WLog { Cpu& c; uint32_t a[12], v[12]; int n=0; bool bad=false;
+    uint32_t C=0, base=0, end=0;
+    explicit WLog(Cpu& cc):c(cc){}
+    bool ok(uint32_t va){
+        if((va>=C && va+4u<=C+0x20u) || (va>=base && va+4u<=end)) return true;
+        bad=true; return false; }
+    uint32_t rd(uint32_t va){ for(int i=n-1;i>=0;--i) if(a[i]==va) return v[i]; return ok(va)?ld(va):0u; }
+    bool wr(uint32_t va, uint32_t x){ if(!ok(va) || n>=12){ bad=true; return false; } a[n]=va; v[n]=x; ++n; return true; } };
+static bool tex_native(Cpu& c){
+    const uint32_t cell=S.cellptr;
+    int16_t slot; std::memcpy(&slot,G(cell+4),2);
+    if(slot<=0) return false;                                   // 0: upload path ; <0: assert
+    const uint32_t C=VA(RVA_TEXCACHE);             // a global of Game.exe: always in the image
+    D2GRStateCache* SC=gr_state_cache(c);
+    if(!SC) return false;
+    if(ld(VA(RVA_GLTEXSRC))!=SC->fn_texsource || ld(VA(RVA_GLTEXCMB))!=SC->fn_texcombine) return false;
+    WLog L(c); L.C=C;
+    {   // node array bounds, validated once per (base, count)
+        static uint32_t vBase=0, vN=0; static bool vOk=false;
+        const uint32_t base=ld(C+0x1c), N=ld(C+4);
+        if(base!=vBase || N!=vN){ vBase=base; vN=N;
+            vOk = base>=0x10000u && N>0u && N<0x100000u && c.hostptr(base,N*20u)!=nullptr; }
+        if(vOk){ L.base=base; L.end=base+N*20u; }
+    }
+    // 0x50f0f0(ecx=C, edx=slot)
+    if((int32_t)L.rd(C+8) > 1){
+        if((int32_t)slot > (int32_t)L.rd(C+4)) return false;    // 0x50f11c: assert
+        // 0x50efe0(edx=C, eax=slot-1)
+        uint32_t node=0;
+        const uint32_t head=L.rd(C+0xc);
+        if(head){
+            const uint32_t base=L.rd(C+0x1c);
+            if(!base) return false;                             // 0x50eff5: assert
+            node=base+(uint32_t)(slot-1)*20u;
+            if(node==head){                                     // 0x50ef80(edx=C)
+                const uint32_t nx=L.rd(node+0xc);
+                if(!L.wr(C+0xc,nx)) return false;
+                if(nx){ if(!L.wr(nx+0x10,0)) return false; }
+                else  { if(!L.wr(C+0x10,0)) return false; }
+                if(!L.wr(node+0xc,0)||!L.wr(node+0x10,0)) return false;
+            } else if(node==L.rd(C+0x10)){                      // 0x50f02b: the tail
+                const uint32_t pv=L.rd(L.rd(C+0x10)+0x10);
+                if(!L.wr(C+0x10,pv)||!L.wr(pv+0xc,0)) return false;
+                if(!L.wr(node+0xc,0)||!L.wr(node+0x10,0)) return false;
+            } else {                                            // 0x50f048: the middle
+                { const uint32_t pv=L.rd(node+0x10), nx=L.rd(node+0xc); if(!L.wr(pv+0xc,nx)) return false; }
+                { const uint32_t nx=L.rd(node+0xc), pv=L.rd(node+0x10); if(!L.wr(nx+0x10,pv)) return false; }
+                if(!L.wr(node+0xc,0)||!L.wr(node+0x10,0)) return false;
+            }
+        }
+        // 0x50ef40(eax=C, ecx=node)
+        if(L.rd(C+0xc)==0){ if(!L.wr(C+0xc,node)||!L.wr(C+0x10,node)) return false; }
+        else {
+            if(!L.wr(L.rd(C+0x10)+0xc,node)) return false;
+            if(!L.wr(node+0x10,L.rd(C+0x10))) return false;
+            if(!L.wr(C+0x10,node)) return false;
+        }
+    }
+    if(L.bad) return false;
+    // 0x50fc79 re-reads the slot AFTER the LRU: refuse if an LRU write could
+    // touch it, so the value read below is the one already validated.
+    for(int i=0;i<L.n;i++) if(L.a[i]+4u>cell+4u && L.a[i]<cell+6u) return false;
+    const uint32_t tbl=ld(VA(RVA_TEXSLOTS));
+    {   // slot table [tbl, tbl + N*20), validated once per (tbl, count)
+        static uint32_t vTbl=0, vN=0; static bool vOk=false;
+        const uint32_t N=ld(C+4);
+        if(tbl!=vTbl || N!=vN){ vTbl=tbl; vN=N;
+            vOk = tbl>=0x10000u && N>0u && N<0x100000u && c.hostptr(tbl,N*20u)!=nullptr; }
+        const uint32_t at=tbl+(uint32_t)slot*20u-0x10u;
+        if(!(vOk && (uint32_t)slot<=N && at+4u<=tbl+N*20u) && !c.hostptr(at,4)) return false;
+    }
+    // ---- nothing below can refuse ------------------------------------------
+    for(int i=0;i<L.n;i++) st(L.a[i],L.v[i]);
+    const uint32_t start=ld(tbl+(uint32_t)slot*20u-0x10u);
+    const uint32_t tmu=ld(VA(RVA_TMU));
+    const uint32_t info=VA(RVA_TEXINFO);
+    const uint32_t ts[7]={tmu,0u,start,3u,ld(info+4),ld(info+8),ld(info+12)};
+    gr_state_native(c,D2GR_OP_TEXSOURCE,ts,7);
+    // 0x509460(ecx=tmu)
+    if(tmu!=ld(VA(RVA_LASTTMU))){
+        if(tmu==1u){ const uint32_t tc[7]={0,3,8,3,8,0,0}; gr_state_native(c,D2GR_OP_TEXCOMBINE,tc,7); }
+        else if(tmu==0u){ const uint32_t tc[7]={0,1,0,1,0,0,0}; gr_state_native(c,D2GR_OP_TEXCOMBINE,tc,7); }
+        st(VA(RVA_LASTTMU),tmu);
+    }
+    return true;
+}
+// Grid, vertices, the two strips: what follows the texture bind for a cell.
+static void finish_cell(Cpu& c){
+    const uint64_t t0 = g_prof ? now_us() : 0;
+    PH(PH_GRID);
+    cell_grid(c);
+    PH(PH_WVTX);
+    write_vtx(c);
+    PH(PH_DRAW);
+    const uint64_t t1 = g_prof ? now_us() : 0;
+    volatile uint32_t* H=nullptr; const uint8_t* R=nullptr; uint32_t sz=0;
+    gr_ring_view(&R,&sz,&H);
+    const uint32_t stride=H[12];
+    draw_strip(c,RVA_STRIP0,stride);
+    draw_strip(c,RVA_STRIP1,stride);
+    if(g_prof){ const uint64_t t2=now_us(); us_grid+=t1-t0; us_draw+=t2-t1; }
+    PH(PH_STEP);
+    S.drew=true; ++n_drawn; ++S.i;
+}
 static uint32_t step(Cpu& c, Bridge& br){
     while((int32_t)S.i < (int32_t)S.count){
         ++n_cells;
@@ -360,6 +509,13 @@ static uint32_t step(Cpu& c, Bridge& br){
         PH(PH_MID);
         cell_mid(c);
         PH(PH_STEP);
+        if(g_texNat){
+            PH(PH_TEX);
+            const bool nat=tex_native(c);
+            PH(PH_STEP);
+            if(nat){ ++n_tex_nat; finish_cell(c); continue; }
+            ++n_tex_guest;
+        }
         // 0x50fbd0(ecx = cell): guest code, returns into the continuation trap.
         st(S.E-4,g_trapCont);
         c.set_reg(R_ECX,S.cellptr);
@@ -374,21 +530,7 @@ static uint32_t step(Cpu& c, Bridge& br){
 }
 static uint32_t cont(Cpu& c, Bridge& br){
     if(!S.active){ d2_crashlog("F3 natif: continuation sans activation"); return c.reg(R_EAX); }
-    const uint64_t t0 = g_prof ? now_us() : 0;
-    PH(PH_GRID);
-    cell_grid(c);
-    PH(PH_WVTX);
-    write_vtx(c);
-    PH(PH_DRAW);
-    const uint64_t t1 = g_prof ? now_us() : 0;
-    volatile uint32_t* H=nullptr; const uint8_t* R=nullptr; uint32_t sz=0;
-    gr_ring_view(&R,&sz,&H);
-    const uint32_t stride=H[12];
-    draw_strip(c,RVA_STRIP0,stride);
-    draw_strip(c,RVA_STRIP1,stride);
-    if(g_prof){ const uint64_t t2=now_us(); us_grid+=t1-t0; us_draw+=t2-t1; }
-    PH(PH_STEP);
-    S.drew=true; ++n_drawn; ++S.i;
+    finish_cell(c);
     return step(c,br);
 }
 
@@ -449,9 +591,10 @@ static uint32_t verify_exit(Cpu& c, Bridge& br){
 
 void native_f3_install(Cpu* cpu, Bridge& br){
     const char* e=getenv("D2_F3NATIF");
-    g_mode = e ? atoi(e) : 0;
+    g_mode = e ? atoi(e) : 1;                  // default ON since 06/10/2026 (D2_F3NATIF=0 = translated F3)
     g_prof = getenv("D2_F3PROF") != nullptr;
     g_f3check = getenv("D2_F3CHECK") != nullptr;
+    { const char* t=getenv("D2_F3TEXNAT"); g_texNat = !(t && !strcmp(t,"0")); }
     if(g_mode<1 || g_mode>2 || !g_114 || !g_d2base) return;
     g_cpu=cpu;
     // The original must start with `push ebp; mov ebp,esp; sub esp,0x60`.
@@ -486,14 +629,17 @@ void native_f3_install(Cpu* cpu, Bridge& br){
     if(g_mode==1){ cpu->set_inline_shim(br.shim_trap("native.hook","f3")); cpu->set_inline_shim(g_trapCont);
         int on=0; unsigned long long st=0, sk=0; wx86_intrinline_counts(&on,&st,&sk);
         if(on) jpline("F3 natif: entree et continuation servies EN LIGNE (D2_INTRINLINE, %llu stubs en ligne au total, %llu laisses en sortie)",st,sk); }
-    jpline("F3 natif: ARME (%s) — Game+0x%x, texture en continuation, dessins ecrits par l'hote",
-           g_mode==2?"ORACLE, le jeu dessine":"sert",RVA_F3);
+    jpline("F3 natif: ARME (%s) — Game+0x%x, texture %s, dessins ecrits par l'hote",
+           g_mode==2?"ORACLE, le jeu dessine":"sert",RVA_F3,
+           g_texNat?"native si en cache (D2_F3TEXNAT), continuation sinon":"en continuation (D2_F3TEXNAT=0)");
 }
 
 void native_f3_line(){
     if(!g_mode) return;
     if(g_prof) jpline("f3prof: accept=%llu us coins+visibilite=%llu us grille=%llu us dessins=%llu us (cumules)",
         (unsigned long long)us_accept,(unsigned long long)us_front,(unsigned long long)us_grid,(unsigned long long)us_draw);
+    jpline("f3natif/texture: %s natives=%llu invite=%llu",g_texNat?"actif":"COUPE",
+        (unsigned long long)n_tex_nat,(unsigned long long)n_tex_guest);
     jpline("f3natif/bandes: directes=%llu generiques=%llu | controle D2_F3CHECK=%llu ecarts=%llu",
         (unsigned long long)n_draw_fast,(unsigned long long)n_draw_slow,(unsigned long long)n_chk,(unsigned long long)n_chk_bad);
     jpline("f3natif: appels=%llu servis=%llu cellules=%llu dessinees=%llu | replis type=%llu sub=%llu glide=%llu ring=%llu imbrique=%llu | oracle=%llu divergences=%llu cellules-comparees=%llu octets=%llu",

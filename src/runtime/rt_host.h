@@ -201,6 +201,8 @@ extern uint64_t g_parWIdlePro, g_parWIdleGap, g_parWIdleN;
 extern uint64_t g_lbServed, g_lbVerifN, g_lbRepli, g_lbCells, g_lbSplats, g_lbVerifBad;
 // NATIVELIGHTOCC (lightocc_build, Game+0x750f0), read by the [soak] dump.
 extern uint64_t g_loServed, g_loRepli, g_loCells, g_loSteps, g_loVerifN, g_loVerifBad;
+extern uint64_t g_ldiscServed, g_ldiscRepli, g_ldynServed, g_ldynRepli;   // NATIVELIGHTDISC / NATIVELIGHTDYN
+extern uint64_t g_ldiscVerifN, g_ldiscVerifBad, g_ldynVerifN, g_ldynVerifBad;
 // Small helpers called from native_hooks_cellengine.cpp; their private state
 // (burst counters, caller cache...) now lives in runtime/cell_frame_diag.cpp
 // (see that file's header), not in rt_boot.cpp — only the function is

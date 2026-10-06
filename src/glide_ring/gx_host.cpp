@@ -2706,6 +2706,35 @@ uint32_t gr_draw_native_hv(uint32_t mode, uint32_t count, const uint8_t* const* 
     ++g_ndCalls; g_ndBytes+=bytes;
     return g_grDataVA+off;
 }
+// ---- NATIVE STATE RECORD (F3 natif's texture bind) ------------------------
+// Byte-for-byte what the DLL's st_rec writes (glide3x_ring.c): the same dedup
+// decision against the DLL's own cache (published in the header as
+// state_va / state_magic), the same cache update, the same reservation
+// (gr_nd_alloc = ring_alloc). An older DLL publishes nothing: refused.
+static D2GRStateCache* g_grStc=nullptr;
+D2GRStateCache* gr_state_cache(d2rt::Cpu& c){
+    if(g_grStc) return g_grStc;
+    if(!g_grHdrHost || !g_grRingHost) return nullptr;
+    const volatile uint32_t* H=(const volatile uint32_t*)g_grHdrHost;
+    if(H[15]!=D2GR_STATE_MAGIC || !H[14]) return nullptr;
+    g_grStc=(D2GRStateCache*)c.hostptr(H[14],(uint32_t)sizeof(D2GRStateCache));
+    return g_grStc;
+}
+bool gr_state_native(d2rt::Cpu& c, uint32_t op, const uint32_t* a, uint32_t n){
+    D2GRStateCache* S=gr_state_cache(c);
+    if(!S || op>=D2GR_STC_OPS || n>8u) return false;
+    uint32_t i;
+    if(S->dedup && S->stcGen[op]==S->gen){
+        for(i=0;i<n;++i) if(S->stc[op][i]!=a[i]) break;
+        if(i==n){ ++S->drop; return true; }               // identical to the last write
+    }
+    uint32_t off=0; uint32_t* p=gr_nd_alloc(n+1u,&off);
+    if(!p) return true;                                   // dropped: cache unchanged, as the DLL
+    p[0]=D2GR_HDR(op,n+1u);
+    for(i=0;i<n;++i){ p[i+1]=a[i]; S->stc[op][i]=a[i]; }
+    S->stcGen[op]=S->gen;
+    return true;
+}
 bool gr_draw_intrinsic(d2rt::Cpu& c, uint32_t /*slot*/){
     const uint32_t esp=c.reg(d2rt::R_ESP);
     const uint32_t* a=(const uint32_t*)c.hostptr(esp,24);

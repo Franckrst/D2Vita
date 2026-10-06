@@ -1302,12 +1302,16 @@ int watchdog_thread(SceSize, void*) {
           // cumulative. A delta that never settles while the scene is static
           // is a sprite cache too small for the zone -- invisible before,
           // the [dcc] line only came out at shutdown.
+          // lumdisque= / lumdyn= <servis>/<replis>: NATIVELIGHTDISC (0x4748d0)
+          // and NATIVELIGHTDYN (0x474d70), same reason -- a bench pass is
+          // killed, never reaches the shutdown summary.
           std::snprintf(h, sizeof h,
-                        "hot: grille=%llu coll=%llu rle=%llu lum=%llu blend=%llu expl=%llu blit=%llu lent=%llu dcc=%llu/%llu ko=%llu",
+                        "hot: grille=%llu coll=%llu rle=%llu lum=%llu blend=%llu expl=%llu blit=%llu lent=%llu dcc=%llu/%llu ko=%llu lumdisque=%llu/%llu lumdyn=%llu/%llu",
                         d2rt_hot_stat(0), d2rt_hot_stat(1), d2rt_hot_stat(2),
                         d2rt_hot_stat(3), d2rt_hot_stat(4), d2rt_hot_stat(5),
                         d2rt_hot_stat(11), d2rt_hot_stat(13),
-                        d2rt_hot_stat(100), d2rt_hot_stat(101), d2rt_hot_stat(102) >> 10);
+                        d2rt_hot_stat(100), d2rt_hot_stat(101), d2rt_hot_stat(102) >> 10,
+                        d2rt_hot_stat(120), d2rt_hot_stat(121), d2rt_hot_stat(122), d2rt_hot_stat(123));
           d2vita_progress(h);
           // Per-core occupancy over the window, from the kernel's own idle
           // clocks. Every other line here is per-subsystem; none of them sums

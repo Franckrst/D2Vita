@@ -971,6 +971,72 @@ static uint32_t d2_light_fill(d2rt::Cpu& c, uint32_t GB, const uint8_t* grid,
 // Each cell used to pay for TWO hooked traps (0x463740 and 0x64cb30): 4608
 // traps per call, collapsed to a single one.
 // Returns the original's EAX: 0x900 on normal exit, 0 on abort.
+// Per-CALL room cache for d2_lightgrid_build. The 48x48 loop runs no guest
+// code (see D2RoomMemo), so every field a room search or a collision read
+// touches holds the same value for the whole call: reading each room's
+// bounds, neighbour list and collision chain ONCE, then answering from host
+// copies, gives the same bytes the per-cell guest reads would. The ~5 %
+// cells that leave the memoized room used to redo the full guest-memory
+// search (bounds of the room, then of each neighbour), and every cell paid a
+// checked hostptr() for its 16-bit collision word.
+struct D2GRoom {
+    uint32_t r;                          // guest VA
+    int32_t  x0,y0; uint32_t w,h;        // [r+0x4c..0x58]
+    uint32_t list, n; const uint32_t* lh;// neighbour list [r+0x00], count [r+0x24]
+    uint32_t sub, grid;                  // [r+0x20], [sub+0x20]
+    int32_t  f0,f1,f2;                   // [sub+0x00..0x08]
+    uint32_t gn; const uint16_t* gh;     // collision map extent / host view
+};
+struct D2GRooms { D2GRoom e[64]; int n=0; };
+static const D2GRoom* d2_groom(d2rt::Cpu& c, D2GRooms& C, uint32_t r){
+    for(int k=0;k<C.n;k++) if(C.e[k].r==r) return &C.e[k];
+    if(C.n>=(int)(sizeof C.e/sizeof C.e[0])) return nullptr;   // caller takes the guest path
+    D2GRoom& e=C.e[C.n++]; e=D2GRoom{}; e.r=r;
+    uint32_t b[4]; gread_n(c,r+0x4c,b,16);
+    e.x0=(int32_t)b[0]; e.y0=(int32_t)b[1]; e.w=b[2]; e.h=b[3];
+    e.list=c.read_u32(r+0x00); e.n=c.read_u32(r+0x24);
+    if(e.list && e.n && e.n<4096u) e.lh=(const uint32_t*)c.hostptr(e.list,e.n*4u);
+    const uint32_t sub=c.read_u32(r+0x20);
+    if(sub){
+        uint32_t f[4]; gread_n(c,sub+0x00,f,16);
+        e.sub=sub; e.f0=(int32_t)f[0]; e.f1=(int32_t)f[1]; e.f2=(int32_t)f[2];
+        e.grid=c.read_u32(sub+0x20);
+        const uint64_t gn=(uint64_t)f[2]*(uint64_t)f[3];
+        if(e.grid && gn && gn<(1u<<24)){ e.gn=(uint32_t)gn;
+            e.gh=(const uint16_t*)c.hostptr(e.grid,e.gn*2u); }
+    }
+    return &e;
+}
+static inline bool d2_groom_inside(const D2GRoom& e, int32_t x, int32_t y){
+    if(x<e.x0 || x >= (int32_t)((uint32_t)e.x0+e.w)) return false;
+    return y>=e.y0 && y < (int32_t)((uint32_t)e.y0+e.h);
+}
+// d2_room_at from the cache. Returns false if the cache is full (answer
+// unknown: the caller then asks d2_room_at itself).
+static bool d2_groom_at(d2rt::Cpu& c, D2GRooms& C, uint32_t room, int32_t x, int32_t y, uint32_t* out){
+    *out=0;
+    if(!room) return true;
+    const D2GRoom* b=d2_groom(c,C,room); if(!b) return false;
+    if(d2_groom_inside(*b,x,y)){ *out=room; return true; }
+    if(!b->list) return true;
+    for(uint32_t i=0;i<b->n;i++){
+        const uint32_t p=b->lh? b->lh[i] : c.read_u32(b->list+i*4u);
+        if(!p) continue;                           // the original skips gaps
+        const D2GRoom* q=d2_groom(c,C,p); if(!q) return false;
+        if(d2_groom_inside(*q,x,y)){ *out=p; return true; }
+    }
+    return true;
+}
+// d2_coll_in from the cache: same index, same 0x27 for a missing link; a
+// cell outside the known extent is read the guest's way.
+static inline uint32_t d2_groom_coll(d2rt::Cpu& c, const D2GRoom& e, int32_t x, int32_t y, uint32_t mask){
+    if(!e.sub || !e.grid) return 0x27u;
+    const int32_t idx=(y-e.f1)*e.f2-e.f0+x;
+    uint16_t v=0;
+    if(e.gh && idx>=0 && (uint32_t)idx<e.gn) v=e.gh[idx];
+    else gread_n(c,e.grid+(uint32_t)idx*2u,&v,2);
+    return (uint32_t)(uint16_t)(v & (uint16_t)mask);
+}
 static uint32_t d2_lightgrid_build(d2rt::Cpu& c, uint32_t GB, uint8_t* shadow=nullptr){
     uint32_t ctx=c.read_u32(GB+0x3a6a70);                  // 0x463dd0
     if(!ctx) return 0;
@@ -980,12 +1046,38 @@ static uint32_t d2_lightgrid_build(d2rt::Cpu& c, uint32_t GB, uint8_t* shadow=nu
     int32_t origy=(int32_t)c.read_u32(GB+0x3b0a58);
     uint32_t gbase=GB+0x3b0e68;
     uint8_t* g = shadow ? shadow : (uint8_t*)c.hostptr(gbase,48*48*8);
-    D2RoomMemo m;
+    static const bool cacheOn=!(getenv("D2_GRIDCACHE") && !strcmp(getenv("D2_GRIDCACHE"),"0"));
+    D2GRooms C;                                        // per CALL (see D2GRoom)
+    const D2GRoom* M=nullptr;                          // memoized room, cache path
+    D2RoomMemo m;                                      // memoized room, guest path
     for(int32_t row=0;row<48;row++){
         int32_t Y=(int32_t)((uint32_t)origy+(uint32_t)row);
         for(int32_t col=0;col<48;col++){
             int32_t X=(int32_t)((uint32_t)origx+(uint32_t)col);
             uint32_t v;
+            if(cacheOn){
+                // Same decisions as the guest path below, answered from the cache.
+                if(M && M->r==room && d2_groom_inside(*M,X,Y)){
+                    ++g_gridMemoHit;
+                    v=d2_groom_coll(c,*M,X,Y,0x22u);
+                    goto have_v;
+                }
+                ++g_gridMemoMiss;
+                uint32_t nr;
+                if(d2_groom_at(c,C,room,X,Y,&nr)){
+                    if(nr){ const D2GRoom* q=d2_groom(c,C,nr);
+                            if(q){ room=nr; M=q; v=d2_groom_coll(c,*q,X,Y,0x22u); goto have_v; } }
+                    else { room=d2_first_room(c,ctx); M=nullptr;
+                           uint32_t r2;
+                           if(d2_groom_at(c,C,room,X,Y,&r2)){
+                               const D2GRoom* q=r2?d2_groom(c,C,r2):nullptr;
+                               if(!r2){ v=0x27u; goto have_v; }
+                               if(q){ v=d2_groom_coll(c,*q,X,Y,0x22u); goto have_v; } }
+                           v=d2_coll_at(c,room,X,Y,0x22u); goto have_v; }
+                }
+                // Cache full: this cell takes the guest path, memo reset.
+                M=nullptr; m.r=0;
+            }
             // Fast path: same room as the previous cell. d2_room_at tests
             // `room` first anyway, so it would have returned `room` -- same
             // result, without the four constant reads.
@@ -1000,6 +1092,7 @@ static uint32_t d2_lightgrid_build(d2rt::Cpu& c, uint32_t GB, uint8_t* shadow=nu
                 else  { room=d2_first_room(c,ctx); m.r=0;        // the original starts over from the base room
                         v=d2_coll_at(c,room,X,Y,0x22u); }        // and redoes the search
             }
+        have_v:
             if((uint16_t)v){
                 uint32_t off=(uint32_t)((row*48+col)*8);
                 if(g){ g[off]=1; g[off+1]=0; g[off+2]=0; g[off+3]=0; }  // dword = 1
@@ -1317,6 +1410,40 @@ static inline uint32_t d2_lo_bufbytes(int32_t r){
     return s*s*4u;
 }
 
+// Phase 2 of Game+0x750f0, shared with Game+0x474d70 (NATIVELIGHTDYN): both
+// functions run the SAME eight sweeps (0x475207..0x475398 and
+// 0x474e33..0x474fc7: same constants 0x22/0x1e/0x14/-0xc/4, same argument
+// pairs in the same order, checked call by call on the disassembly).
+// Precondition R>=2 (both originals skip the sweeps below it).
+static void d2_lo_sweeps(d2rt::Cpu& c, uint32_t L, int32_t* lum, const int32_t* blk,
+                         int32_t* psx, int32_t* psy, int32_t* pfr, int32_t* pmd,
+                         int32_t R, int32_t cx8, int32_t cy8){
+    // 0x474b50 re-reads [L+0x10]/[L+0x14] on each of its calls; nothing in
+    // these loops writes the light object, so the two reads are hoisted.
+    const int32_t lx=(int32_t)c.read_u32(L+0x10), ly=(int32_t)c.read_u32(L+0x14);
+    for(int32_t i=0;i<=R-2;i++){
+        const int32_t A=cy8*8+20+8*i, C=cy8*8-12-8*i;    // Y of the horizontal sweeps
+        const int32_t Bx=cx8*8+20+8*i, D=cx8*8-12-8*i;   // X of the vertical sweeps
+        const int32_t rlo=30-i, rhi=34+i;
+        for(int32_t k=0;k<=2+i;k++){
+            const int32_t Fp=cx8*8+4+8*k, Fm=cx8*8+4-8*k;
+            const int32_t Ep=cy8*8+4+8*k, Em=cy8*8+4-8*k;
+            const int32_t clo=32-k, chi=32+k;
+            struct { int32_t ax,ay,row,col; } P[8]={
+                {Fm,C ,rlo,clo}, {Fp,C ,rlo,chi},        // 0x475288 / 0x4752a1
+                {Fm,A ,rhi,clo}, {Fp,A ,rhi,chi},        // 0x4752ba / 0x4752d3
+                {Bx,Em,clo,rhi}, {Bx,Ep,chi,rhi},        // 0x4752ec / 0x475305
+                {D ,Em,clo,rlo}, {D ,Ep,chi,rlo},        // 0x47531e / 0x475337
+            };
+            for(int q=0;q<8;q++){
+                d2_lo_setup(psx,psy,pfr,pmd,lx,ly,P[q].ax,P[q].ay);
+                d2_lo_step(lum,blk,*psx,*psy,*pfr,*pmd,P[q].row,P[q].col);
+            }
+            ++g_loSteps;          // COUNTED, not derived from a closed form
+        }
+    }
+}
+
 // Ported body of Game+0x750f0.
 //   S   host view of [0x7a8a48, +LO_SPAN) -- guest memory, or a COPY (oracle)
 //   B   host view of the light's buffer [L+0x30] -- guest memory, or a COPY
@@ -1413,32 +1540,7 @@ static int d2_lightocc_build(d2rt::Cpu& c, uint32_t GB, uint32_t L,
     // R-2 <= 29 and k at most 2+i <= 31, so row and col both stay inside
     // [1,63] and the largest index SAMPLED is 64*64+64 = LO_MAXIDX, while
     // every index WRITTEN stays inside [65,4095].
-    if(R>=2){
-        // 0x474b50 re-reads [L+0x10]/[L+0x14] on each of its calls; nothing in
-        // these loops writes the light object, so the two reads are hoisted.
-        const int32_t lx=(int32_t)c.read_u32(L+0x10), ly=(int32_t)c.read_u32(L+0x14);
-        for(int32_t i=0;i<=R-2;i++){
-            const int32_t A=cy8*8+20+8*i, C=cy8*8-12-8*i;    // Y of the horizontal sweeps
-            const int32_t Bx=cx8*8+20+8*i, D=cx8*8-12-8*i;   // X of the vertical sweeps
-            const int32_t rlo=30-i, rhi=34+i;
-            for(int32_t k=0;k<=2+i;k++){
-                const int32_t Fp=cx8*8+4+8*k, Fm=cx8*8+4-8*k;
-                const int32_t Ep=cy8*8+4+8*k, Em=cy8*8+4-8*k;
-                const int32_t clo=32-k, chi=32+k;
-                struct { int32_t ax,ay,row,col; } P[8]={
-                    {Fm,C ,rlo,clo}, {Fp,C ,rlo,chi},        // 0x475288 / 0x4752a1
-                    {Fm,A ,rhi,clo}, {Fp,A ,rhi,chi},        // 0x4752ba / 0x4752d3
-                    {Bx,Em,clo,rhi}, {Bx,Ep,chi,rhi},        // 0x4752ec / 0x475305
-                    {D ,Em,clo,rlo}, {D ,Ep,chi,rlo},        // 0x47531e / 0x475337
-                };
-                for(int q=0;q<8;q++){
-                    d2_lo_setup(psx,psy,pfr,pmd,lx,ly,P[q].ax,P[q].ay);
-                    d2_lo_step(lum,blk,*psx,*psy,*pfr,*pmd,P[q].row,P[q].col);
-                }
-                ++g_loSteps;          // COUNTED, not derived from a closed form
-            }
-        }
-    }
+    if(R>=2) d2_lo_sweeps(c,L,lum,blk,psx,psy,pfr,pmd,R,cx8,cy8);
 
     // phase 3 -- 0x4753bc..0x47540b. Source row (32-R), column (32-R), row
     // stride 64; the extent is (32-R)*65 + 2R*65 = 2080+65R <= 4095 for R<=31.
@@ -1447,6 +1549,160 @@ static int d2_lightocc_build(d2rt::Cpu& c, uint32_t GB, uint32_t L,
     for(int32_t row=0;row<n+1;row++, src+=64, dst+=n+1)
         std::memcpy(dst,src,(size_t)(n+1)*4u);
     return 2;
+}
+
+// ===========================================================================
+//  The two OTHER branches of the per-light pass 0x4755a0 (.\DRAW\dLightMap.cpp)
+// ===========================================================================
+// 0x4755a0 dispatches on the light's kind [L+0xc]:
+//   kind 2                 -> 0x4750f0 + 0x475420   (NATIVELIGHTOCC/NATIVELIGHTMAP)
+//   kind 0 and its arg > 1 -> 0x474d70              (NATIVELIGHTDYN, below)
+//   anything else          -> 0x4748d0(arg)         (NATIVELIGHTDISC, below)
+// The two ported ones only cover kind 2. Frozen Orb measured on console
+// (blksamp, Frigid Highlands, 05/10/2026): its missiles' lights take the other
+// two, ~7 % of the frame in 0x4748d0, 0x474d70 and their leaves 0x4740d0,
+// 0x4747c0, 0x474a70, 0x474b50, 0x474c00 -- none of which is called from
+// anywhere else except 0x4747c0 (0x475570, inside the already ported
+// 0x475420).
+// Both are called once per light per frame with ESI = the light, and their
+// only call sites (0x4756be, 0x475667) are followed by `pop edi/esi/ebp ;
+// ret 4`: EAX/ECX/EDX are dead there, as for the two ports above, so the
+// ports leave them unchanged. Both write ONLY: the grid bytes +4..+7 (through
+// 0x4747c0) and, for 0x474d70, the scratch span the 0x4750f0 port already
+// owns (LUM, BLOCKED, sx/sy/frac/mode).
+// Coordinates wider than 28 bits are refused: 0x4740d0 compares the two
+// |deltas| SIGNED where d2_lb_dist compares them unsigned, which only differs
+// for |delta| >= 2^31; refusing far below that keeps the two equal.
+uint64_t g_ldiscServed=0, g_ldiscRepli=0, g_ldynServed=0, g_ldynRepli=0;
+uint64_t g_ldiscVerifN=0, g_ldiscVerifBad=0, g_ldynVerifN=0, g_ldynVerifBad=0;
+static inline bool d2_ld_coord_ok(int32_t v){ return v > -(1<<28) && v < (1<<28); }
+
+// Ported body of Game+0x4748d0 (light disc without occlusion), `ret 4`.
+//   arg  = 0x4755a0's own argument, pushed by 0x4756bd
+//   g    = host view of the 48x48x8 grid -- guest memory, or a COPY (oracle)
+// Returns false = FAITHFUL FALLBACK (nothing written).
+static bool d2_lightdisc_apply(d2rt::Cpu& c, uint32_t GB, uint32_t L, uint32_t arg, uint8_t* g){
+    if(!g||!L) return false;
+    const int32_t r=(int32_t)c.read_u32(L+0x18);
+    if((uint32_t)(r-1)>0xfeu) return true;                     // 0x4748dd: ja -> ret
+    int32_t re=r;                                               // [ebp-4] / ebx
+    if(arg==0){
+        const uint32_t kind=c.read_u32(L+0x00);
+        if(kind==0u){                                           // 0x47490f
+            const uint32_t pl=c.read_u32(GB+0x3a6a70);          // 0x463de0: mov eax,[0x7a6a70]
+            const uint32_t pid=pl?c.read_u32(pl+0x0c):0xffffffffu;
+            if(c.read_u32(L+0x04)!=pid && re>=0x10) re=0x10;    // 0x474920..0x47492f
+        } else if(kind==1u) re=8;                               // 0x474908
+        else if(kind==3u) return true;                          // 0x474900 -> ret
+    }
+    const int32_t lx=(int32_t)c.read_u32(L+0x10), ly=(int32_t)c.read_u32(L+0x14);
+    if(!d2_ld_coord_ok(lx)||!d2_ld_coord_ok(ly)) return false;
+    const int32_t x0=lx-(int32_t)((uint32_t)lx&7u)-re;
+    const int32_t y0=ly-(int32_t)((uint32_t)ly&7u)-re;
+    const int32_t n=(re+re)>>3;                                 // lea ecx,[ebx+ebx] ; sar 3
+    const int32_t ox=(int32_t)c.read_u32(GB+0x3b0a54), oy=(int32_t)c.read_u32(GB+0x3b0a58);
+    const int32_t bx=(int32_t)c.read_u32(GB+0x3b0a5c), by=(int32_t)c.read_u32(GB+0x3b0a60);
+    if((x0>>3)>bx) return true;
+    if((x0>>3)+n+1<ox) return true;
+    if((y0>>3)>by) return true;
+    if((y0>>3)+n+1<oy) return true;
+    const int32_t step=(int32_t)((c.read_u32(L+0x24)&0xffu)<<16)/re;   // movzx+shl+cdq+idiv
+    if(n<0) return true;                                        // 0x4749aa
+    const uint32_t* recip=(const uint32_t*)c.hostptr(GB+0x3b0a68,256u*4u);
+    if(!recip) return false;
+    const uint32_t rgb=c.read_u32(L+0x24);
+    const uint32_t R=(rgb>>8)&0xffu, G=(rgb>>16)&0xffu, B=(rgb>>24)&0xffu;
+    const int32_t colored=(int32_t)c.read_u32(GB+0x312b8c);
+    const int32_t rows=n+1;
+    int32_t py=y0;
+    for(int32_t row=0;row<rows;row++,py+=8){
+        const int32_t dyv=ly-py, dy=(dyv<0)?-dyv:dyv;
+        int32_t px=x0;
+        for(int32_t col=0;col<rows;col++,px+=8){
+            const int32_t dxv=lx-px, dx=(dxv<0)?-dxv:dxv;
+            const int32_t a=((re-d2_lb_dist(dx,dy))*step)>>16; // 0x4749e9..0x4749ef
+            if(a<=0) continue;
+            d2_lb_splat(g,recip,px,py,a,R,G,B,ox,oy,colored);
+        }
+    }
+    g_lbCells+=(uint64_t)rows*(uint64_t)rows;
+    return true;
+}
+
+// Ported body of Game+0x474d70 (light disc with an occlusion field rebuilt
+// from the GRID, bare `ret`). Unlike 0x4750f0 it takes its blocking cells
+// from byte 0 of the light grid itself (0x474a70) and applies the disc
+// straight from the scratch field instead of the light's buffer.
+//   S  host view of [0x7a8a48, +LO_SPAN) -- guest memory, or a COPY (oracle)
+//   g  host view of the 48x48x8 grid      -- guest memory, or a COPY (oracle)
+// The scratch field is used IN PLACE, stale cells included: the original
+// clears only the first 0x1000 BYTES of LUM and fills only the (n+1)^2
+// sub-square of BLOCKED, then samples one row/column outside it.
+// Returns false = FAITHFUL FALLBACK (nothing written).
+static bool d2_lightdyn_apply(d2rt::Cpu& c, uint32_t GB, uint32_t L, uint8_t* S, uint8_t* g){
+    if(!S||!g||!L||((uintptr_t)S&3u)) return false;
+    const int32_t r=(int32_t)c.read_u32(L+0x18);
+    if(r<=0 || r>=0x100) return true;                           // 0x474d7b / 0x474d86
+    const int32_t lx=(int32_t)c.read_u32(L+0x10), ly=(int32_t)c.read_u32(L+0x14);
+    if(!d2_ld_coord_ok(lx)||!d2_ld_coord_ok(ly)) return false;
+    const int32_t x0=lx-(int32_t)((uint32_t)lx&7u)-r;
+    const int32_t y0=ly-(int32_t)((uint32_t)ly&7u)-r;
+    const int32_t n=(r+r)>>3;
+    const int32_t ox=(int32_t)c.read_u32(GB+0x3b0a54), oy=(int32_t)c.read_u32(GB+0x3b0a58);
+    const int32_t bx=(int32_t)c.read_u32(GB+0x3b0a5c), by=(int32_t)c.read_u32(GB+0x3b0a60);
+    if((x0>>3)>bx) return true;                                 // 0x474dc5
+    if((x0>>3)+n+1<ox) return true;
+    if((y0>>3)>by) return true;
+    if((y0>>3)+n+1<oy) return true;
+    const int32_t R=r>>3;
+    if(R>31) return false;                                      // unreachable (r<0x100)
+    const uint32_t* recip=(const uint32_t*)c.hostptr(GB+0x3b0a68,256u*4u);
+    if(!recip) return false;
+    // ---- nothing below can refuse ----------------------------------------
+    int32_t* const lum=(int32_t*)(S+LO_LUM);
+    int32_t* const blk=(int32_t*)(S+LO_GRID);
+    int32_t* const psx=(int32_t*)(S+LO_SX),  * const psy=(int32_t*)(S+LO_SY);
+    int32_t* const pfr=(int32_t*)(S+LO_FRAC),* const pmd=(int32_t*)(S+LO_MODE);
+    std::memset(lum,0,0x1000);                                  // 0x474e09, 0x1000 BYTES
+    // 0x474a70: BLOCKED sub-square, row/col (32-R), stride 64, from grid byte 0
+    // (1 outside the grid), shifted left by 4.
+    {
+        int32_t* dst=blk+(32-R)*65;
+        int32_t py=y0;
+        for(int32_t row=0;row<n+1;row++,dst+=64,py+=8){
+            const int32_t gy=(py>>3)-oy;
+            int32_t px=x0;
+            for(int32_t col=0;col<n+1;col++,px+=8){
+                const int32_t gx=(px>>3)-ox;
+                uint32_t v=1;
+                if(gx>=0 && gx<0x30 && gy>=0 && gy<0x30) v=g[(size_t)(gy*48+gx)*8u];
+                dst[col]=(int32_t)(v<<4);
+            }
+        }
+    }
+    if(R>=2) d2_lo_sweeps(c,L,lum,blk,psx,psy,pfr,pmd,R,lx>>3,ly>>3);
+    // 0x474fcd..0x4750d5: the disc, read in place from LUM.
+    const int32_t step=(int32_t)((c.read_u32(L+0x24)&0xffu)<<16)/r;
+    const uint32_t rgb=c.read_u32(L+0x24);
+    const uint32_t Rc=(rgb>>8)&0xffu, Gc=(rgb>>16)&0xffu, Bc=(rgb>>24)&0xffu;
+    const int32_t colored=(int32_t)c.read_u32(GB+0x312b8c);
+    const int32_t* src=lum+(32-R)*65;
+    int32_t py=y0;
+    for(int32_t row=0;row<n+1;row++,src+=64,py+=8){
+        const int32_t dyv=ly-py, dy=(dyv<0)?-dyv:dyv;
+        int32_t px=x0;
+        for(int32_t col=0;col<n+1;col++,px+=8){
+            const int32_t v=src[col];
+            if(v>=0x10) continue;                               // 0x475035: jge
+            const int32_t dxv=lx-px, dx=(dxv<0)?-dxv:dxv;
+            int32_t a=((r-d2_lb_dist(dx,dy))*step)>>16;
+            a=(a*(8-(v>>1)))>>3;
+            if(a<=0) continue;
+            d2_lb_splat(g,recip,px,py,a,Rc,Gc,Bc,ox,oy,colored);
+        }
+    }
+    g_loCells+=(uint64_t)(n+1)*(uint64_t)(n+1);
+    return true;
 }
 
 // --- cell RLE stream walker (Game+0x206d40), SINGLE source ------------------
@@ -2783,4 +3039,104 @@ void native_hooks_cellengine_install_rest(Cpu* cpu, Bridge& br){
             d2vita_progress("portage: champ d'occlusion de lumiere Game+0x750f0 ARMEE (NATIVELIGHTOCC)");
         }
     }
+
+    // ---- NATIVELIGHTDISC (Game+0x4748d0) and NATIVELIGHTDYN (Game+0x474d70) --
+    // The two branches of 0x4755a0 the ports above do not cover (see
+    // d2_lightdisc_apply). ON by default since 06/10/2026 (Frozen Orb bench,
+    // console, with F3 natif: 23.7 -> 24.7 fps); NATIVELIGHTDISC=0 /
+    // NATIVELIGHTDYN=0 disable. D2_LIGHTDISCVERIFY /
+    // D2_LIGHTDYNVERIFY = cross oracle: the native body runs on COPIES, the
+    // guest then runs its own body, and every byte it wrote is compared.
+    // Same entry `alternate` mechanism as NATIVELIGHTOCC, same faithful
+    // fallback (`push ebp` replayed, resume at entry+1).
+    auto light_alt=[&](const char* knob, const char* verifyKnob, uint32_t rva,
+                       const uint8_t* sig, size_t sigN, uint32_t callSite,
+                       const char* tag, const char* tagExit, bool disc){
+        const char* e=getenv(knob);
+        if(!(g_114 && g_d2base) || (e && !strcmp(e,"0"))) return;   // default ON, =0 disables
+        const uint32_t GB=g_d2base, entry=GB+rva;
+        uint8_t got[32]={0}; cpu->read(entry,got,(uint32_t)sigN);
+        uint8_t cs[5]={0}; cpu->read(GB+callSite,cs,5);
+        int32_t rel; std::memcpy(&rel,cs+1,4);
+        if(memcmp(got,sig,sigN) || cs[0]!=0xe8 || GB+callSite+5u+(uint32_t)rel!=entry){
+            jpline("%s: REFUS — Game+0x%x ou son appel Game+0x%x inattendu",knob,rva,callSite); return; }
+        struct St { uint32_t entry=0, exit=0, ra=0; bool armed=false;
+                    std::vector<uint8_t> expS, expG; };
+        static St st[2]; St& T=st[disc?0:1]; T.entry=entry;
+        const uint32_t GRID=48u*48u*8u;
+        uint64_t* vN  = disc?&g_ldiscVerifN:&g_ldynVerifN;
+        uint64_t* vBad= disc?&g_ldiscVerifBad:&g_ldynVerifBad;
+        uint64_t* srv = disc?&g_ldiscServed:&g_ldynServed;
+        uint64_t* rep = disc?&g_ldiscRepli:&g_ldynRepli;
+        { Shim x; x.argc=0; x.stdcall_cleanup=false; x.tag=tagExit;
+          x.fn=[GB,GRID,disc,&T,vN,vBad,knob,&br](Cpu&c)->uint32_t{
+            const uint32_t eax=c.reg(R_EAX);
+            if(T.armed){ T.armed=false; ++*vN;
+                std::vector<uint8_t> gg(GRID); c.read(GB+0x3b0e68,gg.data(),GRID);
+                uint32_t badG=0, badS=0; int fG=-1, fS=-1;
+                for(uint32_t i=0;i<GRID;i++) if(gg[i]!=T.expG[i]){ if(fG<0) fG=(int)i; ++badG; }
+                if(!disc){
+                    std::vector<uint8_t> ss((size_t)LO_SPAN); c.read(GB+0x3a8a48,ss.data(),(uint32_t)LO_SPAN);
+                    for(uint32_t i=0;i<(uint32_t)LO_SPAN;i++) if(ss[i]!=T.expS[i]){ if(fS<0) fS=(int)i; ++badS; }
+                }
+                if((badG||badS) && ++*vBad<=12)
+                    jpline("[%s verif] appel #%llu : grille %u octets differents (1er +0x%x) | champ %u (1er +0x%x)",
+                           knob,(unsigned long long)*vN,badG,(unsigned)(fG<0?0:fG),badS,(unsigned)(fS<0?0:fS));
+                if(!(*vN%500)) jpline("[%s verif] %llu appels compares, %llu divergences",
+                                      knob,(unsigned long long)*vN,(unsigned long long)*vBad);
+                br.redirect_next(T.ra); }
+            c.set_reg(R_ESP,c.reg(R_ESP)-4);           // the bridge pops: compensate
+            return eax; };
+          br.register_shim("native.hook",tagExit,x);
+          T.exit=br.shim_trap("native.hook",tagExit); }
+        Shim s; s.argc=0; s.stdcall_cleanup=false; s.tag=tag;
+        s.fn=[GB,GRID,disc,&T,srv,rep,verifyKnob,&br](Cpu&c)->uint32_t{
+            static const bool verify=getenv(verifyKnob)!=nullptr;
+            const uint32_t E=c.reg(R_ESP), L=c.reg(R_ESI);
+            const uint32_t arg=disc?c.read_u32(E+4):0u;
+            auto repli=[&]()->uint32_t{
+                c.write_u32(E-4,c.reg(R_EBP)); c.set_reg(R_ESP,E-8);
+                br.redirect_next(T.entry+1); return c.reg(R_EAX); };
+            if(verify){
+                if(T.armed) return repli();            // never nested: one comparison at a time
+                T.expG.assign(GRID,0);
+                bool ok=c.read(GB+0x3b0e68,T.expG.data(),GRID);
+                if(ok && !disc){ T.expS.assign((size_t)LO_SPAN,0);
+                    ok=c.read(GB+0x3a8a48,T.expS.data(),(uint32_t)LO_SPAN); }
+                if(ok && (disc? d2_lightdisc_apply(c,GB,L,arg,T.expG.data())
+                              : d2_lightdyn_apply(c,GB,L,T.expS.data(),T.expG.data()))){
+                    T.armed=true; T.ra=c.read_u32(E); c.write_u32(E,T.exit); }
+                return repli(); }
+            uint8_t* g=(uint8_t*)c.hostptr(GB+0x3b0e68,GRID);
+            bool ok;
+            if(disc) ok=d2_lightdisc_apply(c,GB,L,arg,g);
+            else { uint8_t* S=(uint8_t*)c.hostptr(GB+0x3a8a48,(uint32_t)LO_SPAN);
+                   ok=d2_lightdyn_apply(c,GB,L,S,g); }
+            if(!ok){ ++*rep; return repli(); }
+            ++*srv;
+            const uint32_t ra=c.read_u32(E);
+            // The return is explicit for both, so the trap path and the
+            // in-line path (which also pops 4) leave the same ESP/EIP.
+            if(disc) c.set_reg(R_ESP,E+4);             // ret 4 (+4 popped on the way out)
+            br.redirect_next(ra);                      // bare `ret`: ESP as is, +4 popped
+            return c.reg(R_EAX); };
+        br.register_shim("native.hook",tag,s);
+        cpu->set_alternate(entry,br.shim_trap("native.hook",tag));
+        // Served IN LINE from translated code when not auditing (D2_INTRINLINE,
+        // like F3 natif): the body never blocks and never calls the guest, so
+        // the ~40 calls per frame need not leave DynaRun. The oracle keeps the
+        // trap: it rewrites the return address.
+        const bool inl=!getenv(verifyKnob);
+        if(inl) cpu->set_inline_shim(br.shim_trap("native.hook",tag));
+        jpline("portage: lumiere Game+0x%x ARMEE (%s)%s%s",rva,knob,getenv(verifyKnob)?" + oracle croise":"",
+               inl?", servi en ligne":"");
+    };
+    static const uint8_t sigDisc[]={0x55,0x8b,0xec,0x83,0xec,0x18,0x53,0x8b,0x5e,0x18,
+                                    0x8d,0x43,0xff,0x3d,0xfe,0x00,0x00,0x00};
+    static const uint8_t sigDyn[] ={0x55,0x8b,0xec,0x8b,0x46,0x18,0x83,0xec,0x44,0x85,0xc0,
+                                    0x0f,0x8e,0x5c,0x03,0x00,0x00,0x3d,0x00,0x01,0x00,0x00};
+    light_alt("NATIVELIGHTDISC","D2_LIGHTDISCVERIFY",0x748d0,sigDisc,sizeof sigDisc,0x756be,
+              "native!d2_lightdisc_114","native!d2_lightdisc_verify_exit",true);
+    light_alt("NATIVELIGHTDYN","D2_LIGHTDYNVERIFY",0x74d70,sigDyn,sizeof sigDyn,0x75667,
+              "native!d2_lightdyn_114","native!d2_lightdyn_verify_exit",false);
 }

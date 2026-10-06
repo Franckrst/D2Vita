@@ -94,6 +94,14 @@ static PFN_DRAW  d2vGlideDraw = 0;   /* set only when the host also asks for it 
 
 /* ---- the ring lives in THIS DLL's .bss: i.e. in GUEST memory ------------- */
 static D2GRHeader g_hdr;
+/* One struct (glide_ring.h, D2GRStateCache) whose address is published in the
+ * header: the host writes some state records itself (F3 natif's texture
+ * bind) and must take the SAME dedup decision and update the SAME cache. */
+static D2GRStateCache g_st = { {{0}}, {0}, 1, 0, 0, 0, 0 };
+#define g_stc     (g_st.stc)
+#define g_stcGen  (g_st.stcGen)
+#define g_gen     (g_st.gen)
+#define g_stcDrop (g_st.drop)
 static unsigned char g_ring[D2GR_RING_BYTES];
 static D2GRConfig  g_cfg;
 static int         g_ready = 0;
@@ -101,6 +109,8 @@ static unsigned int g_frame = 0;
 static unsigned int g_vtxSize = 64;   /* derived from grVertexLayout */
 
 FXAPI grDrawVertexArray(unsigned int mode,unsigned int count,void* pointers);   /* address published in the header */
+FXAPI grTexSource(unsigned int tmu,unsigned int startAddress,unsigned int evenOdd,unsigned int* info);
+FXAPI grTexCombine(unsigned int a,unsigned int b,unsigned int c,unsigned int d,unsigned int e,unsigned int f,unsigned int g);
 static void ring_boot(void)
 {
     if (g_ready) return;
@@ -126,6 +136,11 @@ static void ring_boot(void)
     }
     g_ready = 1;                            /* set BEFORE the call: ring_boot is reentrant */
     if (d2vGlideInit) d2vGlideInit(&g_hdr, &g_cfg);   /* CROSSING #1, once only */
+    g_st.dedup = g_cfg.dedup;
+    g_st.fn_texsource  = (unsigned int)grTexSource;
+    g_st.fn_texcombine = (unsigned int)grTexCombine;
+    g_hdr.state_va = (unsigned int)&g_st;
+    g_hdr.state_magic = D2GR_STATE_MAGIC;
     /* natdraw 0: translated path. 3: translated path, every record re-checked
      * (the oracle of the rep-movs copy). Otherwise the host serializes. */
     if (!g_cfg.natdraw || g_cfg.natdraw == 3) d2vGlideDraw = 0;
@@ -205,11 +220,7 @@ static unsigned int* ring_alloc(unsigned int words)
  *     stream.
  * This only changes the SEQUENCE of records (the ring's `h=`), never what the
  * host does with them (`lh=` batching, GPU-half oracle). */
-#define D2GR_STC_OPS 0x30
-static unsigned int g_stc[D2GR_STC_OPS][8];       /* last written arguments, per op */
-static unsigned int g_stcGen[D2GR_STC_OPS];       /* generation they were written in */
-static unsigned int g_gen = 1;                    /* current generation (>= 1) */
-static unsigned int g_stcDrop = 0;                /* records skipped (diagnostic) */
+/* (state cache: g_st, defined next to g_hdr) */
 
 static void st_rec(unsigned int op, const unsigned int* a, unsigned int n)
 {

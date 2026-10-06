@@ -60,8 +60,27 @@ typedef struct {
                                         * (g_vtxSize), the stride grDrawVertexArray records use */
     uint32_t fn_drawva;                /* written by the GUEST once: VA of its grDrawVertexArray,
                                         * so the host can check the game's Glide table points at it */
-    uint32_t reserved[2];
+    uint32_t state_va;                 /* written by the GUEST once: VA of its D2GRStateCache (the
+                                        * state-dedup cache), so the host can write a state record
+                                        * exactly as the DLL would. 0 = older DLL: host must not. */
+    uint32_t state_magic;              /* D2GR_STATE_MAGIC when state_va is valid */
 } D2GRHeader;
+
+/* The DLL's state-deduplication cache (glide3x_ring.c, st_rec), published so
+ * the host can serialize a state call natively with the SAME dedup decision
+ * and the same cache update (F3 natif's texture bind, native_f3_114.cpp).
+ * Single writer at a time: the game thread, under the GIL. */
+#define D2GR_STC_OPS     0x30
+#define D2GR_STATE_MAGIC 0x53544331u   /* 'STC1' */
+typedef struct D2GRStateCache {
+    uint32_t stc[D2GR_STC_OPS][8];     /* last written arguments, per op */
+    uint32_t stcGen[D2GR_STC_OPS];     /* generation they were written in */
+    uint32_t gen;                      /* current generation (>= 1) */
+    uint32_t drop;                     /* records skipped (diagnostic) */
+    uint32_t dedup;                    /* copy of the config: 1 = dedup active */
+    uint32_t fn_texsource;             /* VA of the DLL's grTexSource */
+    uint32_t fn_texcombine;            /* VA of the DLL's grTexCombine */
+} D2GRStateCache;
 
 /* ---- Opcodes ------------------------------------------------------------- *
  * Rule: one op per Glide call that changes STATE or issues a DRAW. Calls with

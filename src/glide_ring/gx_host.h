@@ -6,6 +6,7 @@
 #pragma once
 #include <cstdint>
 namespace d2rt { struct Cpu; }
+struct D2GRStateCache;   // glide_ring.h
 
 #define D2GR_MAGIC_H 0x52473244u
 
@@ -29,6 +30,11 @@ void gr_tex_upload_count(uint64_t nb);
 // gr_draw_intrinsic serves the same call without a Bridge crossing.
 uint32_t gr_draw_native(d2rt::Cpu& c, uint32_t op, uint32_t mode, uint32_t count, uint32_t src, uint32_t stride);
 uint32_t gr_draw_native_hv(uint32_t mode, uint32_t count, const uint8_t* const* hv, uint32_t stride);
+// Native state record with the DLL's own dedup (see gx_host.cpp). False =
+// not available (older DLL, ring not armed): the caller must let the guest
+// make the Glide call.
+D2GRStateCache* gr_state_cache(d2rt::Cpu& c);
+bool gr_state_native(d2rt::Cpu& c, uint32_t op, const uint32_t* a, uint32_t n);
 bool gr_draw_intrinsic(d2rt::Cpu& c, uint32_t slot);
 // Texture identity on the host is (tmu, startAddress): with GR_NUM_TMU >= 2
 // the game keeps caches on both TMUs and their address ranges start at 0.

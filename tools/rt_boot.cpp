@@ -1388,6 +1388,8 @@ extern "C" unsigned long long d2rt_hot_stat(int which){
         case 88: return g_ovlHit;      case 89: return g_ovlDiff;
         case 90: return g_ovlSelf;     case 91: return g_ovlNoMap;
         case 72: return d2rt::scomp_flat_calls();     // flat wrapper 0x415240
+        case 120: return g_ldiscServed; case 121: return g_ldiscRepli;   // NATIVELIGHTDISC
+        case 122: return g_ldynServed;  case 123: return g_ldynRepli;    // NATIVELIGHTDYN
         case 73: return d2rt::scomp_flat_threads();   // >1 = broken residual chain
         case 74: return d2rt::scomp_flat_maxout();
         default: return 0; } }
@@ -4034,7 +4036,8 @@ int main(int argc,char**argv){
           gr_flush(c,c.arg(0),pp_flush_begin);   // D2_GRPROF benchmark, flush timing, pp_flush_begin (D2_PHASEPROF), gr_replay, tail/stalls/dropped
           pp_flush_end();
           online_cap_wait(online_cap_period_us());   // D2_ONLINE_CAP: see the comment at its definition site
-          ++g_frame; lw_frame(c); pp_frame(); fp_owner(&c); fp_tick(g_frame); ep_tick(g_frame); cmd_poll(); frameTick(c);   // lw_frame: D2_LOOPWATCH also sees the ring path
+          ++g_frame; lw_frame(c); pp_frame(); fp_owner(&c); fp_tick(g_frame); ep_tick(g_frame); cmd_poll(); frameTick(c);
+          if(g_nocapFrom && !g_nocapDone && (uint32_t)g_frame>=g_nocapFrom) nocap_apply();   // D2_NOCAP_FROM on the ring path too (it was GDI-only)   // lw_frame: D2_LOOPWATCH also sees the ring path
 #ifdef D2V_CRASHTEST
           d2crashtest_tick(c, br, g_frame);
 #endif
@@ -5863,6 +5866,11 @@ int main(int argc,char**argv){
                 char m[240]; std::snprintf(m,sizeof m,"[lightocc] natif: servis=%llu replis=%llu cases=%llu pas=%llu | oracle: compares=%llu divergences=%llu",
                         (unsigned long long)g_loServed,(unsigned long long)g_loRepli,(unsigned long long)g_loCells,
                         (unsigned long long)g_loSteps,(unsigned long long)g_loVerifN,(unsigned long long)g_loVerifBad);
+                std::printf("  %s\n",m); d2vita_progress(m); }
+            if(g_ldiscServed||g_ldiscRepli||g_ldiscVerifN||g_ldynServed||g_ldynRepli||g_ldynVerifN){
+                char m[240]; std::snprintf(m,sizeof m,"[lightdisc/dyn] natif: disque servis=%llu replis=%llu | dyn servis=%llu replis=%llu | oracle: disque %llu/%llu dyn %llu/%llu",
+                        (unsigned long long)g_ldiscServed,(unsigned long long)g_ldiscRepli,(unsigned long long)g_ldynServed,(unsigned long long)g_ldynRepli,
+                        (unsigned long long)g_ldiscVerifN,(unsigned long long)g_ldiscVerifBad,(unsigned long long)g_ldynVerifN,(unsigned long long)g_ldynVerifBad);
                 std::printf("  %s\n",m); d2vita_progress(m); }
             if(g_fbHashN) std::printf("  [fbhash] frames hachees=%llu  empreinte=0x%016llx\n",
                         (unsigned long long)g_fbHashN,(unsigned long long)g_fbHash);
