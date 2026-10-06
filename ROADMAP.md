@@ -47,9 +47,25 @@ the source of truth for the public repository.
       passes): trap round trips for intrinsics served in line from the
       translated code (`D2_INTRINLINE`), the ring DLL's per-vertex copy in
       line, 32 KiB read-ahead on a seek. Native F3 optimized and served in
-      line takes another ~1.25 ms but stays opt-in (`D2_F3NATIF=1`).
+      line takes another ~1.25 ms (opt-in then; default since 2026-10-06,
+      see below).
       New measurement flavour `D2VPK_BLKSAMP=1` gives the first reliable
       time-per-function profile (`tools/bancs/blksamp_fonctions.py`).
+- [x] Heavy-missile frames (2026-10-06, console, new Frozen Orb bench
+      `tools/bancs/orbe_givre.sh`: a level-99 Sorceress casting Frozen Orb
+      non-stop in the Frigid Highlands, 2 interleaved passes per variant):
+      22.3 → 24.7 fps, game cap 25, then ~3.2 ms of free time per frame
+      instead of none (core 0 97 % → 90 %). Now default: native F3
+      (`D2_F3NATIF`, the Perspective floor tiles), the two light branches
+      missiles use (`NATIVELIGHTDISC`, `NATIVELIGHTDYN`, Game+0x4748d0 /
+      0x474d70), a per-call room cache in the light-grid rebuild
+      (`D2_GRIDCACHE`), and F3's texture bind served natively when the
+      texture is resident (`D2_F3TEXNAT`, Game+0x50fbd0; needs the new
+      `glide3x.dll`, which publishes its state-dedup cache in the ring
+      header). Proof: console cross-oracles 133 000 + 14 000 light calls,
+      0 divergence; qemu ring fingerprint (every record, states included)
+      identical with and without, sabotage detected. Each knob `=0` turns
+      its part off. Not re-measured on the Act V patrol.
 - [x] Act V stutter fixed (2026-09-28): the engine-side 25 Hz online frame
       cap (`D2_ONLINE_CAP`) armed whenever `D2NET` was set — i.e. in solo
       too. Solo D2 already draws exactly once per 40 ms simulation step; the
