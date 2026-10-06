@@ -78,6 +78,26 @@ tools/bancs/patrouille_acte5.sh nd0_a D2_GLNATDRAW=0     # même passe, un knob 
 - **`env.txt` du joueur.** Le script le sauvegarde (`build-vita/bancs/acte5/env_joueur_console.txt`, sauf s'il contient déjà un `D2SCRIPT=`, c'est-à-dire un env de banc resté d'une passe interrompue) et le **remet en place à la sortie**, quelle qu'en soit la cause.
 - **Passes rejetées.** Leur journal est renommé `bp_<LAB>_rejetee1.txt` (première tentative) ou `bp_<LAB>_rejetee.txt` (échec final) : un nom de passe valide ne désigne jamais une passe non mesurée.
 
+## 1ter. L'Orbe de givre en continu — `orbe_givre.sh`
+
+Le scénario de charge « missiles » : une sorcière niveau 99 prend le waypoint d'Harrogath jusqu'aux Hauts plateaux glacés et lance l'**Orbe de givre** sans arrêt, clic droit maintenu (D2 relance un sort tenu). Chaque orbe et chacun de ses éclats porte une lumière : c'est le banc des lumières dynamiques et du rendu des missiles, que la patrouille de l'acte V n'exerce presque pas.
+
+```bash
+tools/bancs/orbe_givre.sh orbe_1                     # une passe mesurée
+tools/bancs/orbe_givre.sh f3_1 D2_F3NATIF=1          # un knob changé
+EXPLORE=1 tools/bancs/orbe_givre.sh explo1           # calibration : captures à chaque étape
+```
+
+- **La sauvegarde** (`Givre`, hors git) est fabriquée par `gen_save_orbe.py` depuis la copie de banc de l'acte V (`acte5/save_banc_ref/jujd.d2s`) : classe Sorcière, niveau 99, énergie 1000, mana 8191, Orbe de givre 20 sur le clic droit, Chaleur 20 (le mana se régénère plus vite qu'il ne se dépense), tous les waypoints. Quêtes et objets restent ceux du joueur. Elle vit dans `build-vita/bancs/orbe/save_orbe_ref/` et est restaurée dans `ux0:data/d2vita/save_orbe/` avant chaque passe (automap effacée).
+- **Le trajet** (`gen_orbe_givre.py`) a été **joué à la main sur la console et enregistré** (`D2_RECORD=1`, voir plus bas) : escalier, waypoint, ligne « Frigid Highlands ». Il est rejoué décalé pour commencer à l'image 2600, comme la patrouille.
+- **Contrôles** : captures à l'image 2499 (apparition) et juste avant les lancers (arrivée au waypoint), comparées à `ref_apparition.png` / `ref_arrivee.png` (créées par la première passe valide). Une passe arrivée ailleurs est relancée une fois, puis déclarée en ÉCHEC. Pas de contrôle de fin : les monstres arrivent et meurent à leur rythme.
+- **Mesure** : fps sur les images 3662–6662 (~2 min de lancers), plus le minimum et le maximum par battement de 10 s, c0 médian, `run=` médian.
+- **Dispersion mesurée** (05/10/2026) : 0,1 % entre deux passes en 0.1.20, mais 2,6 % entre deux passes de référence plus tard dans la soirée. Les monstres ne sont pas déterministes : une variante se juge sur 2 passes ou plus, entrelacées, et un écart inférieur à ~3 % n'est pas un résultat.
+
+### Enregistrer un trajet joué à la main — `D2_RECORD=1`
+
+Avec `D2_RECORD=1` dans `env.txt`, chaque entrée physique (pavé tactile, boutons, sticks) part dans le journal sous la forme `[rec] <image>:<action>:<x>:<y>`, c'est-à-dire un événement D2SCRIPT. Les déplacements du curseur ne sont écrits qu'à la dernière position avant un bouton ou une touche. Jouer au **pavé tactile** : un toucher bref est un clic à une position exacte, rejouable ; le stick gauche maintient un clic dont le curseur tourne, ce qui ne se rejoue pas tel quel.
+
 ### Les à-coups, pas seulement le fps — `a_coups.py`
 
 À ~24 img/s le fps moyen touche le plafond de 25 du jeu et ne bouge presque plus. Ce qui se voit, ce sont les images lentes.

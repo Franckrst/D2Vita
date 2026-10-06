@@ -171,9 +171,25 @@ void inj_queue(const std::string& act,int a,int b){
 // Physical-controls bridge (Vita): vita_present's input layer synthesizes the
 // same mouse/keyboard events as D2SCRIPT through this C export; the per-frame
 // tick is weak so the qemu build (no vita_present) links unchanged.
-extern "C" void d2vita_inject(const char* act, int a, int b){ if(act) inj_queue(act, a, b); }
+// D2_RECORD=1: every physical input (d2vita_inject, the path the pad and the
+// touch screen take) goes to the boot log as "[rec] frame:act:a:b" — a
+// D2SCRIPT event, to replay a route played by hand (tools/bancs/rec2script.py
+// turns the lines into a D2SCRIPT). Cursor moves are only written as the last
+// position before a button or key event: the stream of a stick is not a route.
+static int g_recFrame=0;
+static void rec_input(const char* act, int a, int b){
+    static int on=-1; if(on<0) on=getenv("D2_RECORD")?1:0;
+    if(!on) return;
+    static bool mv=false; static int mx=0,my=0;
+    if(!std::strcmp(act,"move")){ mv=true; mx=a; my=b; return; }
+    if(!std::strcmp(act,"pada")||!std::strcmp(act,"padb")) return;
+    if(mv){ jpline("[rec] %d:move:%d:%d", g_recFrame, mx, my); mv=false; }
+    jpline("[rec] %d:%s:%d:%d", g_recFrame, act, a, b);
+}
+extern "C" void d2vita_inject(const char* act, int a, int b){ if(act){ rec_input(act, a, b); inj_queue(act, a, b); } }
 unsigned long inj_count(){ return (unsigned long)g_inj.size(); }
 void inj_tick(int frame){
+    g_recFrame=frame;
     while(g_injIx<g_inj.size() && g_inj[g_injIx].frame<=frame){
         InjEv& e=g_inj[g_injIx++];
         std::printf("  [inj] frame %d: %s %d %d\n",frame,e.act.c_str(),e.a,e.b); std::fflush(stdout);
