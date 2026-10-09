@@ -4,6 +4,31 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.2.1 — 2026-10-09
+
+Stable release of the 0.2.1 betas (0.2.1-beta and 0.2.1-beta2; details in
+their entries below). No change since 0.2.1-beta2.
+
+- **Smoother heavy spell scenes.** Frozen Orb spam went from ~22 fps to the
+  game's 25 fps cap on a real console, with ~3 ms of headroom left per
+  frame: the Perspective floor tiles, missile lighting, the light-grid
+  rebuild and the floor texture bind now run natively. Each part can be
+  turned off in `env.txt` (`D2_F3NATIF=0`, `NATIVELIGHTDISC=0`,
+  `NATIVELIGHTDYN=0`, `D2_GRIDCACHE=0`, `D2_F3TEXNAT=0`).
+- **The music volume is kept** between launches. If yours is at 0, set it
+  once more in Options → Sound.
+- **An old kubridge (before 0.3) no longer crashes the game at startup**: a
+  "TOO OLD" notice is shown and the game runs without it.
+- **Settings panel** on the title screen (formerly "Controls"): a new
+  **Game** tab for the main `env.txt` options, applied at the next launch.
+
+Install the whole VPK (it ships the `glide3x.dll` the texture speed-up
+needs). Validation: performance measured on console on the Frozen Orb bench
+only (the Act V patrol was not re-run); music fix checked on console; the
+kubridge check confirmed on console with kubridge 0.3.1, the old-kubridge
+case taken from a player's crash dump; the Settings "Game" tab is tested on
+the host only.
+
 ## v0.2.1-beta2 — 2026-10-06
 
 Two fixes on top of 0.2.1-beta:

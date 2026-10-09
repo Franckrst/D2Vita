@@ -5,6 +5,34 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.2.1 — 2026-10-09
+
+Version stable des bêtas 0.2.1 (0.2.1-beta et 0.2.1-beta2 ; détails dans
+leurs entrées ci-dessous). Aucun changement depuis la 0.2.1-beta2.
+
+- **Scènes de sorts chargées plus fluides.** L'Orbe de givre en continu passe
+  de ~22 img/s au plafond du jeu, 25 img/s, sur console réelle, avec ~3 ms
+  de marge par image : les dalles de sol Perspective, l'éclairage des
+  missiles, la reconstruction de la grille de lumière et la liaison des
+  textures du sol tournent en natif. Chaque partie se coupe dans `env.txt`
+  (`D2_F3NATIF=0`, `NATIVELIGHTDISC=0`, `NATIVELIGHTDYN=0`,
+  `D2_GRIDCACHE=0`, `D2_F3TEXNAT=0`).
+- **Le volume de la musique est conservé** d'un lancement à l'autre. S'il est
+  à 0 chez vous, réglez-le une dernière fois dans Options → Son.
+- **Un kubridge ancien (avant 0.3) ne fait plus planter le jeu au
+  démarrage** : un avis « TOO OLD » s'affiche et le jeu tourne sans lui.
+- **Panneau Settings** de l'écran-titre (anciennement « Controls ») : un
+  nouvel onglet **Game** pour les principales options de `env.txt`,
+  appliquées au lancement suivant.
+
+Installer le VPK complet (il contient le `glide3x.dll` dont l'accélération
+des textures a besoin). Validation : performances mesurées sur console sur
+le banc Orbe de givre uniquement (la patrouille de l'acte V n'a pas été
+repassée) ; correction du volume vérifiée sur console ; détection de
+kubridge confirmée sur console avec kubridge 0.3.1, le cas d'un kubridge
+ancien venant du dump d'un joueur ; l'onglet « Game » est testé côté hôte
+seulement.
+
 ## v0.2.1-beta2 — 2026-10-06
 
 Deux corrections par-dessus la 0.2.1-beta :
