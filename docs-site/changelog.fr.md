@@ -5,6 +5,25 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.2.2-beta — 2026-10-15
+
+- **Plus de marge dans les combats chargés.** Les verrous et les lectures
+  d'horloge du jeu (des milliers par image) ne passent plus par le verrou
+  global du runtime quand personne d'autre ne les tient : chaque appel coûte
+  3 à 4 fois moins cher sur une vraie console. La patrouille de l'acte V
+  demande 6 % de travail en moins par image (22,7 → 21,3 ms) ; dans les
+  scènes lourdes comme le Trône de Baal avec `/players 8`, le gain est plus
+  grand en valeur absolue (environ 3 ms par image, estimation), ce qui donne
+  des fps là où le jeu passait sous 25. En cas de souci, ajoutez
+  `D2_FASTSYNC=0` dans `env.txt`.
+
+Validation : console (microbanc et 3 contre 3 passes de patrouille acte V ;
+les passes du Trône ne sont pas tombées sur des scènes comparables, le
+chiffre en scène lourde est donc une estimation) ; qemu (pixels et suite
+d'horloge identiques). Le jeu en ligne n'a été vérifié que contre un
+serveur de test local (connexion, salon, création de partie) : signalez
+tout comportement étrange sur Battle.net.
+
 ## v0.2.1 — 2026-10-09
 
 Version stable des bêtas 0.2.1 (0.2.1-beta et 0.2.1-beta2 ; détails dans

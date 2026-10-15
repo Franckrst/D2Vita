@@ -4,6 +4,23 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.2.2-beta — 2026-10-15
+
+- **More headroom in crowded fights.** The game's locks and clock reads
+  (thousands per frame) no longer go through the runtime's global lock when
+  nothing else holds them: each call is 3–4× cheaper on a real console.
+  The Act V patrol needs 6 % less work per frame (22.7 → 21.3 ms); in heavy
+  scenes such as Baal's Throne with `/players 8` the saving is larger in
+  absolute terms (estimated ~3 ms per frame), which turns into fps where
+  the game was dropping below 25. If anything looks wrong, add
+  `D2_FASTSYNC=0` to `env.txt`.
+
+Validation: console (microbench and 3 vs 3 Act V patrol passes; the Throne
+passes did not land on comparable scenes, so the heavy-scene figure is an
+estimate); qemu (identical pixels and clock sequence). Online play was only
+checked against a local test server (login, lobby, game creation): please
+report anything odd on Battle.net.
+
 ## v0.2.1 — 2026-10-09
 
 Stable release of the 0.2.1 betas (0.2.1-beta and 0.2.1-beta2; details in

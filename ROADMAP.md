@@ -67,6 +67,23 @@ the source of truth for the public repository.
       Volume 50 -> 0 with 0.1.20, kept at 50 with the fix; qemu: keyboard
       focus intact (a character name typed and created). Players whose
       volume was already saved as 0 set it once more.
+- [x] Lock-free critical sections and clock (0.2.2-beta, 2026-10-15,
+      `D2_FASTSYNC`, on by default, `=0` turns it off): the game's
+      EnterCriticalSection / LeaveCriticalSection and GetTickCount /
+      timeGetTime are served from the dynarec's in-line call without taking
+      the runtime's global lock when uncontended (atomic owner word with a
+      waiters bit; any contention falls back to the old path under the
+      lock). Console microbench: 2093 → 525 ns per Enter/Leave, 1482 → 440
+      ns per GetTickCount. Console, Act V patrol, 3 vs 3 interleaved passes:
+      22.7 → 21.3 ms of work per frame (−6 %), still at the 25 fps cap. On
+      the new Baal's Throne bench (`BANC=trone tools/bancs/orbe_givre.sh`,
+      `/players 8`) the work per guest block drops 6–14 %, but the scenes
+      differed between passes: no clean fps figure there. qemu: pixels and
+      the served clock sequence identical (`tools/oracle_fastsync.sh`),
+      3-thread contention test exact. Online: checked against the local
+      BNCS server only (qemu: client traffic identical apart from the
+      protocol's random fields; console: login, lobby, game creation, town);
+      never run on the official servers or for a long online session.
 - [x] Heavy-missile frames (2026-10-06, console, new Frozen Orb bench
       `tools/bancs/orbe_givre.sh`: a level-99 Sorceress casting Frozen Orb
       non-stop in the Frigid Highlands, 2 interleaved passes per variant):
@@ -523,6 +540,16 @@ the source of truth for the public repository.
       truncated, and a signature that covers more than one cause. A refused
       archive open is now named in `boot_progress.txt`, which is the evidence
       that was missing.
+
+- [ ] **File reads outside the global lock (`D2_IOGIL=1`, off by default,
+      2026-10-15)**: ReadFile and the read-ahead release the runtime lock
+      during the host read, so a slow MPQ read on the I/O thread no longer
+      starves the main thread. Console, 4 vs 4 interleaved passes (Act V
+      patrol + Baal's Throne): no fps change, the ReadFile starvation lines
+      gone (0 in 4 passes against ≥1 in each of 4); one control pass showed
+      the original 0.5–0.8 s freezes, none with the knob — not enough
+      passes to call the freezes fixed. Needs a longer console session,
+      online included, before it becomes the default.
 
 ## Not started
 
