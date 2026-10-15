@@ -4,7 +4,7 @@
 // D2_CLOCKLOG sequence oracle. See tick_intrinsic.cpp for the rationale.
 #pragma once
 #include <cstdint>
-namespace d2rt { struct Cpu; }
+#include "runtime/cpu.h"
 
 extern uint64_t g_tickIntrinHits;
 extern bool g_b5clock;             // D2_B5CLOCK/D2_B5: set directly by main() once env.txt is loaded
@@ -16,3 +16,8 @@ extern uint32_t g_clockSeqFirst[32];
 // Registered via cpu->set_intrinsic(trapVA, &tick_intrinsic) for both
 // KERNEL32!GetTickCount and WINMM!timeGetTime.
 bool tick_intrinsic(d2rt::Cpu& c, uint32_t slot);
+
+// D2_FASTSYNC: the same clock served lock-free, before the GIL (see
+// tick_intrinsic.cpp). s_cpu is the CPU the coop leg reads the tick page with.
+bool tick_nogil(d2rt::Cpu::IntrinFrame& f, uint32_t slot);
+void tick_nogil_set_cpu(d2rt::Cpu* c);

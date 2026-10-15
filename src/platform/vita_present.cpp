@@ -973,6 +973,7 @@ extern "C" uint32_t d2rt_heap_size_mb(void);            // region whose refusal 
 extern "C" unsigned long long d2rt_hot_stat(int);      // native-port counters
 extern "C" uint32_t d2rt_sprite_cache_kb(int which);   // D2's own sprite-cache accounting
 extern "C" unsigned long long d2rt_cs_stat(int k);     // critical sections served intrinsically
+extern "C" unsigned long long d2rt_fastsync_stat(int k);   // D2_FASTSYNC: served lock-free (cs_intrinsic.cpp)
 extern "C" int d2rt_natprof;                            // D2_NATPROF: time per trap slot (bridge.cpp)
 extern "C" int d2rt_natprof_lines(char* out, unsigned n, int topk);
 // "audio:" line of the 10s window. On Vita a printf proves nothing, and the
@@ -1533,6 +1534,12 @@ int watchdog_thread(SceSize, void*) {
                     "csintrin: enter=%llu (replis=%llu) leave=%llu esp-hisse=%llu",
                     ce, d2rt_cs_stat(1), cl, d2rt_cs_stat(3));
                 d2vita_progress(cs); } }
+          // D2_FASTSYNC: same discipline — no line unless something was
+          // served lock-free (the control leg has none).
+          { const unsigned long long fe = d2rt_fastsync_stat(0), fl = d2rt_fastsync_stat(1), ft = d2rt_fastsync_stat(2);
+            if (fe || fl || ft) { char fs[160];
+                std::snprintf(fs, sizeof fs, "fastsync: enter=%llu leave=%llu tick=%llu (cumul, sans GIL)", fe, fl, ft);
+                d2vita_progress(fs); } }
           // Clocks READ BACK every window. The startup "clocks:" line isn't
           // enough: an external tool (PSVshell) can change the clock speed
           // MID-SESSION — this is even part of the clock-ramp workflow

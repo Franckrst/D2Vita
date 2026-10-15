@@ -1469,7 +1469,30 @@ static bool env_wlog(){    static const bool v=getenv("WLOG")!=nullptr; return v
 // gameplay (a read every frame, delta ~40 ms < cap) stays real-time.
 static uint32_t g_tickCap=0;
 bool g_tickvirt=false;   // diag: virtual tick VALUES under the real scheduler; extern: see rt_host.h
+// D2_FASTSYNC (tick_intrinsic.cpp): the SAME cached clock, as atomics, so
+// GetTickCount can be served outside the GIL. Same rule as tick_real below —
+// refresh every 32nd call (all threads together) or after a scheduler event,
+// 1 ms resolution — and monotone across threads: the shared value only ever
+// moves forward (compare-and-swap to the max), so no reader can see time go
+// back, whichever thread refreshed it. Armed only with g_tickCap == 0 (the
+// cap's bookkeeping is not lock-free) and once armed it serves EVERY real-clock
+// reader (tick_real), so the GIL and lock-free paths share one cache.
+static bool g_tickAtomic=false;
+static uint32_t tick_real_atomic(){
+    static uint32_t acount=0, aseq=0, aval=0;   // aval==0: never refreshed
+    const uint32_t n=__atomic_add_fetch(&acount,1u,__ATOMIC_RELAXED);
+    const uint32_t seq=__atomic_load_n(&d2rt_sw_seq,__ATOMIC_RELAXED);
+    uint32_t cur=__atomic_load_n(&aval,__ATOMIC_ACQUIRE);
+    if(cur && (n&31) && __atomic_load_n(&aseq,__ATOMIC_RELAXED)==seq) return cur;
+    __atomic_store_n(&aseq,seq,__ATOMIC_RELAXED);
+    uint32_t real=__atomic_load_n(&g_tickOfs,__ATOMIC_RELAXED)+(uint32_t)rt_now_ms();
+    for(;;){
+        if(cur && (int32_t)(real-cur)<=0) return cur;            // someone already published a later value
+        if(__atomic_compare_exchange_n(&aval,&cur,real,false,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)) return real;
+    } }
+bool tick_atomic_enable(){ g_tickAtomic=(g_tickCap==0); return g_tickAtomic; }   // extern: see rt_host.h
 static uint32_t tick_real(){
+    if(g_tickAtomic) return tick_real_atomic();
     // Perf: rt_now_ms() is a host syscall and D2 polls the clock ~26k/s
     // (GetTickCount 1.8M calls / 70 s in-game). Serve a cached value with
     // bounded staleness: refresh every 32nd call or on any scheduler switch
@@ -1531,6 +1554,12 @@ uint32_t tick_bump(Cpu&c,uint32_t n){   // extern: see rt_host.h (for tick_intri
     if((g_realclock||g_netClock)&&!g_tickvirt) return tick_real();
     uint32_t t=c.read_u32(g_tickVA)+n;
     c.write_u32(g_tickVA,t); return t+c.read_u32(g_tickVA+4); }
+// D2_FASTSYNC: tick_bump's real-clock branch ONLY, callable without the GIL
+// (the virtual tick page is a guest-memory read-modify-write: false = not
+// served, nothing read or written).
+bool tick_real_nogil(uint32_t* out){
+    if(!g_tickAtomic || !((g_realclock||g_netClock)&&!g_tickvirt)) return false;
+    *out=tick_real(); return true; }
 uint32_t tick_now(Cpu&c){   // extern: see rt_host.h (for win32_shims_user32_d2.cpp)
     if((g_realclock||g_netClock)&&!g_tickvirt) return tick_real();
     return c.read_u32(g_tickVA)+c.read_u32(g_tickVA+4); }
@@ -1641,7 +1670,9 @@ using KCrit = WxCrit;             // engine (guest_sync.h)
 // must exist: otherwise the shim, the dynarec fast path, and this file would
 // operate on two distinct tables — the kind of divergence that's invisible at
 // compile time and paid for in a deadlock.
-KCrit* crit_for(uint32_t cs){ return wx86_crit_for(cs); }   // extern: see rt_host.h (for cs_intrinsic.cpp)
+// D2_FASTSYNC: every lookup made under the GIL also publishes the section to
+// the lock-free cache of cs_intrinsic.cpp (no-op when the knob is off).
+KCrit* crit_for(uint32_t cs){ KCrit* k=wx86_crit_for(cs); cs_nogil_note(cs,k); return k; }   // extern: see rt_host.h (for cs_intrinsic.cpp)
 bool is_kind(Waitable* w,const char* k){ return wx86_is_kind(w,k); }   // extern: see rt_host.h (for kernel32_files.cpp)
 
 // Wait observer: the ONE registration site for this port (same rule as
@@ -3215,6 +3246,7 @@ int main(int argc,char**argv){
     K("DeleteCriticalSection",1,[](Cpu&c){ const uint32_t cs=c.arg(0);
         if(KCrit* k=wx86_crit_lookup(cs)){ k->owner=0; k->count=0;
             if(g_sched) g_sched->notify(k); }
+        cs_nogil_forget(cs);    // D2_FASTSYNC lock-free cache: the next Init makes a NEW object
         wx86_crit_forget(cs);   // clears the map AND invalidates the MRU cache (engine)
         return 0u; });
     // Threads + events via the scheduler.
@@ -5146,6 +5178,14 @@ int main(int argc,char**argv){
             // EXCLUSIVE branch (same as FAMINETEST/SELECTTEST): does NOT run
             // Game.exe. BOTH legs of the A/B (knob absent, then
             // D2_CSINTRIN=1) must produce the SAME guest numbers.
+            // ---- Cost-per-call bench (D2_CSBENCH=1): cs_intrinsic.cpp.
+            if(const char* cb=getenv("D2_CSBENCH")) if(*cb=='1'||*cb=='2'){
+                // Same clock as the game below (real clock when requested), so
+                // GetTickCount is timed on the branch the game actually takes.
+                if(g_rtwant){ g_tickOfs = tick_now(*cpu) - (uint32_t)rt_now_ms_scaled(); g_realclock = true; }
+                const int rc=cs_bench_main(cpu, br, sched, MAIN_STACK_TOP, MAIN_TIB);
+                cs_intrin_report(); d2_crashlog("CLEAN EXIT (CSBENCH)"); d2vita_progress("CLEAN EXIT (CSBENCH)");
+                return rc; }
             { const char* ct=getenv("D2_CSTEST");
               if(ct && *ct=='1'){
                 uint32_t N=200;   // iterations per thread

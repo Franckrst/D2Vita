@@ -10,6 +10,8 @@
 #include "runtime/bridge.h"
 #include "runtime/cpu.h"
 #include "runtime/rt_host.h"
+#include "runtime/gil.h"
+#include "runtime/cs_intrinsic.h"   // g_fsTick
 using namespace d2rt;
 
 uint64_t g_tickIntrinHits=0;
@@ -61,5 +63,34 @@ bool tick_intrinsic(Cpu& c, uint32_t /*slot*/){
     c.trap_epilogue(eax, 4, ret);               // EAX, pop retaddr (argc=0), EIP
     if(g_clockLogN && g_clockSeqCnt<g_clockLogN) clock_seq_note(eax);
     ++g_tickIntrinHits;
+    return true;
+}
+
+// ---- D2_FASTSYNC: GetTickCount/timeGetTime before the GIL -----------------
+// Called from the dynarec's in-line call BEFORE the GIL (cpu_box86.cpp). A
+// decline (false) has no side effect: the call then takes tick_intrinsic
+// above, under the GIL, exactly as without the knob.
+//  * Cooperative scheduler (no GIL, a single runner at a time): the body is
+//    tick_bump itself — same values, same tick-page mutation, same D2_CLOCKLOG
+//    sequence: the deterministic oracle (D2_VIRTCLOCK) sees the same clock.
+//  * Native scheduler (concurrent runners): ONLY the real-clock branch,
+//    through the lock-free cache of tick_real (rt_boot.cpp, tick_real_atomic:
+//    same 32-call / scheduler-event refresh, 1 ms resolution, monotone across
+//    threads). The virtual tick page (D2_TICKVIRT, or before the real clock is
+//    live) is a guest read-modify-write: declined, the GIL path serves it.
+static Cpu* s_tickCpu=nullptr;
+void tick_nogil_set_cpu(Cpu* c){ s_tickCpu=c; }
+bool tick_nogil(Cpu::IntrinFrame& f, uint32_t /*slot*/){
+    if(g_traceOn) return false;
+    uint32_t eax;
+    if(!gil::active()){
+        if(!s_tickCpu) return false;
+        eax=tick_bump(*s_tickCpu,1);
+        if(g_clockLogN && g_clockSeqCnt<g_clockLogN) clock_seq_note(eax);
+    } else {
+        if(g_clockLogN) return false;                  // the sequence log is ordered: GIL path
+        if(!tick_real_nogil(&eax)) return false;
+    }
+    f.eax=eax; f.pop=0; ++g_fsTick;
     return true;
 }

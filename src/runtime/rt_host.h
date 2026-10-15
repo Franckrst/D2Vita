@@ -43,6 +43,8 @@ extern uint32_t g_unhandledFilter;   // SetUnhandledExceptionFilter target: reco
 
 // ---- for tick_intrinsic.cpp ---------------------------------------------------
 uint32_t tick_bump(d2rt::Cpu&c, uint32_t n);   // advances/reads the guest tick page
+bool tick_atomic_enable();                      // D2_FASTSYNC: lock-free real-clock cache (false = g_tickCap set, refused)
+bool tick_real_nogil(uint32_t* out);            // D2_FASTSYNC: real-clock tick without the GIL (false = not served)
 
 // ---- for scheduler_backend.cpp --------------------------------------------------
 extern bool g_rtwant;        // requested real-clock (Vita default / D2_REALCLOCK on desktop)

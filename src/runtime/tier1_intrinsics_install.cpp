@@ -5,6 +5,7 @@
 #include "runtime/rt_host.h"
 #include "runtime/tick_intrinsic.h"
 #include "runtime/cs_intrinsic.h"
+#include "runtime/guest_sync.h"   // wx86_crit_fast
 #include "platform/vita_present.h"
 #include <cstdio>
 #include <cstdlib>
@@ -81,6 +82,50 @@ void tier1_clock_cs_intrinsics_install(Cpu* cpu, Bridge& br){
             char m[200]; std::snprintf(m,sizeof m,
                 "csintrin: Enter@0x%08x Leave@0x%08x TryEnter@0x%08x %s",
                 ev,lv,yv, g_csIntrin?"ARME":"AUCUN CRENEAU (rien a armer)");
+            std::printf("%s\n",m); d2vita_progress(m);
+        }
+    }
+    // ---- D2_FASTSYNC: lock-free Enter/Leave/GetTickCount, BEFORE the GIL --
+    // DEFAULT = ON since 0.2.2-beta (console, act V patrol: -1.4 ms/frame,
+    // 3 vs 3 passes; online path checked against the local BNCS). D2_FASTSYNC=0
+    // turns it off, =cs arms only the critical sections, =tick only the clock. Each leg sits ON
+    // TOP of the regular intrinsic of the same slot (a decline falls through
+    // to it under the GIL), so it inherits that intrinsic's refusals: no CS leg
+    // without the armed csintrin above (CRITLOG/D2_WATCH/TRAPTAG/PROF_COUNTERS
+    // veto). The engine only arms it from the in-line call (D2_INTRINLINE,
+    // default on): said explicitly when it cannot.
+    {   const char* fe=getenv("D2_FASTSYNC");
+        if(!fe) fe="1";
+        const bool all = fe && fe[0]=='1' && !fe[1];
+        const bool wcs = all || (fe && !std::strcmp(fe,"cs"));
+        const bool wtk = all || (fe && !std::strcmp(fe,"tick"));
+        if(wcs || wtk){
+            char m[240]; int w=std::snprintf(m,sizeof m,"fastsync: D2_FASTSYNC=%s", fe);
+            if(wcs){
+                const uint32_t ev=br.shim_trap_existing("KERNEL32.dll","EnterCriticalSection");
+                const uint32_t lv=br.shim_trap_existing("KERNEL32.dll","LeaveCriticalSection");
+                if(!g_csIntrin || !ev || !lv)
+                    w+=std::snprintf(m+w,sizeof m-w," | sections REFUSE (intrinseque csintrin non arme)");
+                else {
+                    // Atomic owner word BEFORE any lock-free call can run
+                    // (no guest thread runs yet: install precedes the scheduler).
+                    wx86_crit_fast=1; g_csFast=true;
+                    const bool e=cpu->set_intrinsic_nogil(ev,&cs_enter_nogil);
+                    const bool l=cpu->set_intrinsic_nogil(lv,&cs_leave_nogil);
+                    w+=std::snprintf(m+w,sizeof m-w," | sections Enter=%s Leave=%s",
+                                     e?"ARME":"NON (pas d'appel en ligne)", l?"ARME":"NON (pas d'appel en ligne)");
+                }
+            }
+            if(wtk){
+                const uint32_t tv=br.shim_trap_existing("KERNEL32.dll","GetTickCount");
+                const uint32_t wv=br.shim_trap_existing("WINMM.dll","timeGetTime");
+                tick_nogil_set_cpu(cpu);
+                const bool at=tick_atomic_enable();
+                const bool t=tv && cpu->set_intrinsic_nogil(tv,&tick_nogil);
+                const bool g=wv && cpu->set_intrinsic_nogil(wv,&tick_nogil);
+                w+=std::snprintf(m+w,sizeof m-w," | horloge GetTickCount=%s timeGetTime=%s cache-atomique=%s",
+                                 t?"ARME":"non", g?"ARME":"non", at?"oui":"NON (D2_TICKCAP pose : natif via GIL)");
+            }
             std::printf("%s\n",m); d2vita_progress(m);
         }
     }
