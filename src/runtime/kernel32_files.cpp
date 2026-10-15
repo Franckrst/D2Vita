@@ -62,8 +62,12 @@ static std::map<uint32_t,FMap>&  g_fmaps = wx86_file_maps();
 // on timing (newlib vs glibc, realclock interleavings): the intermittent
 // hardware crash/hang entering a game. Flush every open handle on the same
 // host path before opening it again.
+// A handle with a GIL-released read in flight (D2_IOGIL) is skipped: it is a
+// read-only, unbuffered stream (only those take that path) -- nothing to
+// flush -- and its descriptor belongs to the reading thread until it lands.
 static void flush_same_path(const std::string& hp){
-    for(auto& kv:g_files){ auto it=g_filePathByH.find(kv.first);
+    for(auto& kv:g_files){ if(io_busy(kv.first)) continue;
+        auto it=g_filePathByH.find(kv.first);
         if(it!=g_filePathByH.end()&&it->second==hp) std::fflush(kv.second); } }
 
 // Asset accounting: bytes READ per file handle, O(1) on the hot ReadFile path
@@ -224,7 +228,11 @@ void kernel32_files_install(Bridge& br){
         if(it!=g_lastSeekTid.end()&&it->second!=tid){ static int n=0;
             if(n<40){ n++; std::printf("  [race] ReadFile h=0x%08x tid=%u after seek by tid=%u\n",h,tid,it->second); } }
         g_lastSeekTid[h]=tid; };
-    K("SetFilePointer",4,[fop,race_seek](Cpu&c){ auto it=g_files.find(c.arg(0)); if(it==g_files.end()) return 0xFFFFFFFFu;
+    K("SetFilePointer",4,[fop,race_seek](Cpu&c){
+        // D2_IOGIL: FILE_BEGIN/FILE_CURRENT only move the LOGICAL position and
+        // commute with an in-flight OVERLAPPED read; FILE_END touches the fd.
+        io_wait_idle(c.arg(0), c.arg(3)!=2);
+        auto it=g_files.find(c.arg(0)); if(it==g_files.end()) return 0xFFFFFFFFu;
         long dist=(long)(int32_t)c.arg(1); int meth=(int)c.arg(3);
         uint32_t pos;
         // D2_LAZYSEEK (default): in-memory arithmetic, NO syscall. The value
@@ -259,7 +267,9 @@ void kernel32_files_install(Bridge& br){
         if(ev){ Waitable* itw=wx86_handle_find(ev); if(itw&&is_kind(itw,"event")){
             auto* e=static_cast<KEvent*>(itw); e->signaled=true; wx86_sync_notify({WX86_SYNC_EVENT_SET,&c,e,ev});
             if(g_sched) g_sched->notify(itw); } } };
-    K("ReadFile",5,[ov_done,fop,race_read](Cpu&c){ g_readN++; auto it=g_files.find(c.arg(0)); if(it==g_files.end()) return 0u;
+    K("ReadFile",5,[ov_done,fop,race_read](Cpu&c){ g_readN++;
+        io_wait_idle(c.arg(0));          // D2_IOGIL: one in-flight read per handle (FIRST: it may close meanwhile)
+        auto it=g_files.find(c.arg(0)); if(it==g_files.end()) return 0u;
         uint32_t buf=c.arg(1),n=c.arg(2),pRead=c.arg(3),ov=c.arg(4);
         { int b=0; uint32_t v=n; while(v>>=1) b++; if(b>23) b=23; g_rdHist[b]++; g_rdBytes+=n;
           // D2_IOHIST>=2: census PER GUEST CALL SITE. [ESP] at the stub's entry
@@ -288,7 +298,12 @@ void kernel32_files_install(Bridge& br){
             // D2_READAHEAD: served from the handle's buffer, or a direct
             // lseek+read. The (unbuffered) stdio stream is NOT read here; its
             // position is reset to `at+r` below when not lazy.
-            if(hp){ c.invalidate_code(buf,n); r=ra_read(*ioh,(long)at,hp,n,ramHit); }
+            // D2_IOGIL: card reads with the GIL released, straight into the
+            // guest buffer (its caller is blocked here; code invalidated
+            // first). Never for the shared static scratch buffer below.
+            if(hp){ c.invalidate_code(buf,n);
+                    const uint8_t rel = io_gil_on() ? (ov? 2 : 1) : 0;
+                    r=ra_read(*ioh,(long)at,hp,n,ramHit,rel); }
             else { static std::vector<uint8_t> tmp; if(tmp.size()<n) tmp.resize(n);
                    r=ra_read(*ioh,(long)at,tmp.data(),n,ramHit);
                    if(r){ c.write(buf,tmp.data(),(uint32_t)r); } }
@@ -344,6 +359,7 @@ void kernel32_files_install(Bridge& br){
         }
         return 1u; });
     K("WriteFile",5,[ov_done](Cpu&c){ uint32_t h=c.arg(0),buf=c.arg(1),n=c.arg(2),pW=c.arg(3),ov=c.arg(4);
+        io_wait_idle(h);
         auto it=g_files.find(h);
         if(it!=g_files.end()){ long at=0; size_t wn=0;
             {
@@ -405,7 +421,7 @@ void kernel32_files_install(Bridge& br){
     // fwrite() buffers: a write that fwrite accepted can still fail here, when
     // the buffer reaches the card. Answering TRUE regardless is how a failed
     // save gets reported to the game as a saved one.
-    K("FlushFileBuffers",1,[](Cpu&c){ auto it=g_files.find(c.arg(0)); if(it==g_files.end()) return 1u;
+    K("FlushFileBuffers",1,[](Cpu&c){ io_wait_idle(c.arg(0)); auto it=g_files.find(c.arg(0)); if(it==g_files.end()) return 1u;
         const bool bad = (std::fflush(it->second)!=0) || ferror(it->second)!=0;
         if(bad){ set_lasterr(c, errno==ENOSPC? 112u : 1117u);
             static int ff=0; if(ff<24){ ff++;
@@ -419,14 +435,14 @@ void kernel32_files_install(Bridge& br){
     // became real, it should truncate to the LOGICAL position, not the
     // stream's.
 
-    K("GetFileSize",2,[](Cpu&c){ auto it=g_files.find(c.arg(0)); if(it==g_files.end()) return 0xFFFFFFFFu;
+    K("GetFileSize",2,[](Cpu&c){ io_wait_idle(c.arg(0)); auto it=g_files.find(c.arg(0)); if(it==g_files.end()) return 0xFFFFFFFFu;
         long sz;
         // Neutral on the LOGICAL position: the stream is left at end-of-file
         // and this is NOTED — the next synchronous operation repositions itself.
         std::fseek(it->second,0,SEEK_END); sz=std::ftell(it->second);
         { FPos& s=g_fpos[c.arg(0)]; s.real=sz; s.dir=0; ++g_lsSize; }
         if(c.arg(1)) c.write_u32(c.arg(1),0); return (uint32_t)sz; });
-    K("CloseHandle",1,[](Cpu&c){ auto it=g_files.find(c.arg(0)); if(it!=g_files.end()){
+    K("CloseHandle",1,[](Cpu&c){ io_wait_idle(c.arg(0)); auto it=g_files.find(c.arg(0)); if(it!=g_files.end()){
             // Last chance to notice a write that never reached the card: the
             // guest gets TRUE either way (it has nothing left to do with the
             // handle), but the log names the file, which is what a truncated

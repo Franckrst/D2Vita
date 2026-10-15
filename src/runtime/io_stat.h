@@ -23,6 +23,14 @@ struct IoH {                        // per-handle state
                                     // success. Only a failed read sets it, and only
                                     // then does ReadFile answer FALSE -- which is
                                     // what lets Storm's own retry run.
+    uint8_t busy=0;                 // D2_IOGIL: a card read is in flight on this
+                                    // handle WITHOUT the GIL (1 = synchronous
+                                    // read, 2 = OVERLAPPED). While set, the fd,
+                                    // the windows and this struct belong to the
+                                    // reading thread alone: every other shim that
+                                    // touches the handle waits (io_wait_idle), and
+                                    // the window steal skips it. Read/written
+                                    // only under the GIL, except by its owner.
 };
 
 extern bool g_ioStat;
@@ -33,7 +41,22 @@ IoH* io_get(uint32_t h);              // per-handle state (created on demand)
 void io_close(uint32_t h);            // release a handle's read-ahead buffers
 // Read at offset `off` served from the handle's buffer (D2_READAHEAD). Returns
 // the number of bytes copied into dst; `fromRam` = everything came from the buffer.
-uint32_t ra_read(IoH& f, long off, void* dst, uint32_t n, bool& fromRam);
+// `rel` (D2_IOGIL): 0 = everything under the GIL (historical); 1/2 = the card
+// reads (lseek+read) run with the GIL RELEASED, the handle marked busy=rel
+// meanwhile (1 = synchronous ReadFile, 2 = OVERLAPPED). Only for a destination that stays valid
+// and private while the GIL is down (the guest buffer of the blocked caller —
+// never a shared static scratch buffer).
+uint32_t ra_read(IoH& f, long off, void* dst, uint32_t n, bool& fromRam, uint8_t rel=0);
+// D2_IOGIL: release the GIL around card reads? (knob AND native scheduler)
+bool io_gil_on();
+// D2_IOGIL: block (GIL released, condition variable on the GIL mutex) until no
+// card read is in flight on handle h. `seekOnly`: the caller only moves the
+// LOGICAL position (SetFilePointer FILE_BEGIN/FILE_CURRENT), which commutes
+// with an in-flight OVERLAPPED read, so only a synchronous one is waited for.
+// Call FIRST in a shim, before looking the handle up: the handle may be
+// closed by the time the wait returns. Free when nothing is in flight.
+void io_wait_idle(uint32_t h, bool seekOnly=false);
+bool io_busy(uint32_t h);             // a GIL-released read is in flight on h
 void io_account(IoH* f, long at, uint32_t n, uint32_t got, uint64_t us, bool hit);
 void io_tick(uint64_t now);           // called on every ReadFile under D2_IOSTAT
 void io_line(const char* quand);      // report line ("10s" / "final")

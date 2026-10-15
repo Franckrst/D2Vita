@@ -42,6 +42,8 @@ size_t d2_open_files();   // kernel32_files.cpp: live Win32 file handles
 #include <unistd.h>
 #include <sys/types.h>
 #include <cerrno>
+#include <pthread.h>
+#include "runtime/gil.h"
 using namespace d2rt;
 
 static std::map<uint32_t,IoH> g_ioh;
@@ -71,10 +73,63 @@ static uint64_t g_raWinHit=0, g_raWinMiss=0;   // secondary-window service count
 static uint32_t g_raUse=0, g_raPeak=0, g_raRefus=0, g_raHandles=0, g_raSteal=0;   // buffer memory accounting
 static uint64_t g_raClock=0;        // logical clock of reads (LRU)
 static uint64_t g_ioT0=0;
+
+// ====== D2_IOGIL: card reads WITHOUT the GIL =================================
+// A card read costs 1-200 ms and used to run entirely under the GIL: any other
+// guest thread that needed a shim -- the game thread leaving PeekMessageA, the
+// renderer's flush -- queued behind D2's I/O worker (guest thread 4) for the
+// whole read (console, Throne bench: a 617 ms frame, starvation detector
+// naming "thr 4 ... KERNEL32.dll!ReadFile"). With D2_IOGIL=1, ra_raw's
+// lseek+read loop runs with the GIL released.
+//
+// What makes it safe -- everything else stays under the GIL, as before:
+//  * the handle being read is marked busy (IoH::busy) for the duration. Its fd
+//    offset, its windows and its IoH belong to the reading thread alone: every
+//    other shim that touches the handle (ReadFile, WriteFile, GetFileSize,
+//    SetFilePointer, FlushFileBuffers, CloseHandle) waits for it first
+//    (io_wait_idle), and the cross-handle window steal skips busy handles;
+//  * the waiters sleep on a condition variable bound to the GIL mutex itself
+//    (pthread_cond_wait releases the GIL while they sleep, same pattern as
+//    NativeScheduler::wait_common), so a waiter never holds the GIL and the
+//    reader re-acquiring it can never deadlock against it;
+//  * the counters (g_ioW/g_ioT/g_ioF), the window pool (g_raUse/g_raClock...),
+//    the IOTRACE/IOSTAT lines and the OVERLAPPED completion are all updated
+//    AFTER the GIL is back -- never inside the released window;
+//  * the destination is the guest buffer of the caller, which is blocked in
+//    the shim (or a window buffer of the busy handle); code invalidation of
+//    that range is done by ReadFile BEFORE the read, as before;
+//  * newlib's fd table is itself locked on the Vita (lwmutex in io.o), and the
+//    descriptor is never used by stdio on this path (unbuffered stream).
+// D2_IOGIL=0 (default) = the historical behavior, bit for bit. Inert under the
+// cooperative scheduler (no GIL).
+static int g_ioGil=0;
+static pthread_cond_t g_ioCv;
+static uint32_t g_ioBusyN=0;            // handles with a read in flight
+static uint64_t g_ioRel=0, g_ioRelUs=0, g_ioWaitN=0;   // releases, time released, waits
+bool io_gil_on(){ return g_ioGil && gil::active(); }
+bool io_busy(uint32_t h){
+    if(!g_ioBusyN) return false;
+    auto it=g_ioh.find(h); return it!=g_ioh.end() && it->second.busy;
+}
+void io_wait_idle(uint32_t h, bool seekOnly){
+    if(!g_ioBusyN) return;                       // fast path: nothing in flight anywhere
+    auto busy=[h,seekOnly]{ auto it=g_ioh.find(h); if(it==g_ioh.end()) return false;
+        return seekOnly ? it->second.busy==1 : it->second.busy!=0; };
+    if(!busy()) return;
+    ++g_ioWaitN;
+    gil::mark_released();                         // observability: the cond releases the mutex
+    while(busy()) pthread_cond_wait(&g_ioCv, gil::mutex());
+    gil::mark_owned();                            // re-stamp (see gil.h mark_owned)
+}
+
 void io_init(){
     // Defaults match env.txt's tuned values (128/32/8/8/32); still overridable
     // via env vars without a rebuild.
     if(const char* e=getenv("D2_IOSTAT")) g_ioStat = *e && *e!='0';
+    pthread_cond_init(&g_ioCv,nullptr);
+    if(const char* e=getenv("D2_IOGIL")) g_ioGil = (*e && *e!='0') ? 1 : 0;
+    if(g_ioGil){ const char* m="iogil: ARME — lectures carte hors GIL (D2_IOGIL=1)";
+        d2vita_progress(m); std::printf("[%s]\n",m); }
     { long v=128; if(const char* e=getenv("D2_READAHEAD")) v=strtol(e,nullptr,0);
       g_raKB=(uint32_t)(v>0?v:0); if(g_raKB>16384) g_raKB=16384; }
     if(const char* e=getenv("D2_READAHEAD_MAX")){ long v=strtol(e,nullptr,0); if(v>0) g_raMaxKB=(uint32_t)v; }
@@ -127,9 +182,14 @@ void io_close(uint32_t h){
 // FALSE, and D2 halts in .\SRC\Archive.cpp -- its own retry never gets to run
 // because our TRUE short-circuits it. That is crash signatures
 // SURNYOFH4UCT7WEE and SJ742Y7S6VEXVGOZ, both still live on 0.1.6.
-static uint32_t ra_raw(IoH& f, long off, void* dst, uint32_t n){
-    uint64_t t0=rt_now_us();
+static uint32_t ra_raw(IoH& f, long off, void* dst, uint32_t n, uint8_t rel){
+    uint64_t t0=rt_now_us(), t1;
     uint32_t got=0;
+    const bool unlock = rel && gil::active();
+    // D2_IOGIL: between unlock() and lock() the GIL is DOWN. Only f.fd, f.err,
+    // dst and locals are touched in there -- all owned by this thread while
+    // f.busy is set (see the D2_IOGIL block above). rt_now_us is a bare clock.
+    if(unlock){ gil::assert_held(); f.busy=rel; ++g_ioBusyN; gil::unlock(); }
     if(::lseek(f.fd,off,SEEK_SET)!=(off_t)off){ f.err = errno? errno : EIO; }
     else {
         int tries=0;
@@ -145,14 +205,17 @@ static uint32_t ra_raw(IoH& f, long off, void* dst, uint32_t n){
             break;
         }
     }
-    uint64_t dt=rt_now_us()-t0;
+    t1=rt_now_us();                               // card time only, not the GIL re-acquire
+    if(unlock){ gil::lock(); f.busy=0; --g_ioBusyN; ++g_ioRel; g_ioRelUs+=t1-t0;
+                pthread_cond_broadcast(&g_ioCv); }    // wake io_wait_idle sleepers
+    uint64_t dt=t1-t0;
     g_ioW.cardN++; g_ioW.cardB+=got; g_ioW.cardUs+=dt; g_ioT.cardN++; g_ioT.cardB+=got; g_ioT.cardUs+=dt;
     auto fc=g_ioF.find(f.nm); if(fc!=g_ioF.end()){ fc->second.cardN++; fc->second.cardB+=got; }
     return got;
 }
 // Read at offset `off` served from the handle's buffer (D2_READAHEAD). Returns
 // the number of bytes copied into dst; `fromRam` = everything came from the buffer.
-uint32_t ra_read(IoH& f, long off, void* dst, uint32_t n, bool& fromRam){
+uint32_t ra_read(IoH& f, long off, void* dst, uint32_t n, bool& fromRam, uint8_t rel){
     fromRam=true; uint32_t done=0;
     f.err=0;                        // per-call: only THIS read's failure travels
     while(done<n){
@@ -183,6 +246,7 @@ uint32_t ra_read(IoH& f, long off, void* dst, uint32_t n, bool& fromRam){
             if(g_raUse+cap>g_raMaxKB*1024u){   // ceiling: reclaim the least-recently-read window across ALL handles
                 RaWin* victim=nullptr;
                 for(auto& kv:g_ioh){ IoH& v=kv.second;
+                    if(v.busy) continue;          // D2_IOGIL: a read is filling its windows
                     for(uint32_t i=0;i<RA_WINMAX;i++) if(v.w[i].buf && &v.w[i]!=tgt &&
                         (!victim || v.w[i].use<victim->use)) victim=&v.w[i]; }
                 if(victim){ tgt->buf=victim->buf; tgt->cap=victim->cap;
@@ -194,12 +258,13 @@ uint32_t ra_read(IoH& f, long off, void* dst, uint32_t n, bool& fromRam){
             if(!tgt->buf) ++g_raRefus; }
         if(!tgt->buf || n-done>=tgt->cap){    // no buffer, or bigger than it: direct
             g_ioW.direct++; g_ioT.direct++;
-            done+=ra_raw(f,o,(uint8_t*)dst+done,n-done); break; }
+            done+=ra_raw(f,o,(uint8_t*)dst+done,n-done,rel); break; }
         uint32_t want = cont ? (f.next? f.next*2u : g_raJumpKB<<10) : (g_raJumpKB<<10);
         if(want>tgt->cap) want=tgt->cap;
         if(want<n-done) want=n-done;          // at least whatever remains to serve
         f.next=want;
-        tgt->off=o; tgt->len=ra_raw(f,o,tgt->buf,want); tgt->use=++g_raClock;
+        tgt->off=o; tgt->len=0;               // empty until the fill lands (D2_IOGIL: GIL down meanwhile)
+        tgt->len=ra_raw(f,o,tgt->buf,want,rel); tgt->use=++g_raClock;
         if(!tgt->len) break;                  // end of file
     }
     return done;
@@ -251,7 +316,11 @@ void io_line(const char* quand){
         off+=std::snprintf(m+off,sizeof m-(size_t)off," %s n=%llu %lluK %llums seq=%llu ram=%llu carte=%llu/%lluK;",
             v[i].first.c_str(),(unsigned long long)c.n,(unsigned long long)(c.bytes>>10),(unsigned long long)(c.us/1000),
             (unsigned long long)c.seq,(unsigned long long)c.hit,(unsigned long long)c.cardN,(unsigned long long)(c.cardB>>10)); }
-    d2vita_progress(m); std::printf("[%s]\n",m); std::fflush(stdout);
+    d2vita_progress(m); std::printf("[%s]\n",m);
+    if(g_ioGil){ std::snprintf(m,sizeof m,"iogil(%s): lectures-hors-gil=%llu (%llums) attentes-poignee=%llu",
+        quand,(unsigned long long)g_ioRel,(unsigned long long)(g_ioRelUs/1000),(unsigned long long)g_ioWaitN);
+        d2vita_progress(m); std::printf("[%s]\n",m); }
+    std::fflush(stdout);
     g_ioW=IoCnt{}; g_ioF.clear();
 }
 void io_tick(uint64_t now){          // called on every ReadFile under D2_IOSTAT
