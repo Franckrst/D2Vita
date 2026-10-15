@@ -94,6 +94,17 @@ EXPLORE=1 tools/bancs/orbe_givre.sh explo1           # calibration : captures à
 - **Mesure** : fps sur les images 3662–6662 (~2 min de lancers), plus le minimum et le maximum par battement de 10 s, c0 médian, `run=` médian.
 - **Dispersion mesurée** (05/10/2026) : 0,1 % entre deux passes en 0.1.20, mais 2,6 % entre deux passes de référence plus tard dans la soirée. Les monstres ne sont pas déterministes : une variante se juge sur 2 passes ou plus, entrelacées, et un écart inférieur à ~3 % n'est pas un résultat.
 
+### Variante « Trône de Baal » — `BANC=trone`
+
+```bash
+TRONE_PLAYERS=8 BANC=trone tools/bancs/orbe_givre.sh trone_1      # Enfer, /players 8
+EXPLORE=1 BANC=trone tools/bancs/orbe_givre.sh explo_t1            # calibration
+```
+
+- **La sauvegarde** : `gen_save_orbe.py --trone --excel=<dir>` (Enfer, acte V, vie 8191, Téléportation F1, Orbe F2, Bouclier d'énergie F3, plus un anneau de résistances équipé via `tools/d2s_items.py equip`). Les tables `ItemStatCost`/`Weapons`/`Armor`/`Misc` sont extraites de `Patch_D2.mpq` dans `build-vita/bancs/excel/` (hors git).
+- **L'accès** : `D2_BANC_WARP=131` (posé par le script) fait du premier changement d'arme (W) un passage direct au Trône, en solo seulement. Puis `/players N`, Bouclier d'énergie, 20 téléportations jusqu'au trône, Orbe de givre en continu sur les vagues.
+- **Mesure** : images 4270–10270. La scène dépend de l'endroit exact où la téléportation s'arrête : la charge varie jusqu'à ~27 % d'une passe à l'autre. Comparer aussi `run` par millier de blocs invités, et regarder les captures.
+
 ### Enregistrer un trajet joué à la main — `D2_RECORD=1`
 
 Avec `D2_RECORD=1` dans `env.txt`, chaque entrée physique (pavé tactile, boutons, sticks) part dans le journal sous la forme `[rec] <image>:<action>:<x>:<y>`, c'est-à-dire un événement D2SCRIPT. Les déplacements du curseur ne sont écrits qu'à la dernière position avant un bouton ou une touche. Jouer au **pavé tactile** : un toucher bref est un clic à une position exacte, rejouable ; le stick gauche maintient un clic dont le curseur tourne, ce qui ne se rejoue pas tel quel.

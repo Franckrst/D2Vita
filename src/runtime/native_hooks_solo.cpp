@@ -24,6 +24,24 @@
 //    client n'affiche l'entree du menu que si bit 0 = 0 et bit 1 = 1. En solo,
 //    cet appel-la (retour 0x17a266) est saute : la reinitialisation reste
 //    disponible.
+//
+// 3. Banc : arrivee directe dans un niveau (D2_BANC_WARP=<id Levels.txt>).
+//    Pour mesurer une scene lointaine (Trone de Baal) sans rejouer un trajet.
+//    Le traitement du waypoint (Game+0x184f60) change le joueur de niveau par
+//    la routine du jeu :
+//      185057  push [mode d'arrivee] / push edi (niveau)
+//      18505c  mov edx,esi (joueur) / mov ecx,ebx (partie)
+//      185060  call 0x13aec0          ; fastcall, 2 args, ret 8
+//    (mode 13 = arrivee par portail, celui qu'il passe pour l'Arcane et les
+//    niveaux Uber). Declencheur : le gestionnaire serveur du paquet 0x60,
+//    changement d'arme (touche W, Game+0x14ce70) -- un paquet qu'un script
+//    envoie sans deplacer le personnage, avec la meme convention que
+//    0x13aec0 (ecx = la partie, edx = le joueur, 2 args : paquet, taille ;
+//    ret 8). Au PREMIER changement d'arme d'une partie solo, les deux args
+//    deviennent (niveau, 13) et l'appel part dans 0x13aec0 ; le gestionnaire
+//    renvoie 0 (paquet traite) sans changer d'arme. Les suivants sont laisses
+//    au jeu. C'est le jeu qui construit le niveau et y place le joueur ; rien
+//    n'est ecrit dans ses structures.
 #include "native_hooks_solo.h"
 #include "runtime/bridge.h"
 #include "runtime/cpu.h"
@@ -122,6 +140,43 @@ uint32_t respec_off(Cpu& c, Bridge& br) {
     return original(c, br, g_base + RVA_RESPEC_OFF, R_ESI);
 }
 
+constexpr uint32_t RVA_SWAP_PACKET = 0x0014ce70; // C->S 0x60 (changement d'arme), fastcall
+constexpr uint32_t RVA_WARP      = 0x0013aec0;   // changement de niveau (partie, joueur, niveau, mode)
+constexpr uint32_t RVA_WARP_CALL = 0x00185057;   // son appel dans le traitement du waypoint
+constexpr uint32_t WARP_PORTAL   = 13;
+// 0x14ce70 : push ebp / mov ebp,esp / cmp [ebp+c],1 / push esi / push edi / mov esi,edx / mov edi,ecx
+const uint8_t SIG_SWAP_PACKET[13] = { 0x55,0x8b,0xec,0x83,0x7d,0x0c,0x01,0x56,0x57,0x8b,0xf2,0x8b,0xf9 };
+const uint8_t SIG_WARP[12]      = { 0x55,0x8b,0xec,0x83,0xec,0x10,0x53,0x8b,0x5d,0x08,0x56,0x57 };
+// 0x185057 : mov eax,[ebp+c] / push eax / push edi / mov edx,esi / mov ecx,ebx / call 0x13aec0
+const uint8_t SIG_WARP_CALL[14] = { 0x8b,0x45,0x0c,0x50,0x57,0x8b,0xd6,0x8b,0xcb,0xe8,0x5b,0x5e,0xfb,0xff };
+
+uint32_t s_warpTrap = 0, s_warpRet = 0, s_warpLevel = 0;
+bool s_warpDone = false;
+
+uint32_t warp_return(Cpu& c, Bridge& br) {
+    c.set_reg(R_ESP, c.reg(R_ESP) - 4);
+    br.redirect_next(s_warpRet);
+    return 0;                                  // gestionnaire : paquet traite
+}
+
+uint32_t swap_entry(Cpu& c, Bridge& br) {
+    const uint32_t E = c.reg(R_ESP);
+    const uint8_t type = rd8(c, c.reg(R_ECX) + OFF_TYPE);
+    if (s_warpDone || type != TYPE_SOLO) {
+        if (!s_warpDone) jpline("banc: changement d'arme laisse au jeu, partie de type %u (pas solo)", type);
+        return original(c, br, g_base + RVA_SWAP_PACKET, R_EBP);
+    }
+    s_warpDone = true;
+    s_warpRet = c.read_u32(E);
+    c.write_u32(E, s_warpTrap);
+    c.write_u32(E + 4, s_warpLevel);           // les deux args du paquet deviennent
+    c.write_u32(E + 8, WARP_PORTAL);           // (niveau, mode) : meme nettoyage, ret 8
+    c.set_reg(R_ESP, E - 4);
+    br.redirect_next(g_base + RVA_WARP);
+    jpline("banc: changement d'arme -> niveau %u (D2_BANC_WARP, Game+0x%x)", s_warpLevel, (unsigned)RVA_WARP);
+    return c.reg(R_EAX);
+}
+
 bool sig(Cpu* c, uint32_t rva, const uint8_t* want, size_t n) {
     uint8_t got[32];
     c->read(g_base + rva, got, (uint32_t)n);
@@ -167,13 +222,38 @@ void install_respec(Cpu* cpu, Bridge& br) {
     jpline("solo: reinitialisation d'Akara reutilisable en solo (D2_RESPEC_UNLIMITED)");
 }
 
+void install_warp(Cpu* cpu, Bridge& br, uint32_t level) {
+    if (!sig(cpu, RVA_SWAP_PACKET, SIG_SWAP_PACKET, sizeof SIG_SWAP_PACKET) ||
+        !sig(cpu, RVA_WARP, SIG_WARP, sizeof SIG_WARP) ||
+        !sig(cpu, RVA_WARP_CALL, SIG_WARP_CALL, sizeof SIG_WARP_CALL)) {
+        jpline("banc: REFUS D2_BANC_WARP — code inattendu a Game+0x%x / 0x%x / 0x%x",
+               (unsigned)RVA_SWAP_PACKET, (unsigned)RVA_WARP, (unsigned)RVA_WARP_CALL);
+        return;
+    }
+    s_warpLevel = level;
+    Shim x; x.argc = 0; x.stdcall_cleanup = false; x.tag = "native!d2_warp_ret";
+    x.fn = [&br](Cpu& c) -> uint32_t { return warp_return(c, br); };
+    br.register_shim("native.hook", "d2_warp_ret", x);
+    s_warpTrap = br.shim_trap("native.hook", "d2_warp_ret");
+
+    Shim s; s.argc = 0; s.stdcall_cleanup = false; s.tag = "native!d2_swap_packet";
+    s.fn = [&br](Cpu& c) -> uint32_t { return swap_entry(c, br); };
+    br.register_shim("native.hook", "d2_swap_packet", s);
+    cpu->set_alternate(g_base + RVA_SWAP_PACKET, br.shim_trap("native.hook", "d2_swap_packet"));
+    jpline("banc: le premier changement d'arme (W) mene au niveau %u (D2_BANC_WARP, solo seulement)", level);
+}
+
 }  // namespace
 
 void native_hooks_solo_install(Cpu* cpu, Bridge& br) {
     const bool runes = env_on("D2_RUNEWORDS_LADDER"), respec = env_on("D2_RESPEC_UNLIMITED");
-    if (!runes && !respec) return;
+    const char* w = getenv("D2_BANC_WARP");
+    const uint32_t warp = w ? (uint32_t)strtoul(w, nullptr, 10) : 0;
+    if (!runes && !respec && !warp) return;
     if (!g_114 || !g_d2base) { jpline("solo: REFUS — 1.14d non detecte"); return; }
     g_base = g_d2base;
     if (runes)  install_runewords(cpu, br);
     if (respec) install_respec(cpu, br);
+    if (warp >= 1 && warp <= 136) install_warp(cpu, br, warp);
+    else if (warp) jpline("banc: REFUS D2_BANC_WARP=%u (niveau hors 1..136)", warp);
 }

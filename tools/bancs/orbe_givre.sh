@@ -26,24 +26,42 @@
 # the scene is the same zone and the same spell, not the same pixels.
 # Validation level: console. Two passes per flavour, interleaved; report the
 # dispersion.
+#
+# BANC=trone: the Baal's Throne bench (Hell) instead — gen_trone_baal.py,
+# save "Trone" (gen_save_orbe.py --trone), no route: D2_BANC_WARP=131 sends
+# the character to the Throne of Destruction on its first weapon swap. Its
+# data lives in build-vita/bancs/trone/.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 IP="${VITA_IP:-10.113.1.159}"
 FTP="ftp://$IP:1337/ux0:"
-W="${D2VITA_WORK:-$ROOT/build-vita/bancs/orbe}"
+BANC="${BANC:-orbe}"
+case "$BANC" in
+  orbe)  NOM=Givre; SDIR=save_orbe; GEN="$ROOT/tools/bancs/gen_orbe_givre.py"; GENOPT=""; ENVX="" ;;
+  trone) NOM=Trone; SDIR=save_trone; GEN="$ROOT/tools/bancs/gen_trone_baal.py"; GENOPT="--trone --excel=$ROOT/build-vita/bancs/excel"; ENVX="D2_BANC_WARP=131" ;;
+  *) echo "BANC=$BANC inconnu (orbe|trone)"; exit 2 ;;
+esac
+W="${D2VITA_WORK:-$ROOT/build-vita/bancs/$BANC}"
 A5="$ROOT/build-vita/bancs/acte5/save_banc_ref"
-REF="$W/save_orbe_ref"; REFSPAWN="$W/ref_apparition.png"; REFARR="$W/ref_arrivee.png"
-GEN="$ROOT/tools/bancs/gen_orbe_givre.py"
+REF="$W/${SDIR}_ref"; REFSPAWN="$W/ref_apparition.png"; REFARR="$W/ref_arrivee.png"
 read -r WIN0 WIN1 END ARR <<<"$(python3 "$GEN" window)"
 END=$((END+100))
 EXPLORE="${EXPLORE:-0}"
 [ $# -ge 1 ] || { echo "usage: orbe_givre.sh <LAB> [VAR=val ...]"; exit 2; }
 LAB="$1"; shift
 mkdir -p "$W"
-if [ ! -f "$REF/Givre.d2s" ]; then
-  [ -f "$A5/jujd.d2s" ] || { echo "FAIL: ni $REF/Givre.d2s ni $A5/jujd.d2s"; exit 1; }
-  python3 "$ROOT/tools/bancs/gen_save_orbe.py" "$A5/jujd.d2s" "$REF" Givre || exit 1
-  cp "$A5/jujd.key" "$REF/Givre.key"; cp "$A5/default.key" "$A5/registry.txt" "$A5/locale" "$REF/"
+if [ ! -f "$REF/$NOM.d2s" ]; then
+  if [ "$BANC" = trone ] && [ ! -f "$ROOT/build-vita/bancs/excel/itemstatcost.txt" ]; then
+    # the ring of gen_save_orbe.py --trone: tables from the player's own MPQs
+    XD="$ROOT/build-vita/bancs/excel"; mkdir -p "$XD"
+    for t in ItemStatCost Weapons Armor Misc; do
+      "$ROOT/build/mpq_extract" "${D2REFS:-$HOME/d2-vita-refs/1.14d}/Patch_D2.mpq" "data\\global\\excel\\$t.txt" \
+        "$XD/$(echo "$t" | tr 'A-Z' 'a-z').txt" || { echo "FAIL: extraction de $t.txt (build/mpq_extract, D2REFS)"; exit 1; }
+    done
+  fi
+  [ -f "$A5/jujd.d2s" ] || { echo "FAIL: ni $REF/$NOM.d2s ni $A5/jujd.d2s"; exit 1; }
+  python3 "$ROOT/tools/bancs/gen_save_orbe.py" "$A5/jujd.d2s" "$REF" $NOM $GENOPT || exit 1
+  cp "$A5/jujd.key" "$REF/$NOM.key"; cp "$A5/default.key" "$A5/registry.txt" "$A5/locale" "$REF/"
 fi
 vc(){ printf '%s\n' "$1" | timeout 10 nc -q1 "$IP" 1338 >/dev/null 2>&1; }
 TMP="$(mktemp -d)"
@@ -61,8 +79,9 @@ D2_FILSTAT=1
 D2_IOSTAT=1
 D2_SONCPU=2
 D2_PERSPECTIVE=1
-D2WRITE=ux0:data/d2vita/save_orbe
 EOF
+  echo "D2WRITE=ux0:data/d2vita/$SDIR"
+  [ -n "$ENVX" ] && echo "$ENVX"
   if [ "$EXPLORE" = 1 ]; then echo "D2SCRIPT=$(python3 "$GEN" explore)"; else echo "D2SCRIPT=$(python3 "$GEN")"; fi
   for k in "$@"; do echo "$k"; done
 } > "$TMP/env.txt"
@@ -99,18 +118,18 @@ EOF
 one_pass() {
   vc destroy; sleep 8
   for f in "$REF"/*; do
-    timeout 30 curl -sf --ftp-create-dirs -T "$f" "$FTP/data/d2vita/save_orbe/$(basename "$f")" \
+    timeout 30 curl -sf --ftp-create-dirs -T "$f" "$FTP/data/d2vita/$SDIR/$(basename "$f")" \
       || { echo "$LAB: FAIL restauration $(basename "$f")"; return 2; }
   done
   # Automap left by the previous pass: every pass starts from the same save.
   for e in ma0 ma1 ma2 ma3 map; do
-    timeout 15 curl -s -o /dev/null "$FTP/data/d2vita/save_orbe/" -Q "-DELE ux0:/data/d2vita/save_orbe/Givre.$e" >/dev/null 2>&1
+    timeout 15 curl -s -o /dev/null "$FTP/data/d2vita/$SDIR/" -Q "-DELE ux0:/data/d2vita/$SDIR/$NOM.$e" >/dev/null 2>&1
   done
   timeout 20 curl -sf -T "$TMP/env.txt" "$FTP/data/d2vita/env.txt" || { echo "$LAB: FAIL depot env.txt"; return 2; }
   vc "nosleep on"; vc "launch DTWO00001"
   echo "$LAB lance $(date +%H:%M:%S) [$*]"
   local prev=-1 stall=0 n=0
-  for i in $(seq 1 90); do sleep 10
+  for i in $(seq 1 150); do sleep 10
     timeout 30 curl -sf "$FTP/data/d2vita/boot_progress.txt" -o "$BP" 2>/dev/null
     n=$(grep -oE 'frames=[0-9]+' "$BP" 2>/dev/null | tail -1 | cut -d= -f2); n=${n:-0}
     [ "$n" -ge "$END" ] && break
@@ -127,11 +146,15 @@ one_pass() {
     echo "$LAB: passe d'exploration (frames=$n) -> $W/shots_$LAB/"
     return 3
   fi
+  mkdir -p "$W/shots_$LAB"            # every capture of the pass, for the eye
+  for s in $(grep "gxm: capture" "$BP" | grep -oE "ux0:data/d2vita/shot_[0-9]+\.bmp" | sort -u); do
+    timeout 60 curl -sf "$FTP/${s#ux0:}" -o "$W/shots_$LAB/$(basename "$s")"
+  done
   pull_shot 2499 "$TMP/spawn.bmp" || { echo "$LAB: pas de capture a 2499 (pas en jeu ?)"; return 1; }
   check_img "$TMP/spawn.bmp" "$REFSPAWN" "apparition Harrogath" || return 1
   pull_shot "$ARR" "$TMP/arr.bmp" || { echo "$LAB: pas de capture d'arrivee ($ARR)"; return 1; }
   cp "$TMP/arr.bmp" "$W/arrivee_$LAB.bmp"
-  check_img "$TMP/arr.bmp" "$REFARR" "arrivee waypoint" || return 1
+  check_img "$TMP/arr.bmp" "$REFARR" "arrivee" || return 1
   [ "$n" -ge "$END" ] || { echo "$LAB: fenetre incomplete (frames=$n)"; return 1; }
   return 0
 }
@@ -141,7 +164,7 @@ ENVJ="$W/env_joueur_console.txt"
 # recorder, or a bench save dir (05/10/2026: the recording env, which has no
 # D2SCRIPT, was saved as the player's and put back on the console).
 if timeout 20 curl -sf "$FTP/data/d2vita/env.txt" -o "$TMP/env_avant.txt" \
-   && ! grep -qE '^(D2SCRIPT|D2_RECORD)=|save_(orbe|banc)' "$TMP/env_avant.txt"; then
+   && ! grep -qE '^(D2SCRIPT|D2_RECORD)=|save_(orbe|banc|trone)' "$TMP/env_avant.txt"; then
   cp "$TMP/env_avant.txt" "$ENVJ"
 fi
 restore_env(){

@@ -8,6 +8,10 @@ simple test items to it (for console tests: runes, a socketed normal base).
       e.g.  r07@inv:0,0   crs@stash:0,0:4
       a first spec `clear:inv` empties the carried inventory first
       (equipment and belt stay) — for throwaway test copies only.
+  d2s_items.py equip <save.d2s> <excel_dir> <out.d2s> <code>@<slot> <stat>=<value> ...
+      equips a MAGIC item built from explicit stats (ItemStatCost ids),
+      replacing whatever sits in that body slot — bench saves only:
+      e.g.  rin@6 45=205 46=31     (6 = right ring, 7 = left ring)
 
 <excel_dir> holds itemstatcost/weapons/armor/misc .txt extracted from the
 player's own MPQs (tools never ship Blizzard data). Items are LSB-first bit
@@ -22,10 +26,11 @@ def table(d, name):
 
 class Excel:
     def __init__(s, d):
-        s.stat = {}
+        s.stat, s.add = {}, {}
         for r in table(d, 'itemstatcost'):
             if r.get('ID', '').isdigit():
                 s.stat[int(r['ID'])] = (int(r['Save Bits'] or 0), int(r['Save Param Bits'] or 0))
+                s.add[int(r['ID'])] = int(r['Save Add'] or 0)
         s.kind, s.stack, s.size, s.dur = {}, set(), {}, {}
         for k in ('weapons', 'armor', 'misc'):
             for r in table(d, k):
@@ -159,6 +164,33 @@ def make_item(code, store, x, y, sockets, xl, uid):
         w.put(0x1FF, 9)
     return w.bytes()
 
+def make_magic(code, slot, stats, xl, uid):
+    """Magic item (no affix names) worn in body slot `slot`, carrying the
+    explicit stat list `stats` {id: value}; Save Add is applied here."""
+    w = W()
+    w.put(0x4D4A, 16); w.put(1 << 4, 32); w.put(101, 10)        # identified
+    w.put(1, 3); w.put(slot, 4); w.put(slot, 4); w.put(0, 4); w.put(0, 3)
+    for ch in code.ljust(4).encode(): w.put(ch, 8)
+    w.put(0, 3)
+    w.put(uid, 32); w.put(99, 7); w.put(4, 4)                   # ilvl 99, magic
+    w.put(0, 1); w.put(0, 1)                                    # no picture, no class affix
+    w.put(0, 11); w.put(0, 11)                                  # prefix, suffix: none
+    w.put(0, 1)                                                 # realm bit
+    k = xl.kind[code]
+    if k == 'armor': w.put(10, xl.stat[31][0])
+    if k in ('armor', 'weapons'):
+        dur = xl.dur.get(code, 0)
+        w.put(dur, xl.stat[73][0])
+        if dur: w.put(dur, xl.stat[72][0])
+    for sid, v in sorted(stats.items()):
+        bits, par = xl.stat[sid]
+        assert sid not in FOLLOW and par == 0, f"stat {sid} : groupe ou parametre non gere"
+        raw = v + xl.add[sid]
+        assert 0 <= raw < (1 << bits), f"stat {sid}={v} hors des {bits} bits (Save Add {xl.add[sid]})"
+        w.put(sid, 9); w.put(raw, bits)
+    w.put(0x1FF, 9)
+    return w.bytes()
+
 def checksum(d):
     c = 0
     for i, b in enumerate(d):
@@ -178,6 +210,19 @@ def main():
                   f"{' sockets=%d' % it['sockets'] if 'sockets' in it else ''} serties={it['nsock_items']}")
         return
     out, new, specs = sys.argv[4], bytearray(), sys.argv[5:]
+    if cmd == 'equip':
+        code, slot = specs[0].split('@'); slot = int(slot)
+        stats = {int(a): int(b) for a, b in (x.split('=') for x in specs[1:])}
+        starts = [it['start'] for it in items] + [end]
+        keep = [(it, bytes(d[it['start']:nxt])) for it, nxt in zip(items, starts[1:])
+                if not (it['loc'] == 1 and it['eq'] == slot)]
+        body = b''.join(b for _, b in keep) + make_magic(code, slot, stats, xl, 0x5EED1000 + slot)
+        d[hdr + 4:end] = body
+        struct.pack_into("<H", d, hdr + 2, len(keep) + 1)
+        struct.pack_into('<I', d, 8, len(d)); struct.pack_into('<I', d, 12, checksum(d))
+        open(out, 'wb').write(d)
+        print(f"{out}: {code} porte en {slot} ({len(stats)} stats), {n} -> {len(keep) + 1} objets")
+        return
     if specs and specs[0] == 'clear:inv':
         # Drop the carried inventory (stored items, no socketed children):
         # a test copy needs free cells; equipment and belt stay.

@@ -4,6 +4,8 @@
 // au ladder Battle.net) se cree comme les autres.
 // D2_RESPEC_UNLIMITED=1 : la reinitialisation stats/competences d'Akara n'est
 // pas consommee, elle reste proposee.
+// D2_BANC_WARP=<niveau> (bancs uniquement) : le premier changement d'arme (W)
+// mene a ce niveau (Levels.txt), par la routine de changement de niveau du jeu.
 // Aucun octet du jeu ni de ses donnees n'est modifie : des traps choisissent
 // une branche du code serveur, seulement depuis des sites d'appel verifies et
 // seulement si la partie est de type solo.
