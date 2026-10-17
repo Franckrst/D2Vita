@@ -4,6 +4,26 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.2.3-beta — 2026-10-17
+
+- **No more sound crackle in crowded fights.** With 10+ sounds at once
+  (Frost Nova in a pack, Baal's Throne) the mix went past full scale and was
+  clipped; an output limiter now lowers the whole mix for a moment instead.
+  `D2_SONLIMIT=0` in `env.txt` restores the old behaviour.
+- **No more sound dropouts in heavy scenes**: the audio thread moved to a
+  core where the graphics flush no longer delays it (`D2_SONCPU=1` restores
+  the old placement).
+- **Short presses are no longer lost when the frame rate drops**: every
+  button and touch change between two slow frames is now seen, and a quick
+  tap of the aim button attacks/clicks once.
+
+Validation: sound — console (limiter: 7 passes, clipped samples
+~49 000–500 000 → 16–399 per pass; audio core: 6 Baal's Throne passes, late
+sound packets 2/47 → 0/0; no fps cost on the Act V patrol). Controls — host
+tests and qemu with a simulated slow game (12/12 presses seen at ~3–5 fps,
+was 4/12); **not yet tested on a console**, please report how it feels.
+Freezing sound and the Maggot Lair freeze were not reproduced.
+
 ## v0.2.2-beta — 2026-10-15
 
 - **More headroom in crowded fights.** The game's locks and clock reads

@@ -5,6 +5,28 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.2.3-beta — 2026-10-17
+
+- **Fini le son qui grésille dans les combats chargés.** Avec plus de 10
+  sons à la fois (Nova de givre dans un groupe, Trône de Baal), le mixage
+  dépassait la pleine échelle et était écrêté ; un limiteur de sortie baisse
+  désormais tout le mix un instant. `D2_SONLIMIT=0` dans `env.txt` remet
+  l'ancien comportement.
+- **Fini les coupures du son dans les scènes lourdes** : le fil audio passe
+  sur un cœur où le vidage graphique ne le retarde plus (`D2_SONCPU=1` remet
+  l'ancien placement).
+- **Les appuis courts ne sont plus perdus quand les fps chutent** : chaque
+  changement de bouton ou du tactile entre deux images lentes est vu, et un
+  tap rapide du bouton de visée attaque/clique une fois.
+
+Validation : son — console (limiteur : 7 passes, échantillons écrêtés
+~49 000–500 000 → 16–399 par passe ; cœur audio : 6 passes au Trône de
+Baal, paquets de son en retard 2/47 → 0/0 ; aucun coût en fps sur la
+patrouille de l'acte V). Commandes — tests hôte et qemu avec un jeu ralenti
+(12/12 appuis vus à ~3–5 fps, contre 4/12) ; **pas encore testé sur
+console**, dites-nous ce que ça donne. Le son figé et le gel du Repaire des
+asticots n'ont pas été reproduits.
+
 ## v0.2.2-beta — 2026-10-15
 
 - **Plus de marge dans les combats chargés.** Les verrous et les lectures
