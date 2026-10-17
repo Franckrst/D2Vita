@@ -382,6 +382,26 @@ the source of truth for the public repository.
       while the cursor is idle — a cursor pointed somewhere is an intent of
       its own. **Validation: host tests (244 passed, ASan/UBSan) and a
       pad::Assist fuzz (0 bad of 2000); never run on a console.**
+- [ ] **Short presses no longer lost at low frame rates (0.2.3-beta,
+      2026-10-17, Discord 16/10)**: on console the input tick runs only from
+      the message pump, about once per rendered frame (console log 14/09:
+      `pump` +1266 for `frames` +1109), and read ONE pad sample per tick, so
+      a press shorter than a frame (200 ms at 5 fps) between two ticks was
+      never seen. Buttons and the front touch are now read from the driver's
+      64-sample history (`sceCtrlPeekBufferPositive`/`sceTouchPeek` with 64
+      buffers, `src/platform/pad_sampler.h`), every transition replayed one
+      per tick, a replayed release held until the next game frame. Identical
+      to the old read whenever no button changes twice between two ticks.
+      The aim button also latches a tap: released before the game reports
+      the hover (~2 frames), the interaction keeps waiting up to 4 frames and
+      clicks once (`pad::Assist::tap_`). **Validation: host tests
+      (pad_sampler 56, pad_core 263, ASan/UBSan) and qemu-arm A/B with a
+      simulated pad driver (`tools/padsim_qemu.sh`, inventory toggles
+      Game.exe made out of 12 presses): 25 fps 12/12 both reads; 5 fps
+      80 ms 4→12, 150 ms 11→12; 3 fps 80 ms 4→12, 150 ms 7→12. Never run on
+      a console: the multi-buffer peek order/stamps and the aim tap are
+      unverified on hardware; on Vita3K (if the history is unusable) the
+      code falls back to the single-sample read.**
 - [ ] **Settings panel gets a "Game" tab for `env.txt` (0.2.1-beta, 2026-10-04)**:
       the title-screen panel (icon renamed "Settings") has a third tab with
       the functional options only: `D2_RES`, `D2_RES640`, `D2_ASPECT`,

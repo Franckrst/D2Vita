@@ -58,6 +58,10 @@ enable_testing()
 add_executable(pad_core_test tests/pad/pad_core_test.cpp src/platform/pad_core.cpp)
 target_include_directories(pad_core_test PRIVATE src)
 add_test(NAME pad_core COMMAND pad_core_test)
+# Every pad/touch sample between two input ticks (low-fps press latch).
+add_executable(pad_sampler_test tests/pad/pad_sampler_test.cpp)
+target_include_directories(pad_sampler_test PRIVATE src)
+add_test(NAME pad_sampler COMMAND pad_sampler_test)
 
 # Title-screen Controls panel: model, touch zones, controls.txt rewrite, render smoke test.
 add_executable(controls_editor_test tests/pad/controls_editor_test.cpp)

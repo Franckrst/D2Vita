@@ -62,6 +62,9 @@ inline bool game_targetable(uint32_t flags) { return (flags & 0x00200002u) == 0x
 struct Ctx {
     bool inGame = false, panelOpen = false;
     uint32_t selValid = 0, selId = 0, selType = 0;   // unit the GAME hovers (previous frame)
+    // Game frame counter (padst snapshot: +1 per in-game frame). Paces the
+    // tap latch of the aim button, which is counted in frames, not ticks.
+    uint32_t frame = 0;
 };
 
 enum ActKind { A_MOVE, A_LDOWN, A_LUP, A_CLICK };
@@ -231,6 +234,15 @@ private:
     // interArm_ > 0: the cursor is on the target and we are waiting for the
     // game to report the hover before pressing (see the aim block).
     int      interAttempt_ = 0, interH_ = 0, interArm_ = 0;
+    // Tap latch. The press waits for the game's hover, which takes about two
+    // RENDERED frames (move, draw, hover read back): 80 ms at 25 fps, 400 ms
+    // at 5 fps. A tap released before that used to end the interaction with
+    // no click at all -- at low fps, every ordinary tap (Discord 16/10). A
+    // release that comes less than kTapFrames frames after the press now
+    // keeps the interaction going until the hover lands (one click, lifted
+    // on the next tick) or those frames have passed.
+    uint32_t pressFrame_ = 0, tapDownFrame_ = 0;
+    bool     tap_ = false;
     int      unhovered_ = 0;         // ticks a settled interaction has gone without the game's hover
     bool     interPin_ = false;      // the game already hovers it: hold the cursor where it is
     int      pinX_ = 0, pinY_ = 0;

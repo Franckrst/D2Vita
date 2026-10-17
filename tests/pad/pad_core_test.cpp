@@ -186,6 +186,7 @@ static void test_scheme_move() {
     CHECK(hasAct(a, pad::A_LDOWN));
     c.aim = true; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
     CHECK(hasAct(a, pad::A_LUP) && s.interacting());
+    x.frame += 4;                                              // held past the tap window (see the tap tests)
     c.aim = false; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
     CHECK(hasAct(a, pad::A_LDOWN) && !s.interacting());
     a = pad::Actions{}; s.tick(c, x, v, u, 1, a);              // stick still pushed, point unchanged: steady state
@@ -211,6 +212,57 @@ static void test_aim_interact() {
     CHECK(hasAct(a, pad::A_LDOWN));
     c.aim = false; a = pad::Actions{}; s.tick(c, x, v, nullptr, 0, a);
     CHECK(hasAct(a, pad::A_LUP));
+}
+
+// LOW FPS: a tap of the aim button. The game reports the hover ~2 rendered
+// frames after the move; the glue ticks about once per frame on console (the
+// message pump). Modelled here: one tick per frame, hover visible from the
+// 2nd frame after the press. A tap released at the 1st tick after the press
+// (anything under one frame: < 200 ms at 5 fps) used to end the interaction
+// with no click; it now clicks once, and lifts one frame later.
+static void test_low_fps_tap_still_clicks() {
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; x.frame = 100; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1] = { mkMon(70, 460, 300) };
+    c.aim = true; s.tick(c, x, v, u, 1, a);                     // frame 100: press -> move only
+    CHECK(hasAct(a, pad::A_MOVE) && !hasAct(a, pad::A_LDOWN));
+    c.aim = false; x.frame = 101; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);   // released, no hover yet
+    CHECK(s.interacting() && !hasAct(a, pad::A_LDOWN) && !hasAct(a, pad::A_LUP));
+    x.frame = 102; x.selValid = 1; x.selId = 70; x.selType = 1;  // the hover lands
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_LDOWN));                             // the tap's click
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);               // same frame (a second pump): still down
+    CHECK(!hasAct(a, pad::A_LUP) && s.interacting());
+    x.frame = 103; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_LUP) && !s.interacting());           // lifted, cursor handed back
+}
+
+// The latch is bounded: no hover within kTapFrames frames -> let go, no click.
+static void test_low_fps_tap_gives_up_without_a_hover() {
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; x.frame = 10; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1] = { mkMon(70, 460, 300) };
+    c.aim = true; s.tick(c, x, v, u, 1, a);
+    c.aim = false;
+    int downs = 0, f = 11;
+    for (; f < 20 && s.interacting(); ++f) { x.frame = (uint32_t)f; a = pad::Actions{}; s.tick(c, x, v, u, 1, a); if (hasAct(a, pad::A_LDOWN)) ++downs; }
+    CHECK(downs == 0 && !s.interacting());
+    CHECK(f - 11 == 4);                                         // ended at frame press+4
+}
+
+// A press held as long as the hover takes is not affected: the button is the
+// player's again, and the release lifts at once (the 25 fps behaviour).
+static void test_a_held_press_is_not_latched() {
+    pad::Config cfg; pad::Assist s(cfg); pad::View v = mkView();
+    pad::Ctx x; x.inGame = true; x.frame = 0; pad::Ctl c; pad::Actions a;
+    pad::Unit u[1] = { mkMon(70, 460, 300) };
+    c.aim = true; s.tick(c, x, v, u, 1, a);
+    x.frame = 1; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    x.frame = 2; x.selValid = 1; x.selId = 70; x.selType = 1;
+    a = pad::Actions{}; s.tick(c, x, v, u, 1, a);
+    CHECK(hasAct(a, pad::A_LDOWN));
+    c.aim = false; a = pad::Actions{}; s.tick(c, x, v, u, 1, a);   // same frame, but a real hold: lifts now
+    CHECK(hasAct(a, pad::A_LUP) && !s.interacting());
 }
 
 // Every A_LDOWN must have a lift on EVERY exit, not just the button's own
@@ -1104,6 +1156,9 @@ int main() {
     test_orbit();
     test_scheme_move();
     test_aim_interact();
+    test_low_fps_tap_still_clicks();
+    test_low_fps_tap_gives_up_without_a_hover();
+    test_a_held_press_is_not_latched();
     test_left_button_always_released();
     test_interact_height_retry_paces_itself();
     test_hold_follows_the_hover();

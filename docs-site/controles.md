@@ -121,6 +121,15 @@ is dropped after a moment instead of capturing every press (up to 32 such
 units are remembered, so a pack of critters no longer hides the monster
 behind it).
 
+**A tap is enough, even at low frame rates.** The click waits for the game
+to report the hover, which takes about two rendered frames (≈80 ms at 25 fps,
+≈400 ms at 5 fps). A tap released before that used to do nothing; it now
+keeps waiting for up to 4 frames and clicks once. Holding the button behaves
+as before. Separately, every button and the touch screen are read from the
+console's whole sample history (60 Hz) rather than once per input tick, so a
+short press between two slow frames is no longer lost (see
+`src/platform/pad_sampler.h`).
+
 **Open panels** (inventory, chest, vendor, NPC menus, Larzuk's add-socket
 window…): both sticks move the cursor and `aim` is a left click. The list of
 panels is read from the game's UI flags; the add-socket window (index `0x0E`)

@@ -16,6 +16,7 @@ extern "C" int d2_tlswrap_dump(char*, unsigned);
 #include "platform/vita_kb.h"   // full virtual keyboard (layouts, font, drawing)
 #include "platform/radial_menu.h"   // 7-sector radial menu (hold Select + left stick)
 #include "platform/pad_core.h"      // aim assist: pure core
+#include "platform/pad_sampler.h"   // every pad/touch sample between two ticks (low fps)
 #include "platform/controls_scan.h" // controls.txt button names (shared with padst::on)
 #include "runtime/pad_state.h"      // per-frame guest snapshot (hooks)
 #include "platform/controls_help.h"   // title-screen controls-help icon/panel
@@ -1864,8 +1865,11 @@ void d2vita_watchdog_start(const unsigned long long* pump_count, const int* fram
 
 // ============================ physical controls ==============================
 // sceCtrl/sceTouch -> the runtime's input-injection grammar (d2vita_inject,
-// the exact synth path D2SCRIPT uses). Called once per guest frame from
-// rt_boot's dumpFrame (weak hook d2vita_input_tick). Current mapping:
+// the exact synth path D2SCRIPT uses). Called from the PeekMessageA pump (and,
+// on the GDI path only, rt_boot's dumpFrame) through the weak hook
+// d2vita_input_tick — in game that is about once per rendered frame, so the
+// pad and touch are read as their whole sample history (pad_sampler.h), not
+// one sample per tick. Current mapping:
 //   left stick  = DIRECT MOVEMENT (cursor orbits the character, left click
 //                 held while the stick is pushed — D2 walks continuously
 //                 toward a click-held cursor)
@@ -1985,6 +1989,41 @@ pad::Config  g_padcfg;
 pad::Assist* g_assist = nullptr;           // built at first use (after controls.txt)
 bool         g_assist_active = false;      // the assist currently owns the sticks (in game)
 uint32_t     g_pad_lastFrame = 0; int g_pad_stale = 0;
+
+// Every sample since the previous tick (pad_sampler.h): the tick runs about
+// once per rendered frame on console, so at 5 fps a single peek missed any
+// press shorter than ~200 ms. 64 = the driver's history (~1 s at 60 Hz).
+padsmp::Latch      g_btnLatch;
+padsmp::TouchLatch g_touchLatch;
+struct EffTouch { bool down; int x, y; };       // raw panel coords (0..1919, 0..1087)
+EffTouch           g_touch = { false, 0, 0 };
+SceCtrlData        g_cbuf[64];
+SceTouchData       g_tbuf[64];
+uint32_t tick_frame(){ return g_wd_frames ? (uint32_t)*g_wd_frames : 0u; }
+// Front touch for this tick, read ONCE and shared by every consumer below
+// (script cut-out, keyboard, controls panel, D2 cursor).
+void touch_read(uint32_t fr){
+    const int n = sceTouchPeek(SCE_TOUCH_PORT_FRONT, g_tbuf, 64);
+    if (n < 1) return;                                       // keep the previous state, as before
+    static padsmp::TouchSample ts[64], o[64]; static padsmp::Sample st[64];   // input tick: one thread
+    for (int i = 0; i < n; ++i)
+        ts[i] = padsmp::TouchSample{ g_tbuf[i].timeStamp, g_tbuf[i].reportNum > 0,
+                                     g_tbuf[i].report[0].x, g_tbuf[i].report[0].y };
+    // order() works on Sample; reuse it on the stamps alone, then apply the
+    // same permutation (0 = unusable history: fall back to the newest).
+    for (int i = 0; i < n; ++i) st[i] = padsmp::Sample{ ts[i].ts, (uint32_t)i };
+    const int no = padsmp::order(st, n);
+    if (no == 0) {
+        SceTouchData one; memset(&one, 0, sizeof one);
+        if (sceTouchPeek(SCE_TOUCH_PORT_FRONT, &one, 1) < 1) return;
+        const bool d = one.reportNum > 0;
+        g_touch.down = g_touchLatch.tick_current(d, one.report[0].x, one.report[0].y, fr);
+    } else {
+        for (int i = 0; i < no; ++i) o[i] = ts[st[i].bits];
+        g_touch.down = g_touchLatch.tick(o, no, fr);
+    }
+    g_touch.x = g_touchLatch.x(); g_touch.y = g_touchLatch.y();
+}
 
 // The overlay only needs publishing when it changes (30 Hz tick, 9 ints).
 void overlay_set(const OverlayPub& p){
@@ -2307,10 +2346,9 @@ int ia_read(d2rt::Cpu* cpu, d2ia::Label* out, d2ia::Hover* h){
 // allowMove=false: the cursor position is tracked but no move is injected
 // (the aim assist owns the cursor while it holds an interaction).
 void touch_tick(bool allowMove, bool* moved){
-    SceTouchData td; memset(&td,0,sizeof td);
-    if (sceTouchPeek(SCE_TOUCH_PORT_FRONT,&td,1)>=0){
-        if (td.reportNum>0){
-            int tx=0, ty=0; pad_to_game(td.report[0].x, td.report[0].y, &tx, &ty);
+    {
+        if (g_touch.down){
+            int tx=0, ty=0; pad_to_game(g_touch.x, g_touch.y, &tx, &ty);
             if (g_t_at<0){ g_t_at=g_itick; g_t_x0=tx; g_t_y0=ty; g_t_moved=false; }
             if (std::abs(tx-g_t_x0)>10||std::abs(ty-g_t_y0)>10) g_t_moved=true;
             g_t_x=tx; g_t_y=ty;
@@ -2338,7 +2376,7 @@ bool aim_tick(const SceCtrlData& cd, bool aimHeld, bool* walking, bool* curMoved
 
     pad::View v; v.w = g_game_w; v.h = g_game_h;
     v.playerFx = s.playerFx; v.playerFy = s.playerFy; v.viewX = s.viewX; v.viewY = s.viewY;
-    pad::Ctx x; x.inGame = true;
+    pad::Ctx x; x.inGame = true; x.frame = s.frame;
     static const int panels[] = { 1, 2, 4, 8, 9, 0x0C, 0x0E, 0x14, 0x19, 0x1A, 0x21, 0x24 };
     for (int p : panels) if (s.uiVars[p]) x.panelOpen = true;
     x.selValid = s.selValid; x.selId = s.selId; x.selType = s.selType;
@@ -2452,12 +2490,28 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
       if (lastUs && now-lastUs < period) return;
       lastUs = now; }
     ++g_itick;
+    // Buttons: every sample since the last tick, replayed one transition per
+    // tick (pad_sampler.h). Sticks: the newest sample, as before.
     SceCtrlData cd; memset(&cd,0,sizeof cd);
-    if (sceCtrlPeekBufferPositive(0,&cd,1)<1) return;
-    { uint32_t vb = 0; uint8_t va[4]; d2vita_vpad_get(&vb, va);
-      cd.buttons |= vb;
+    const uint32_t fr = tick_frame();
+    { const int n = sceCtrlPeekBufferPositive(0, g_cbuf, 64);
+      if (n < 1) return;
+      uint32_t vb = 0; uint8_t va[4]; d2vita_vpad_get(&vb, va);
+      static padsmp::Sample smp[64];
+      for (int i = 0; i < n; ++i) smp[i] = padsmp::Sample{ g_cbuf[i].timeStamp, g_cbuf[i].buttons | vb };
+      int newest = 0;
+      for (int i = 1; i < n; ++i) if (g_cbuf[i].timeStamp > g_cbuf[newest].timeStamp) newest = i;
+      const int no = padsmp::order(smp, n);
+      if (no == 0) {                                   // no usable history (emulator): one current sample
+          if (sceCtrlPeekBufferPositive(0, &cd, 1) < 1) return;
+          cd.buttons = g_btnLatch.tick_current(cd.buttons | vb, fr);
+      } else {
+          cd = g_cbuf[newest];
+          cd.buttons = g_btnLatch.tick(smp, no, fr);
+      }
       if (va[0] != 128 || va[1] != 128) { cd.lx = va[0]; cd.ly = va[1]; }
       if (va[2] != 128 || va[3] != 128) { cd.rx = va[2]; cd.ry = va[3]; } }
+    touch_read(fr);
     const uint32_t b=cd.buttons, was=g_ctl_prev; g_ctl_prev=b;
     static int ilog=-1; if(ilog<0) ilog=getenv("D2_INPUTLOG")?1:0;
     // Autopilot (baked D2SCRIPT): cuts out on the FIRST physical action — the
@@ -2466,9 +2520,7 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
     static bool script_cut=false;
     if (!script_cut){
         float alx=(cd.lx-128)/128.f, aly=(cd.ly-128)/128.f;
-        bool touching=false;
-        { SceTouchData tq; memset(&tq,0,sizeof tq);
-          if (sceTouchPeek(SCE_TOUCH_PORT_FRONT,&tq,1)>=0 && tq.reportNum>0) touching=true; }
+        const bool touching=g_touch.down;
         if (b || touching || alx*alx+aly*aly > g_dz*g_dz){
             script_cut=true; d2vita_inject("scriptoff",0,0);
             d2vita_progress("input: autopilote coupe (prise en main)"); }
@@ -2559,12 +2611,11 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
         if (edge(B_START)){ d2kb::echo_clear(g_kb); d2vita_inject("key",0x0D,0); } // Start = Enter
         if (edge(B_SELECT)){ d2kb::close_kb(g_kb); return; }     // Select = close
         if (edge(B_CROSS)) press(g_kb.r, g_kb.c);
-        SceTouchData tk; memset(&tk,0,sizeof tk);                // tap sur une touche
-        if (sceTouchPeek(SCE_TOUCH_PORT_FRONT,&tk,1)>=0){
-            if (tk.reportNum>0){ if(g_t_at<0){ g_t_at=g_itick; g_t_moved=false; }
+        {                                                        // tap sur une touche
+            if (g_touch.down){ if(g_t_at<0){ g_t_at=g_itick; g_t_moved=false; }
                 // Le clavier vit en pixels ÉCRAN (pas dans la fenêtre de jeu) :
                 // pas de bandes à retirer ici, seulement l'échelle du pavé.
-                g_t_x=tk.report[0].x*SCR_W/1920; g_t_y=tk.report[0].y*SCR_H/1088; }
+                g_t_x=g_touch.x*SCR_W/1920; g_t_y=g_touch.y*SCR_H/1088; }
             else if (g_t_at>=0){
                 int r=0,c=0;
                 if (g_itick-g_t_at<g_tap_ticks &&
@@ -2642,23 +2693,15 @@ extern "C" void d2vita_input_tick(d2rt::Cpu* cpu){
         // without the player closing the panel via Circle/Start first).
         g_ch.open = 0;   // volatile int, not bool -- controls_help.h's State::open
     } else {
-        // Own SCE_TOUCH_PORT_FRONT sample, in SCREEN space -- same scaling
-        // as draw_keyboard()'s own touch handling below
-        // (tk.report[0].x*SCR_W/1920), NOT pad_to_game()'s GAME-space
-        // output. Guarded by `title`: this sceTouchPeek is only ever paid
-        // while d2ch itself can be relevant, so it never adds a THIRD
-        // sceTouchPeek to an ordinary in-game tick (title screen only:
-        // when the panel is closed and the player touches D2's own
-        // buttons, this is still a second, non-destructive peek here,
-        // alongside the D2-cursor block's own below -- harmless, just not
-        // "zero-added" on every title-screen tick).
+        // The tick's shared touch state (touch_read), in SCREEN space -- same
+        // scaling as the keyboard's own touch handling below
+        // (g_touch.x*SCR_W/1920), NOT pad_to_game()'s GAME-space output.
         bool ch_touched=false; int ch_tx=0, ch_ty=0;
-        { SceTouchData cht; memset(&cht,0,sizeof cht);
-          if (sceTouchPeek(SCE_TOUCH_PORT_FRONT,&cht,1)>=0 && cht.reportNum>0){
-              ch_touched=true;
-              ch_tx = cht.report[0].x*SCR_W/1920;
-              ch_ty = cht.report[0].y*SCR_H/1088;
-          } }
+        if (g_touch.down){
+            ch_touched=true;
+            ch_tx = g_touch.x*SCR_W/1920;
+            ch_ty = g_touch.y*SCR_H/1088;
+        }
 
         // A touch that closed the panel (or began on it) stays ours until the finger
         // lifts: otherwise the next tick would hand it to D2 as a click on the

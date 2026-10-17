@@ -230,6 +230,9 @@ static const int kHoverGiveUp = 24, kHoverGiveUpObj = 9;
 // Frames of cursor-inside-the-box with no hover before scenery is written off.
 static const int kColdTicks = 5;
 static const int kUnhoverEnd = 30;   // ticks (~1 s) a settled interaction may go unhovered
+// Frames a released tap keeps waiting for the hover (see Assist::tap_). The
+// hover needs ~2 frames after the move; 4 leaves one height retry's worth.
+static const uint32_t kTapFrames = 4;
 
 void Assist::stickDelta(float sx, float sy, const View& v, float* dx, float* dy) const {
     if (std::fabs(sx) <= cfg_.deadzone && std::fabs(sy) <= cfg_.deadzone) return;
@@ -269,7 +272,7 @@ void Assist::hoverPoint(const Unit& t, int h, const View& v, int* px, int* py) c
 
 void Assist::releaseAll(Actions& out) {
     if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; lsClick_ = false; }
-    interact_ = false; interId_ = 0; interArm_ = 0; unhovered_ = 0;
+    interact_ = false; interId_ = 0; interArm_ = 0; unhovered_ = 0; tap_ = false;
     lsOn_ = false; lsArm_ = 0; tgt_ = Target{}; tgtId_ = 0; hudClick_ = false;
 }
 
@@ -420,6 +423,7 @@ void Assist::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
         }
         if (ii >= 0) { pick_.id = u[ii].id; pick_.type = u[ii].type; pick_.dist = (int)dist(ii); }
         if (ii >= 0) {
+            pressFrame_ = x.frame; tap_ = false;
             interact_ = true; interId_ = u[ii].id; interType_ = u[ii].type; interCls_ = u[ii].cls;
             interAttempt_ = 0; interArm_ = 1; unhovered_ = 0;
             interPin_ = pin; pinX_ = cx_; pinY_ = cy_;
@@ -435,7 +439,14 @@ void Assist::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
             cx_ = px; cy_ = py; out.push(A_MOVE, px, py);
         }
     } else if (interact_) {
-        if (!c.aim) {
+        // Tap latch (see tap_): released before the first press, and within
+        // kTapFrames frames of it -- keep waiting for the hover as if held.
+        bool held = c.aim;
+        if (c.aim) tap_ = false;
+        else if (!lmb_ && interArm_ > 0 && x.frame - pressFrame_ < kTapFrames) { tap_ = true; held = true; }
+        else if (tap_ && lmb_ && x.frame == tapDownFrame_) held = true;   // the tap's click stays down for one frame
+        if (!held) {
+            tap_ = false;
             if (lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
             interact_ = false; interId_ = 0; interArm_ = 0;
             moveTo(userX_, userY_, out);                // borrowed, now handed back
@@ -486,7 +497,7 @@ void Assist::worldTick(const Ctl& c, const Ctx& x, const View& v, const Unit* u,
                 // this unit. A click with no hover is not a weaker click, it
                 // is a different order -- "walk to that point". Lifting on
                 // loss also re-arms the game's own per-frame hover scan.
-                if (hovered && !lmb_)      { out.push(A_LDOWN, px, py); lmb_ = true; }
+                if (hovered && !lmb_)      { out.push(A_LDOWN, px, py); lmb_ = true; tapDownFrame_ = x.frame; }
                 else if (!hovered && lmb_) { out.push(A_LUP, cx_, cy_); lmb_ = false; }
                 if (hovered) {
                     if (interType_ != 4) hover_.learn(interType_, interCls_, interH_);
