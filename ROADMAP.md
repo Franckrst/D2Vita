@@ -551,6 +551,45 @@ the source of truth for the public repository.
       passes to call the freezes fixed. Needs a longer console session,
       online included, before it becomes the default.
 
+- [ ] **Sound crackle and underruns in crowded fights: output limiter, audio thread on USER_2 (0.2.3-beta,
+      2026-10-17)**. Cause measured on console (`D2_SONDIAG=1`, the new
+      `sondiag` line): the 10–16 voices D2 plays at once summed past 16-bit
+      full scale and the mixer hard-clipped them — Frost Nova among Act I
+      Fallen (Cold Plains, Hell): 37 % of the grains over full scale, 48 895
+      clipped samples in 220 s; Baal's Throne: 85 % of the grains, sums up to
+      2.9× full scale. The new limiter (on by default, `D2_SONLIMIT=0`
+      restores the hard clamp) brings the clipped samples to 16–399 per pass
+      (console, 7 interleaved passes, limiter on vs off); a grain that
+      never needed limiting is sent bit for bit as before (qemu sound oracle,
+      same WAV md5 as before the change). Side effect: in combat the whole
+      mix gets quieter instead of distorted — smallest gain seen per pass
+      34–64 % (−9 to −4 dB).
+      Underruns: the audio thread used to sit on USER_1 with the Glide flush
+      thread at the same priority (~50 % of USER_1 in a heavy scene), which
+      delayed its wakeups by up to ~26 ms: on the Throne bench, 2–47 grains
+      per pass more than 35 ms apart (up to 49 ms for a 23.2 ms grain) and
+      up to 15 real underruns in one earlier pass. **Default moved to USER_2**
+      (presenter/watchdog/heartbeat, ~1 % busy; `D2_SONCPU=1` restores the
+      old placement) — console, 6 interleaved Throne passes (one setting per
+      game, `D2_SONDIAG=1`): USER_1 default 2 and 47 late grains, max
+      35.7/42.9 ms; USER_2 0 and 0, max 24.6/23.8 ms; USER_1 with
+      `D2_SONPRIO=0x100000F0` also 0 and 0 (kept as a knob). Cost: none
+      measurable — Act V patrol, 4 interleaved passes on the new eboot,
+      run/img 21.0/21.6 ms (USER_2) vs 21.3/21.3 ms (USER_1), 25 fps cap
+      both; every perf figure of the patrol bench was already taken with
+      `D2_SONCPU=2`. The Throne's fps (20–24.7) follows its random scene
+      load, not the setting.
+      Still open: (1) a stall of the game longer than the lead it keeps in a
+      streaming ring (~1.4 s, ring ~3 s) replays stale ring bytes, as
+      DirectSound would on Windows — every such episode measured on the
+      benches (6 of 6 Throne passes) falls inside the bench's own `snap`
+      captures (2.8–11.6 s each), none outside; no player-side stall of
+      that length has been measured, so "frozen" sound reports (Discord
+      10/10: Vita slim and PS TV) are not reproduced and need the player's
+      save, the spot and `boot_progress.txt`; (2) the oracle's muted leg
+      still expects sound off by default (3 pre-existing FAILs, identical
+      before the change).
+
 ## Not started
 
 - Acts II through V, classes other than the Rogue played so far

@@ -981,7 +981,7 @@ extern "C" int d2rt_natprof_lines(char* out, unsigned n, int topk);
 // ONLY channel that says whether audio is running, whether it's starving the
 // driver, and whether the native decoder is armed. Silent when D2_SON isn't
 // armed, since a permanent zero would look like a dead counter.
-namespace d2rt { namespace dsound { int stat_line(char* out, unsigned n); } }
+namespace d2rt { namespace dsound { int stat_line(char* out, unsigned n); int diag_line(char* out, unsigned n); } }
 extern "C" uint32_t dyn86_unal_stat(int k);            // UNAL: 64-bit x87 "parity" accesses (0=total, 1=unaligned, 2=last address, 3=site)
 // Translator expansion, published as the run goes (the "emis:" line). A
 // proof counter printed only in the final report is useless: on console
@@ -1363,6 +1363,8 @@ int watchdog_thread(SceSize, void*) {
           // them SILENTLY — exactly the failure mode these fields exist to
           // close. Fixed text (162 B) + fifteen counters: 480 leaves margin.
           { char au[480]; if (d2rt::dsound::stat_line(au, sizeof au) > 0) d2vita_progress(au); }
+          // D2_SONDIAG only: underrun / clipping counters (silent otherwise).
+          { char sd[640]; if (d2rt::dsound::diag_line(sd, sizeof sd) > 0) d2vita_progress(sd); }
           // Cell-loop census (D2_CELLCENSUS). A SEPARATE line, not more
           // fields: the hot: line already has eight fields and serves as a
           // stable series comparable across logs. Silent when the census

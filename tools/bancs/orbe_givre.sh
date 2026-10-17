@@ -39,7 +39,13 @@ BANC="${BANC:-orbe}"
 case "$BANC" in
   orbe)  NOM=Givre; SDIR=save_orbe; GEN="$ROOT/tools/bancs/gen_orbe_givre.py"; GENOPT=""; ENVX="" ;;
   trone) NOM=Trone; SDIR=save_trone; GEN="$ROOT/tools/bancs/gen_trone_baal.py"; GENOPT="--trone --excel=$ROOT/build-vita/bancs/excel"; ENVX="D2_BANC_WARP=131" ;;
-  *) echo "BANC=$BANC inconnu (orbe|trone)"; exit 2 ;;
+  # BANC=nova: Frost Nova among the Fallen of the Den of Evil (Hell, Act I),
+  # the sound bench; BANC=asticots: the Maggot Lair (Hell, Act II). Both from
+  # the Throne save (gen_nova_dechus.py save). D2_SONCPU is NOT forced here:
+  # the player's default placement is what is measured.
+  nova)  NOM=Nova; SDIR=save_nova; GEN="$ROOT/tools/bancs/gen_nova_dechus.py"; ACTE=0; ENVX="D2_BANC_WARP=${NOVA_LEVEL:-8}" ;;
+  asticots) NOM=Asticot; SDIR=save_asticots; GEN="$ROOT/tools/bancs/gen_nova_dechus.py"; ACTE=1; ENVX="D2_BANC_WARP=${NOVA_LEVEL:-62}" ;;
+  *) echo "BANC=$BANC inconnu (orbe|trone|nova|asticots)"; exit 2 ;;
 esac
 W="${D2VITA_WORK:-$ROOT/build-vita/bancs/$BANC}"
 A5="$ROOT/build-vita/bancs/acte5/save_banc_ref"
@@ -50,6 +56,12 @@ EXPLORE="${EXPLORE:-0}"
 [ $# -ge 1 ] || { echo "usage: orbe_givre.sh <LAB> [VAR=val ...]"; exit 2; }
 LAB="$1"; shift
 mkdir -p "$W"
+if [ ! -f "$REF/$NOM.d2s" ] && { [ "$BANC" = nova ] || [ "$BANC" = asticots ]; }; then
+  TR="$ROOT/build-vita/bancs/trone/save_trone_ref"
+  [ -f "$TR/Trone.d2s" ] || { echo "FAIL: $TR/Trone.d2s absent (BANC=trone d'abord)"; exit 1; }
+  python3 "$GEN" save "$TR/Trone.d2s" "$REF" "$NOM" "$ACTE" || exit 1
+  cp "$TR/Trone.key" "$REF/$NOM.key"; cp "$TR/default.key" "$TR/registry.txt" "$TR/locale" "$REF/"
+fi
 if [ ! -f "$REF/$NOM.d2s" ]; then
   if [ "$BANC" = trone ] && [ ! -f "$ROOT/build-vita/bancs/excel/itemstatcost.txt" ]; then
     # the ring of gen_save_orbe.py --trone: tables from the player's own MPQs
@@ -77,9 +89,10 @@ D2_LOOPWATCH=1
 D2_NATPROF=1
 D2_FILSTAT=1
 D2_IOSTAT=1
-D2_SONCPU=2
 D2_PERSPECTIVE=1
 EOF
+  case "$BANC" in nova|asticots) echo "D2_SONDIAG=1" ;;
+    *) case " $* " in *" D2_SONCPU="*) ;; *) echo "D2_SONCPU=2" ;; esac ;; esac
   echo "D2WRITE=ux0:data/d2vita/$SDIR"
   [ -n "$ENVX" ] && echo "$ENVX"
   if [ "$EXPLORE" = 1 ]; then echo "D2SCRIPT=$(python3 "$GEN" explore)"; else echo "D2SCRIPT=$(python3 "$GEN")"; fi
@@ -116,7 +129,7 @@ EOF
 }
 
 one_pass() {
-  vc destroy; sleep 8
+  vc destroy; sleep 15
   for f in "$REF"/*; do
     timeout 30 curl -sf --ftp-create-dirs -T "$f" "$FTP/data/d2vita/$SDIR/$(basename "$f")" \
       || { echo "$LAB: FAIL restauration $(basename "$f")"; return 2; }
@@ -137,7 +150,7 @@ one_pass() {
     if [ "$n" = "$prev" ]; then stall=$((stall+1)); else stall=0; fi; prev=$n
     [ "$stall" -ge 6 ] && { echo "$LAB: compteur d'images fige a $n"; break; }
   done
-  vc destroy; sleep 6
+  vc destroy; sleep 15
   if [ "$EXPLORE" = 1 ]; then
     mkdir -p "$W/shots_$LAB"
     for s in $(grep "gxm: capture" "$BP" | grep -oE "ux0:data/d2vita/shot_[0-9]+\.bmp" | sort -u); do
@@ -169,7 +182,7 @@ if timeout 20 curl -sf "$FTP/data/d2vita/env.txt" -o "$TMP/env_avant.txt" \
 fi
 restore_env(){
   [ -f "$ENVJ" ] || { echo "ATTENTION: aucune copie de l'env.txt du joueur ($ENVJ) — env.txt du banc laisse sur la console"; return; }
-  vc destroy; sleep 4
+  vc destroy; sleep 15
   timeout 20 curl -sf -T "$ENVJ" "$FTP/data/d2vita/env.txt" && echo "env.txt du joueur restaure" \
     || echo "ATTENTION: restauration de env.txt ECHOUEE — la console garde l'env du banc"
 }
