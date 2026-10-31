@@ -4,6 +4,21 @@ Player-facing changes only — internal refactors, test-only commits and
 doc-only commits are skipped unless a release shipped nothing else. Full
 commit history: [GitHub compare view](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.2.3 — 2026-10-31
+
+Stable release of the 0.2.2 and 0.2.3 betas (details in their entries
+below).
+
+- **More headroom in crowded fights**: the game's locks and clock reads are
+  3–4× cheaper on a real console (Act V patrol: 6 % less work per frame).
+- **No more sound crackle or dropouts** in crowded fights (output limiter,
+  audio thread moved off the graphics core).
+- **Short presses are no longer lost when the frame rate drops**, and a
+  quick tap of the aim button attacks/clicks once (confirmed by players on
+  console since 0.2.3-beta).
+- The app version shown by the Vita now follows the release (`APP_VER`
+  00.23 instead of 00.00).
+
 ## v0.2.3-beta — 2026-10-17
 
 - **No more sound crackle in crowded fights.** With 10+ sounds at once

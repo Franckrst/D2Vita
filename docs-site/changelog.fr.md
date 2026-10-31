@@ -5,6 +5,22 @@ et commits de documentation seule sont omis, sauf quand une release ne
 contient que ça. Historique complet des commits :
 [vue comparative GitHub](https://github.com/Franckrst/D2Vita/commits/main).
 
+## v0.2.3 — 2026-10-31
+
+Version stable des bêtas 0.2.2 et 0.2.3 (détails dans leurs entrées
+ci-dessous).
+
+- **Plus de marge dans les combats chargés** : les verrous et lectures
+  d'horloge du jeu coûtent 3 à 4× moins cher sur console (patrouille de
+  l'acte V : 6 % de travail en moins par image).
+- **Fini le son qui grésille ou se coupe** dans les combats chargés
+  (limiteur de sortie, fil audio sorti du cœur graphique).
+- **Les appuis courts ne sont plus perdus quand les fps chutent**, et un tap
+  rapide du bouton de visée attaque/clique une fois (confirmé par des
+  joueurs sur console depuis la 0.2.3-beta).
+- La version affichée par la Vita suit désormais la release (`APP_VER`
+  00.23 au lieu de 00.00).
+
 ## v0.2.3-beta — 2026-10-17
 
 - **Fini le son qui grésille dans les combats chargés.** Avec plus de 10
