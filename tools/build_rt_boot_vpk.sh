@@ -553,7 +553,10 @@ vita-make-fself "$OUT/d2vita.velf" "$OUT/eboot.bin" >/dev/null
 # ATTRIBUTE2=12 requests the extended-memory app mode (+109 MiB) on real
 # hardware — the 272 MiB arena + 56 MiB newlib heap need ~332 MiB user RAM.
 # Vita3K ignores it; real-Vita behaviour to be confirmed on first hw boot.
-vita-mksfoex -s TITLE_ID="$TITLE" -d ATTRIBUTE2=12 "$APPNAME" "$OUT/param.sfo" >/dev/null
+# APP_VER is "MM.mm" (two digits each): X.Y.Z -> X.(10*Y+Z), e.g. 0.2.3 ->
+# 00.23, so the version shown by the Vita and by VitaDB follows VERSION.
+APP_VER="$(echo "$VERSION" | awk -F. '{ m=$2*10+$3; if (m>99) m=99; printf "%02d.%02d", $1, m }')"
+vita-mksfoex -s TITLE_ID="$TITLE" -s APP_VER="$APP_VER" -d ATTRIBUTE2=12 "$APPNAME" "$OUT/param.sfo" >/dev/null
 # The two .gxp shaders travel INSIDE the VPK (app0:shaders/). psp2cgc isn't
 # free software and isn't in the VitaSDK: they're built once, by the
 # console's own compiler (libshacccg.suprx) under Vita3K with the
