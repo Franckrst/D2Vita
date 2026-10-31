@@ -16,8 +16,8 @@ ci-dessous).
 - **Fini le son qui grésille ou se coupe** dans les combats chargés
   (limiteur de sortie, fil audio sorti du cœur graphique).
 - **Les appuis courts ne sont plus perdus quand les fps chutent**, et un tap
-  rapide du bouton de visée attaque/clique une fois (confirmé par des
-  joueurs sur console depuis la 0.2.3-beta).
+  rapide du bouton de visée attaque/clique une fois (un joueur le
+  confirme sur console avec la 0.2.3-beta).
 - La version affichée par la Vita suit désormais la release (`APP_VER`
   00.23 au lieu de 00.00).
 

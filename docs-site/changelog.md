@@ -14,8 +14,8 @@ below).
 - **No more sound crackle or dropouts** in crowded fights (output limiter,
   audio thread moved off the graphics core).
 - **Short presses are no longer lost when the frame rate drops**, and a
-  quick tap of the aim button attacks/clicks once (confirmed by players on
-  console since 0.2.3-beta).
+  quick tap of the aim button attacks/clicks once (reported fixed by a
+  player on console with 0.2.3-beta).
 - The app version shown by the Vita now follows the release (`APP_VER`
   00.23 instead of 00.00).
 
